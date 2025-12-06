@@ -162,3 +162,9 @@ L["Refresh the status display"] = "Refresh the status display"
 
 -- Debug
 L["Debug"] = "Debug"
+
+-- Reset
+L["Reset to Defaults"] = "Reset to Defaults"
+L["Reset all settings to default values"] = "Reset all settings to default values"
+L["Are you sure you want to reset all settings to defaults?"] = "Are you sure you want to reset all settings to defaults?"
+L["Settings reset to defaults"] = "Settings reset to defaults"

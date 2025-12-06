@@ -395,6 +395,24 @@ local options = {
                     get = function() return Addon.db.profile.cooldown end,
                     set = function(_, val) Addon.db.profile.cooldown = val end,
                 },
+                headerReset = {
+                    type = "header",
+                    name = "",
+                    order = 20,
+                },
+                resetDefaults = {
+                    type = "execute",
+                    name = L["Reset to Defaults"],
+                    desc = L["Reset all settings to default values"],
+                    order = 21,
+                    width = "full",
+                    confirm = true,
+                    confirmText = L["Are you sure you want to reset all settings to defaults?"],
+                    func = function()
+                        Addon.db:ResetProfile()
+                        Addon:Print(L["Settings reset to defaults"])
+                    end,
+                },
             },
         },
 
