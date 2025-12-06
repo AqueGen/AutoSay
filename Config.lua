@@ -10,6 +10,58 @@ local function BuildGreetingToggles(channel)
     local order = 1
     local defaultCount = 5 -- First 5 are enabled by default
 
+    -- Triggers section
+    args.headerTriggers = {
+        type = "header",
+        name = L["Triggers"],
+        order = order,
+    }
+    order = order + 1
+
+    -- On self join (On login for guild)
+    if channel == "guild" then
+        args.onSelfJoin = {
+            type = "toggle",
+            name = L["On login"],
+            desc = L["Send greeting when you log in"],
+            order = order,
+            width = 1.2,
+            get = function() return Addon.db.profile.guild.onSelfJoin end,
+            set = function(_, val) Addon.db.profile.guild.onSelfJoin = val end,
+        }
+        order = order + 1
+    else
+        args.onSelfJoin = {
+            type = "toggle",
+            name = L["On self join"],
+            desc = channel == "party" and L["Send greeting when you join a party"] or L["Send greeting when you join a raid"],
+            order = order,
+            get = function() return Addon.db.profile[channel].onSelfJoin end,
+            set = function(_, val) Addon.db.profile[channel].onSelfJoin = val end,
+        }
+        order = order + 1
+
+        args.onOthersJoin = {
+            type = "toggle",
+            name = L["On others join"],
+            desc = channel == "party" and L["Send greeting when others join your party"] or L["Send greeting when others join your raid"],
+            order = order,
+            get = function() return Addon.db.profile[channel].onOthersJoin end,
+            set = function(_, val) Addon.db.profile[channel].onOthersJoin = val end,
+        }
+        order = order + 1
+
+        args.includeNames = {
+            type = "toggle",
+            name = L["Include player names"],
+            desc = L["Add joined player names to the greeting"],
+            order = order,
+            get = function() return Addon.db.profile[channel].includeNames end,
+            set = function(_, val) Addon.db.profile[channel].includeNames = val end,
+        }
+        order = order + 1
+    end
+
     -- Popular header
     args.headerPopular = {
         type = "header",
@@ -79,6 +131,25 @@ local function BuildReconnectToggles(channel)
     local order = 1
     local defaultCount = 3 -- First 3 are enabled by default
 
+    -- Triggers section
+    args.headerTriggers = {
+        type = "header",
+        name = L["Triggers"],
+        order = order,
+    }
+    order = order + 1
+
+    args.onReconnect = {
+        type = "toggle",
+        name = L["On reconnect"],
+        desc = channel == "party" and L["Send greeting when you reconnect to party"] or L["Send greeting when you reconnect to raid"],
+        order = order,
+        width = 1.5,
+        get = function() return Addon.db.profile[channel].onReconnect end,
+        set = function(_, val) Addon.db.profile[channel].onReconnect = val end,
+    }
+    order = order + 1
+
     -- Popular header
     args.headerPopular = {
         type = "header",
@@ -147,6 +218,37 @@ local function BuildFarewellToggles(channel)
     local args = {}
     local order = 1
     local defaultCount = 5 -- First 5 are enabled by default
+
+    -- Triggers section
+    args.headerTriggers = {
+        type = "header",
+        name = L["Triggers"],
+        order = order,
+    }
+    order = order + 1
+
+    if channel == "guild" then
+        args.sendFarewell = {
+            type = "toggle",
+            name = L["On logout"],
+            desc = L["Send farewell when you log out"],
+            order = order,
+            width = 1.2,
+            get = function() return Addon.db.profile.guild.sendFarewell end,
+            set = function(_, val) Addon.db.profile.guild.sendFarewell = val end,
+        }
+    else
+        args.sendFarewell = {
+            type = "toggle",
+            name = L["Send farewell on leave"],
+            desc = channel == "party" and L["Send farewell when leaving party"] or L["Send farewell when leaving raid"],
+            order = order,
+            width = 1.5,
+            get = function() return Addon.db.profile[channel].sendFarewell end,
+            set = function(_, val) Addon.db.profile[channel].sendFarewell = val end,
+        }
+    end
+    order = order + 1
 
     -- Popular header
     args.headerPopular = {
@@ -232,6 +334,38 @@ local options = {
                     get = function() return Addon.db.profile.enabled end,
                     set = function(_, val) Addon.db.profile.enabled = val end,
                 },
+                headerChannels = {
+                    type = "header",
+                    name = L["Channels"],
+                    order = 5,
+                },
+                enableParty = {
+                    type = "toggle",
+                    name = L["Enable Party"],
+                    desc = L["Send greetings and farewells in party chat"],
+                    order = 6,
+                    width = "full",
+                    get = function() return Addon.db.profile.party.enabled end,
+                    set = function(_, val) Addon.db.profile.party.enabled = val end,
+                },
+                enableRaid = {
+                    type = "toggle",
+                    name = L["Enable Raid"],
+                    desc = L["Send greetings and farewells in raid chat"],
+                    order = 7,
+                    width = "full",
+                    get = function() return Addon.db.profile.raid.enabled end,
+                    set = function(_, val) Addon.db.profile.raid.enabled = val end,
+                },
+                enableGuild = {
+                    type = "toggle",
+                    name = L["Enable Guild"],
+                    desc = L["Send greetings and farewells to guild chat"],
+                    order = 8,
+                    width = "full",
+                    get = function() return Addon.db.profile.guild.enabled end,
+                    set = function(_, val) Addon.db.profile.guild.enabled = val end,
+                },
                 headerTiming = {
                     type = "header",
                     name = L["Timing"],
@@ -264,247 +398,62 @@ local options = {
             },
         },
 
-        -- Party settings
-        partySettings = {
-            type = "group",
-            name = L["Party"],
-            order = 2,
-            args = {
-                enabled = {
-                    type = "toggle",
-                    name = L["Enable Party greetings"],
-                    desc = L["Send greetings to party chat"],
-                    order = 1,
-                    width = "full",
-                    get = function() return Addon.db.profile.party.enabled end,
-                    set = function(_, val) Addon.db.profile.party.enabled = val end,
-                },
-                headerTriggers = {
-                    type = "header",
-                    name = L["Triggers"],
-                    order = 10,
-                },
-                onSelfJoin = {
-                    type = "toggle",
-                    name = L["On self join"],
-                    desc = L["Send greeting when you join a party"],
-                    order = 11,
-                    get = function() return Addon.db.profile.party.onSelfJoin end,
-                    set = function(_, val) Addon.db.profile.party.onSelfJoin = val end,
-                },
-                onOthersJoin = {
-                    type = "toggle",
-                    name = L["On others join"],
-                    desc = L["Send greeting when others join your party"],
-                    order = 12,
-                    get = function() return Addon.db.profile.party.onOthersJoin end,
-                    set = function(_, val) Addon.db.profile.party.onOthersJoin = val end,
-                },
-                onReconnect = {
-                    type = "toggle",
-                    name = L["On reconnect"],
-                    desc = L["Send greeting when you reconnect to party"],
-                    order = 13,
-                    get = function() return Addon.db.profile.party.onReconnect end,
-                    set = function(_, val) Addon.db.profile.party.onReconnect = val end,
-                },
-                includeNames = {
-                    type = "toggle",
-                    name = L["Include player names"],
-                    desc = L["Add joined player names to the greeting"],
-                    order = 14,
-                    get = function() return Addon.db.profile.party.includeNames end,
-                    set = function(_, val) Addon.db.profile.party.includeNames = val end,
-                },
-                headerFarewell = {
-                    type = "header",
-                    name = L["Farewells"],
-                    order = 20,
-                },
-                sendFarewell = {
-                    type = "toggle",
-                    name = L["Send farewell on leave"],
-                    desc = L["Send farewell when leaving party"],
-                    order = 21,
-                    get = function() return Addon.db.profile.party.sendFarewell end,
-                    set = function(_, val) Addon.db.profile.party.sendFarewell = val end,
-                },
-            },
-        },
-
-        -- Party greeting messages
+        -- === PARTY ===
         partyGreetings = {
             type = "group",
-            name = L["Party Greetings"],
-            order = 3,
+            name = "|cFF00FF00Party|r Greetings",
+            order = 10,
             args = BuildGreetingToggles("party"),
         },
 
-        -- Party farewell messages
-        partyFarewells = {
+        partyGoodbyes = {
             type = "group",
-            name = L["Party Farewells"],
-            order = 4,
+            name = "|cFF00FF00Party|r Goodbyes",
+            order = 11,
             args = BuildFarewellToggles("party"),
         },
 
-        -- Party reconnect messages
         partyReconnects = {
             type = "group",
-            name = L["Party Reconnects"],
-            order = 5,
+            name = "|cFF00FF00Party|r Reconnects",
+            order = 12,
             args = BuildReconnectToggles("party"),
         },
 
-        -- Raid settings
-        raidSettings = {
-            type = "group",
-            name = L["Raid"],
-            order = 6,
-            args = {
-                enabled = {
-                    type = "toggle",
-                    name = L["Enable Raid greetings"],
-                    desc = L["Send greetings to raid chat"],
-                    order = 1,
-                    width = "full",
-                    get = function() return Addon.db.profile.raid.enabled end,
-                    set = function(_, val) Addon.db.profile.raid.enabled = val end,
-                },
-                headerTriggers = {
-                    type = "header",
-                    name = L["Triggers"],
-                    order = 10,
-                },
-                onSelfJoin = {
-                    type = "toggle",
-                    name = L["On self join"],
-                    desc = L["Send greeting when you join a raid"],
-                    order = 11,
-                    get = function() return Addon.db.profile.raid.onSelfJoin end,
-                    set = function(_, val) Addon.db.profile.raid.onSelfJoin = val end,
-                },
-                onOthersJoin = {
-                    type = "toggle",
-                    name = L["On others join"],
-                    desc = L["Send greeting when others join your raid"],
-                    order = 12,
-                    get = function() return Addon.db.profile.raid.onOthersJoin end,
-                    set = function(_, val) Addon.db.profile.raid.onOthersJoin = val end,
-                },
-                onReconnect = {
-                    type = "toggle",
-                    name = L["On reconnect"],
-                    desc = L["Send greeting when you reconnect to raid"],
-                    order = 13,
-                    get = function() return Addon.db.profile.raid.onReconnect end,
-                    set = function(_, val) Addon.db.profile.raid.onReconnect = val end,
-                },
-                includeNames = {
-                    type = "toggle",
-                    name = L["Include player names"],
-                    desc = L["Add joined player names to the greeting"],
-                    order = 14,
-                    get = function() return Addon.db.profile.raid.includeNames end,
-                    set = function(_, val) Addon.db.profile.raid.includeNames = val end,
-                },
-                headerFarewell = {
-                    type = "header",
-                    name = L["Farewells"],
-                    order = 20,
-                },
-                sendFarewell = {
-                    type = "toggle",
-                    name = L["Send farewell on leave"],
-                    desc = L["Send farewell when leaving raid"],
-                    order = 21,
-                    get = function() return Addon.db.profile.raid.sendFarewell end,
-                    set = function(_, val) Addon.db.profile.raid.sendFarewell = val end,
-                },
-            },
-        },
-
-        -- Raid greeting messages
+        -- === RAID ===
         raidGreetings = {
             type = "group",
-            name = L["Raid Greetings"],
-            order = 7,
+            name = "|cFFFF9900Raid|r Greetings",
+            order = 20,
             args = BuildGreetingToggles("raid"),
         },
 
-        -- Raid farewell messages
-        raidFarewells = {
+        raidGoodbyes = {
             type = "group",
-            name = L["Raid Farewells"],
-            order = 8,
+            name = "|cFFFF9900Raid|r Goodbyes",
+            order = 21,
             args = BuildFarewellToggles("raid"),
         },
 
-        -- Raid reconnect messages
         raidReconnects = {
             type = "group",
-            name = L["Raid Reconnects"],
-            order = 9,
+            name = "|cFFFF9900Raid|r Reconnects",
+            order = 22,
             args = BuildReconnectToggles("raid"),
         },
 
-        -- Guild settings
-        guildSettings = {
-            type = "group",
-            name = L["Guild"],
-            order = 10,
-            args = {
-                enabled = {
-                    type = "toggle",
-                    name = L["Enable Guild"],
-                    desc = L["Send greetings and farewells to guild chat"],
-                    order = 1,
-                    width = "full",
-                    get = function() return Addon.db.profile.guild.enabled end,
-                    set = function(_, val) Addon.db.profile.guild.enabled = val end,
-                },
-                headerTriggers = {
-                    type = "header",
-                    name = L["Triggers"],
-                    order = 10,
-                },
-                onSelfJoin = {
-                    type = "toggle",
-                    name = L["On login"],
-                    desc = L["Send greeting when you log in"],
-                    order = 11,
-                    get = function() return Addon.db.profile.guild.onSelfJoin end,
-                    set = function(_, val) Addon.db.profile.guild.onSelfJoin = val end,
-                },
-                headerFarewell = {
-                    type = "header",
-                    name = L["Farewells"],
-                    order = 20,
-                },
-                sendFarewell = {
-                    type = "toggle",
-                    name = L["On logout"],
-                    desc = L["Send farewell when you log out"],
-                    order = 21,
-                    get = function() return Addon.db.profile.guild.sendFarewell end,
-                    set = function(_, val) Addon.db.profile.guild.sendFarewell = val end,
-                },
-            },
-        },
-
-        -- Guild greeting messages
+        -- === GUILD ===
         guildGreetings = {
             type = "group",
-            name = L["Guild Greetings"],
-            order = 11,
+            name = "|cFF00CCFFGuild|r Greetings",
+            order = 30,
             args = BuildGreetingToggles("guild"),
         },
 
-        -- Guild farewell messages
-        guildFarewells = {
+        guildGoodbyes = {
             type = "group",
-            name = L["Guild Farewells"],
-            order = 12,
+            name = "|cFF00CCFFGuild|r Goodbyes",
+            order = 31,
             args = BuildFarewellToggles("guild"),
         },
 
@@ -512,7 +461,7 @@ local options = {
         testMode = {
             type = "group",
             name = L["Test Mode"],
-            order = 13,
+            order = 50,
             args = {
                 description = {
                     type = "description",

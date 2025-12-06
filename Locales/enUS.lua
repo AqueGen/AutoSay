@@ -5,6 +5,7 @@ if not L then return end
 L["AutoSay"] = "AutoSay"
 L["Enable"] = "Enable"
 L["Enable addon"] = "Enable addon"
+L["Channels"] = "Channels"
 L["Debug mode"] = "Debug mode"
 L["Show debug messages in chat"] = "Show debug messages in chat"
 
