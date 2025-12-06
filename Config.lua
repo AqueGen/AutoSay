@@ -633,6 +633,29 @@ local options = {
                 },
             },
         },
+
+        -- About tab
+        about = {
+            type = "group",
+            name = "About",
+            order = 100,
+            args = {
+                slava = {
+                    type = "description",
+                    name = "|cFF0057B7Slava Ukraini!|r |cFFFFD700Heroiam Slava!|r",
+                    order = 1,
+                    fontSize = "large",
+                    width = "full",
+                },
+                stand = {
+                    type = "description",
+                    name = "|cFFFFFFFFStand with Ukraine|r\n",
+                    order = 2,
+                    fontSize = "medium",
+                    width = "full",
+                },
+            },
+        },
     },
 }
 
