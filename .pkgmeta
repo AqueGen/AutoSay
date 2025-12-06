@@ -2,6 +2,10 @@ package-as: AutoSay
 
 enable-nolib-creation: no
 
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
 externals:
   Libs/LibStub:
     url: https://repos.wowace.com/wow/libstub/trunk
