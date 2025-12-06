@@ -162,7 +162,7 @@ function Addon:GROUP_ROSTER_UPDATE()
     end
 end
 
--- Handle PLAYER_ENTERING_WORLD - for guild greeting on login
+-- Handle PLAYER_ENTERING_WORLD - for guild greeting on login and group reconnect
 function Addon:PLAYER_ENTERING_WORLD(event, isInitialLogin, isReloadingUi)
     self:DebugPrint("EVENT: PLAYER_ENTERING_WORLD", "isInitialLogin:", tostring(isInitialLogin), "isReloadingUi:", tostring(isReloadingUi))
 
@@ -199,7 +199,40 @@ function Addon:PLAYER_ENTERING_WORLD(event, isInitialLogin, isReloadingUi)
         else
             self.state.currentGroupType = "PARTY"
         end
+
+        -- Handle reconnect to existing group (login while already in a group)
+        -- This is different from GROUP_JOINED which fires when joining a NEW group
+        if isInitialLogin and not isReloadingUi then
+            self:DebugPrint("Reconnect detected - already in group on login")
+            self:ScheduleTimer(function()
+                self:HandleGroupReconnect()
+            end, 2) -- Small delay for group state to fully initialize
+        end
     end
+end
+
+-- Handle reconnecting to an existing group
+function Addon:HandleGroupReconnect()
+    local db = self.db.profile
+
+    if not db.enabled then return end
+
+    local channel = self:GetChatChannel()
+    if not channel then
+        self:DebugPrint("Not in group after delay, skipping reconnect greeting")
+        return
+    end
+
+    self:DebugPrint("HandleGroupReconnect - channel:", channel)
+
+    -- Check if reconnect greeting is enabled for this channel
+    if not self:ShouldGreetOnReconnect(channel) then
+        self:DebugPrint("Reconnect greeting disabled for", channel)
+        return
+    end
+
+    -- Send greeting
+    self:SendGreeting(nil, "reconnect")
 end
 
 -- Get current group members as a table (only connected members)

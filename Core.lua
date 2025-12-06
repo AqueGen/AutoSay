@@ -42,53 +42,52 @@ local defaultGreetings = {
     hi = true,
     hello = true,
     hey = true,
-    yo = true,
-    heya = true,
-    sup = true,
-    howdy = true,
-    hiya = true,
     greetings = true,
     wassup = true,
-    yoyo = true,
-    hellothere = true,
-    -- International disabled by default
-    hola = false,
-    ciao = false,
-    bonjour = false,
-    konnichiwa = false,
-    annyeong = false,
-    nihao = false,
-    merhaba = false,
-    salve = false,
-    aloha = false,
-    shalom = false,
-    sawubona = false,
-    namaste = false,
+    -- Disabled by default
+    yo = false,
+    heya = false,
+    sup = false,
+    howdy = false,
+    hiya = false,
+    yoyo = false,
+    hellothere = false,
 }
 
 -- Default enabled farewells
 local defaultFarewells = {
     bye = true,
     goodbye = true,
-    seeya = true,
-    later = true,
-    cya = true,
+    gtg = true,
     takecare = true,
     peace = true,
-    cheers = true,
+    -- Disabled by default
+    seeya = false,
+    later = false,
+    cya = false,
+    cheers = false,
     gn = false,
     bb = false,
-    gtg = true,
-    laterall = true,
-    -- International disabled by default
-    adios = false,
-    ciaofarewell = false,
-    aurevoir = false,
-    sayonara = false,
-    annyeongbye = false,
-    zaijian = false,
-    tschuss = false,
-    dosvidaniya = false,
+    laterall = false,
+}
+
+-- Default enabled reconnect messages
+local defaultReconnects = {
+    back = true,
+    reconnected = true,
+    imback = true,
+    -- Disabled by default
+    rehi = false,
+    backagain = false,
+    herewego = false,
+    missedme = false,
+    backinthegame = false,
+    srydc = false,
+    sorrydisconnect = false,
+    dcsorry = false,
+    mybad = false,
+    internetissues = false,
+    laggedout = false,
 }
 
 -- Deep copy helper for defaults
@@ -108,20 +107,23 @@ local defaults = {
         testMode = false,
 
         -- Timing (global)
-        messageDelay = 1.0,
+        messageDelay = 3.0,
         cooldown = 0,
 
         -- Party settings
         party = {
             enabled = true,
             onSelfJoin = true,
-            onOthersJoin = true,
-            includeNames = true,
+            onOthersJoin = false,
+            onReconnect = true, -- Send greeting when reconnecting to group
+            includeNames = false,
             sendFarewell = true,
             enabledGreetings = DeepCopy(defaultGreetings),
             enabledFarewells = DeepCopy(defaultFarewells),
+            enabledReconnects = DeepCopy(defaultReconnects),
             customGreeting = "",
             customFarewell = "",
+            customReconnect = "",
         },
 
         -- Raid settings
@@ -129,12 +131,15 @@ local defaults = {
             enabled = true,
             onSelfJoin = true,
             onOthersJoin = false, -- Disabled by default for raids (too many people)
+            onReconnect = true, -- Send greeting when reconnecting to raid
             includeNames = false, -- Disabled by default for raids
             sendFarewell = true,
             enabledGreetings = DeepCopy(defaultGreetings),
             enabledFarewells = DeepCopy(defaultFarewells),
+            enabledReconnects = DeepCopy(defaultReconnects),
             customGreeting = "",
             customFarewell = "",
+            customReconnect = "",
         },
 
         -- Guild settings (same structure as party/raid)
@@ -337,6 +342,8 @@ function Addon:SlashCommand(input)
             self:TestGuildGreeting()
         elseif subcmd == "guildbye" or subcmd == "gb" then
             self:TestGuildFarewell()
+        elseif subcmd == "reconnect" or subcmd == "re" then
+            self:TestReconnect()
         elseif subcmd == "player" or subcmd == "join" then
             local _, _, playerName = self:GetArgs(input, 3)
             self:TestPlayerJoins(playerName)
@@ -351,6 +358,7 @@ function Addon:SlashCommand(input)
             self:Print("  /as test leave - Simulate leaving group")
             self:Print("  /as test guild - Simulate guild login greeting")
             self:Print("  /as test guildbye - Simulate guild logout farewell")
+            self:Print("  /as test reconnect - Simulate reconnecting to group")
             self:Print("  /as test player [name] - Simulate player joining")
             self:Print("  /as test reset - Reset test state")
             self:Print("  /as test status - Show test status")
@@ -485,9 +493,22 @@ function Addon:GetRandomMessageForChannel(messageType, channel)
     local settings = self:GetChannelSettings(channel)
     if not settings then return nil end
 
-    local messages = messageType == "greetings" and AutoSay.Greetings or AutoSay.Farewells
-    local enabledKey = messageType == "greetings" and "enabledGreetings" or "enabledFarewells"
-    local customKey = messageType == "greetings" and "customGreeting" or "customFarewell"
+    local messages, enabledKey, customKey
+    if messageType == "greetings" then
+        messages = AutoSay.Greetings
+        enabledKey = "enabledGreetings"
+        customKey = "customGreeting"
+    elseif messageType == "farewells" then
+        messages = AutoSay.Farewells
+        enabledKey = "enabledFarewells"
+        customKey = "customFarewell"
+    elseif messageType == "reconnects" then
+        messages = AutoSay.Reconnects
+        enabledKey = "enabledReconnects"
+        customKey = "customReconnect"
+    else
+        return nil
+    end
 
     local enabled = {}
 
@@ -542,8 +563,20 @@ function Addon:SendGreeting(playerNames, reason)
         return
     end
 
-    -- Get random greeting for this channel
-    local message = self:GetRandomMessageForChannel("greetings", channel)
+    -- Get random message based on reason
+    local message
+    if reason == "reconnect" then
+        -- Use reconnect messages for reconnect reason
+        message = self:GetRandomMessageForChannel("reconnects", channel)
+        if not message then
+            self:DebugPrint("No reconnects enabled for", channel, "- falling back to greetings")
+            message = self:GetRandomMessageForChannel("greetings", channel)
+        end
+    else
+        -- Use regular greetings for other reasons
+        message = self:GetRandomMessageForChannel("greetings", channel)
+    end
+
     if not message then
         self:DebugPrint("No greetings enabled for", channel)
         return
@@ -651,6 +684,12 @@ end
 function Addon:ShouldGreetOnOthersJoin(channel)
     local settings = self:GetChannelSettings(channel)
     return settings and settings.enabled and settings.onOthersJoin
+end
+
+-- Check if should greet on reconnect for channel
+function Addon:ShouldGreetOnReconnect(channel)
+    local settings = self:GetChannelSettings(channel)
+    return settings and settings.enabled and settings.onReconnect
 end
 
 --------------------------------------------------------------------------------
@@ -788,6 +827,28 @@ function Addon:TestGuildFarewell()
     self.testState.simulatedInGuild = true
     self:SendGuildFarewell()
     self.testState.simulatedInGuild = false
+end
+
+-- Simulate reconnecting to group
+function Addon:TestReconnect()
+    if not self:IsTestMode() then
+        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
+        return
+    end
+
+    if not self.testState.simulatedGroupType then
+        self:TestPrint("Not in a simulated group! Join a party or raid first.")
+        return
+    end
+
+    local channel = self.testState.simulatedGroupType
+    self:TestPrint("=== Simulating RECONNECT to " .. channel .. " ===")
+
+    if self.db.profile.enabled and self:ShouldGreetOnReconnect(channel) then
+        self:SendGreeting(nil, "reconnect")
+    else
+        self:TestPrint("Reconnect greeting disabled for " .. channel)
+    end
 end
 
 -- Show current test state

@@ -1,59 +1,54 @@
 local ADDON_NAME, AutoSay = ...
 
--- Greetings database
+-- Greetings database (enabled by default first)
 AutoSay.Greetings = {
-    -- English/Common (1-12)
     { key = "hi", text = "Hi!" },
     { key = "hello", text = "Hello!" },
     { key = "hey", text = "Hey!" },
+    { key = "greetings", text = "Greetings!" },
+    { key = "wassup", text = "Wassup!" },
+    -- Disabled by default
     { key = "yo", text = "Yo!" },
     { key = "heya", text = "Heya!" },
     { key = "sup", text = "Sup?" },
     { key = "howdy", text = "Howdy!" },
     { key = "hiya", text = "Hiya!" },
-    { key = "greetings", text = "Greetings!" },
-    { key = "wassup", text = "Wassup!" },
     { key = "yoyo", text = "Yo yo!" },
     { key = "hellothere", text = "Hello there!" },
-
-    -- International (13-24)
-    { key = "hola", text = "Hola!" },
-    { key = "ciao", text = "Ciao!" },
-    { key = "bonjour", text = "Bonjour!" },
-    { key = "konnichiwa", text = "Konnichiwa!" },
-    { key = "annyeong", text = "Annyeonghaseyo!" },
-    { key = "nihao", text = "Ni hao!" },
-    { key = "merhaba", text = "Merhaba!" },
-    { key = "salve", text = "Salve!" },
-    { key = "aloha", text = "Aloha!" },
-    { key = "shalom", text = "Shalom!" },
-    { key = "sawubona", text = "Sawubona!" },
-    { key = "namaste", text = "Namaste!" },
 }
 
--- Farewells database
+-- Farewells database (enabled by default first)
 AutoSay.Farewells = {
-    -- English/Common (1-12)
     { key = "bye", text = "Bye!" },
     { key = "goodbye", text = "Goodbye!" },
+    { key = "gtg", text = "GTG, bye!" },
+    { key = "takecare", text = "Take care!" },
+    { key = "peace", text = "Peace!" },
+    -- Disabled by default
     { key = "seeya", text = "See ya!" },
     { key = "later", text = "Later!" },
     { key = "cya", text = "Cya!" },
-    { key = "takecare", text = "Take care!" },
-    { key = "peace", text = "Peace!" },
     { key = "cheers", text = "Cheers!" },
     { key = "gn", text = "GN!" },
     { key = "bb", text = "BB!" },
-    { key = "gtg", text = "GTG, bye!" },
     { key = "laterall", text = "Later all!" },
+}
 
-    -- International (13-20)
-    { key = "adios", text = "Adios!" },
-    { key = "ciaofarewell", text = "Ciao!" },
-    { key = "aurevoir", text = "Au revoir!" },
-    { key = "sayonara", text = "Sayonara!" },
-    { key = "annyeongbye", text = "Annyeong!" },
-    { key = "zaijian", text = "Zai jian!" },
-    { key = "tschuss", text = "Tschuss!" },
-    { key = "dosvidaniya", text = "Do svidaniya!" },
+-- Reconnect messages database (enabled by default first)
+AutoSay.Reconnects = {
+    { key = "back", text = "Back!" },
+    { key = "reconnected", text = "Reconnected!" },
+    { key = "imback", text = "I'm back!" },
+    -- Disabled by default
+    { key = "rehi", text = "Re!" },
+    { key = "backagain", text = "Back again!" },
+    { key = "herewego", text = "Here we go again!" },
+    { key = "missedme", text = "Miss me?" },
+    { key = "backinthegame", text = "Back in the game!" },
+    { key = "srydc", text = "Sorry for DC!" },
+    { key = "sorrydisconnect", text = "Sorry, got disconnected!" },
+    { key = "dcsorry", text = "DC, sorry about that!" },
+    { key = "mybad", text = "My bad, DC!" },
+    { key = "internetissues", text = "Internet issues, back now!" },
+    { key = "laggedout", text = "Lagged out, I'm back!" },
 }

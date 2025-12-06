@@ -8,53 +8,37 @@ local AceConfigDialog = LibStub("AceConfigDialog-3.0")
 local function BuildGreetingToggles(channel)
     local args = {}
     local order = 1
+    local defaultCount = 5 -- First 5 are enabled by default
 
-    -- Header for English greetings
-    args.headerEnglish = {
+    -- Popular header
+    args.headerPopular = {
         type = "header",
-        name = "English / Common",
+        name = L["Popular"],
         order = order,
     }
     order = order + 1
 
-    -- English greetings (1-12)
-    for i = 1, 12 do
-        local msg = AutoSay.Greetings[i]
-        if msg then
-            args[msg.key] = {
-                type = "toggle",
-                name = msg.text,
+    -- All greetings with category headers
+    for i, msg in ipairs(AutoSay.Greetings) do
+        -- Add "More" header after default messages
+        if i == defaultCount + 1 then
+            args.headerMore = {
+                type = "header",
+                name = L["More"],
                 order = order,
-                width = 0.6,
-                get = function() return Addon.db.profile[channel].enabledGreetings[msg.key] end,
-                set = function(_, val) Addon.db.profile[channel].enabledGreetings[msg.key] = val end,
             }
             order = order + 1
         end
-    end
 
-    -- Header for International greetings
-    args.headerInternational = {
-        type = "header",
-        name = "International",
-        order = order,
-    }
-    order = order + 1
-
-    -- International greetings (13-24)
-    for i = 13, #AutoSay.Greetings do
-        local msg = AutoSay.Greetings[i]
-        if msg then
-            args[msg.key] = {
-                type = "toggle",
-                name = msg.text,
-                order = order,
-                width = 0.7,
-                get = function() return Addon.db.profile[channel].enabledGreetings[msg.key] end,
-                set = function(_, val) Addon.db.profile[channel].enabledGreetings[msg.key] = val end,
-            }
-            order = order + 1
-        end
+        args[msg.key] = {
+            type = "toggle",
+            name = msg.text,
+            order = order,
+            width = 0.6,
+            get = function() return Addon.db.profile[channel].enabledGreetings[msg.key] end,
+            set = function(_, val) Addon.db.profile[channel].enabledGreetings[msg.key] = val end,
+        }
+        order = order + 1
     end
 
     -- Custom greeting
@@ -78,57 +62,99 @@ local function BuildGreetingToggles(channel)
     return args
 end
 
+-- Build reconnect toggles for a specific channel
+local function BuildReconnectToggles(channel)
+    local args = {}
+    local order = 1
+    local defaultCount = 3 -- First 3 are enabled by default
+
+    -- Popular header
+    args.headerPopular = {
+        type = "header",
+        name = L["Popular"],
+        order = order,
+    }
+    order = order + 1
+
+    -- All reconnects with category headers
+    for i, msg in ipairs(AutoSay.Reconnects) do
+        -- Add "More" header after default messages
+        if i == defaultCount + 1 then
+            args.headerMore = {
+                type = "header",
+                name = L["More"],
+                order = order,
+            }
+            order = order + 1
+        end
+
+        args[msg.key] = {
+            type = "toggle",
+            name = msg.text,
+            order = order,
+            width = 0.8,
+            get = function() return Addon.db.profile[channel].enabledReconnects[msg.key] end,
+            set = function(_, val) Addon.db.profile[channel].enabledReconnects[msg.key] = val end,
+        }
+        order = order + 1
+    end
+
+    -- Custom reconnect
+    args.headerCustom = {
+        type = "header",
+        name = L["Custom reconnect"],
+        order = order,
+    }
+    order = order + 1
+
+    args.customReconnect = {
+        type = "input",
+        name = L["Custom reconnect"],
+        desc = L["Enter your custom reconnect message"],
+        order = order,
+        width = "full",
+        get = function() return Addon.db.profile[channel].customReconnect end,
+        set = function(_, val) Addon.db.profile[channel].customReconnect = val end,
+    }
+
+    return args
+end
+
 -- Build farewell toggles for a specific channel
 local function BuildFarewellToggles(channel)
     local args = {}
     local order = 1
+    local defaultCount = 5 -- First 5 are enabled by default
 
-    -- Header for English farewells
-    args.headerEnglish = {
+    -- Popular header
+    args.headerPopular = {
         type = "header",
-        name = "English / Common",
+        name = L["Popular"],
         order = order,
     }
     order = order + 1
 
-    -- English farewells (1-12)
-    for i = 1, 12 do
-        local msg = AutoSay.Farewells[i]
-        if msg then
-            args[msg.key] = {
-                type = "toggle",
-                name = msg.text,
+    -- All farewells with category headers
+    for i, msg in ipairs(AutoSay.Farewells) do
+        -- Add "More" header after default messages
+        if i == defaultCount + 1 then
+            args.headerMore = {
+                type = "header",
+                name = L["More"],
                 order = order,
-                width = 0.6,
-                get = function() return Addon.db.profile[channel].enabledFarewells[msg.key] end,
-                set = function(_, val) Addon.db.profile[channel].enabledFarewells[msg.key] = val end,
             }
             order = order + 1
         end
-    end
 
-    -- Header for International farewells
-    args.headerInternational = {
-        type = "header",
-        name = "International",
-        order = order,
-    }
-    order = order + 1
-
-    -- International farewells (13+)
-    for i = 13, #AutoSay.Farewells do
-        local msg = AutoSay.Farewells[i]
-        if msg then
-            args[msg.key] = {
-                type = "toggle",
-                name = msg.text,
-                order = order,
-                width = 0.7,
-                get = function() return Addon.db.profile[channel].enabledFarewells[msg.key] end,
-                set = function(_, val) Addon.db.profile[channel].enabledFarewells[msg.key] = val end,
-            }
-            order = order + 1
-        end
+        args[msg.key] = {
+            type = "toggle",
+            name = msg.text,
+            order = order,
+            width = 0.6,
+            get = function() return Addon.db.profile[channel].enabledFarewells[msg.key] end,
+            set = function(_, val) Addon.db.profile[channel].enabledFarewells[msg.key] = val end,
+        }
+        order = order + 1
     end
 
     -- Custom farewell
@@ -241,11 +267,19 @@ local options = {
                     get = function() return Addon.db.profile.party.onOthersJoin end,
                     set = function(_, val) Addon.db.profile.party.onOthersJoin = val end,
                 },
+                onReconnect = {
+                    type = "toggle",
+                    name = L["On reconnect"],
+                    desc = L["Send greeting when you reconnect to party"],
+                    order = 13,
+                    get = function() return Addon.db.profile.party.onReconnect end,
+                    set = function(_, val) Addon.db.profile.party.onReconnect = val end,
+                },
                 includeNames = {
                     type = "toggle",
                     name = L["Include player names"],
                     desc = L["Add joined player names to the greeting"],
-                    order = 13,
+                    order = 14,
                     get = function() return Addon.db.profile.party.includeNames end,
                     set = function(_, val) Addon.db.profile.party.includeNames = val end,
                 },
@@ -281,11 +315,19 @@ local options = {
             args = BuildFarewellToggles("party"),
         },
 
+        -- Party reconnect messages
+        partyReconnects = {
+            type = "group",
+            name = L["Party Reconnects"],
+            order = 5,
+            args = BuildReconnectToggles("party"),
+        },
+
         -- Raid settings
         raidSettings = {
             type = "group",
             name = L["Raid"],
-            order = 5,
+            order = 6,
             args = {
                 enabled = {
                     type = "toggle",
@@ -317,11 +359,19 @@ local options = {
                     get = function() return Addon.db.profile.raid.onOthersJoin end,
                     set = function(_, val) Addon.db.profile.raid.onOthersJoin = val end,
                 },
+                onReconnect = {
+                    type = "toggle",
+                    name = L["On reconnect"],
+                    desc = L["Send greeting when you reconnect to raid"],
+                    order = 13,
+                    get = function() return Addon.db.profile.raid.onReconnect end,
+                    set = function(_, val) Addon.db.profile.raid.onReconnect = val end,
+                },
                 includeNames = {
                     type = "toggle",
                     name = L["Include player names"],
                     desc = L["Add joined player names to the greeting"],
-                    order = 13,
+                    order = 14,
                     get = function() return Addon.db.profile.raid.includeNames end,
                     set = function(_, val) Addon.db.profile.raid.includeNames = val end,
                 },
@@ -345,7 +395,7 @@ local options = {
         raidGreetings = {
             type = "group",
             name = L["Raid Greetings"],
-            order = 6,
+            order = 7,
             args = BuildGreetingToggles("raid"),
         },
 
@@ -353,15 +403,23 @@ local options = {
         raidFarewells = {
             type = "group",
             name = L["Raid Farewells"],
-            order = 7,
+            order = 8,
             args = BuildFarewellToggles("raid"),
+        },
+
+        -- Raid reconnect messages
+        raidReconnects = {
+            type = "group",
+            name = L["Raid Reconnects"],
+            order = 9,
+            args = BuildReconnectToggles("raid"),
         },
 
         -- Guild settings
         guildSettings = {
             type = "group",
             name = L["Guild"],
-            order = 8,
+            order = 10,
             args = {
                 enabled = {
                     type = "toggle",
@@ -405,7 +463,7 @@ local options = {
         guildGreetings = {
             type = "group",
             name = L["Guild Greetings"],
-            order = 9,
+            order = 11,
             args = BuildGreetingToggles("guild"),
         },
 
@@ -413,7 +471,7 @@ local options = {
         guildFarewells = {
             type = "group",
             name = L["Guild Farewells"],
-            order = 10,
+            order = 12,
             args = BuildFarewellToggles("guild"),
         },
 
@@ -421,7 +479,7 @@ local options = {
         testMode = {
             type = "group",
             name = L["Test Mode"],
-            order = 11,
+            order = 13,
             args = {
                 description = {
                     type = "description",
@@ -483,11 +541,20 @@ local options = {
                     func = function() Addon:TestLeaveGroup() end,
                     disabled = function() return not Addon.db.profile.testMode or not Addon.testState.simulatedGroupType end,
                 },
+                simulateReconnect = {
+                    type = "execute",
+                    name = L["Reconnect"],
+                    desc = L["Simulate reconnecting to group"],
+                    order = 14,
+                    width = 0.8,
+                    func = function() Addon:TestReconnect() end,
+                    disabled = function() return not Addon.db.profile.testMode or not Addon.testState.simulatedGroupType end,
+                },
                 simulateGuild = {
                     type = "execute",
                     name = L["Guild Greeting"],
                     desc = L["Simulate guild login greeting"],
-                    order = 14,
+                    order = 15,
                     width = 0.8,
                     func = function() Addon:TestGuildGreeting() end,
                     disabled = function() return not Addon.db.profile.testMode end,
@@ -496,7 +563,7 @@ local options = {
                     type = "execute",
                     name = L["Guild Farewell"],
                     desc = L["Simulate guild logout farewell"],
-                    order = 15,
+                    order = 16,
                     width = 0.8,
                     func = function() Addon:TestGuildFarewell() end,
                     disabled = function() return not Addon.db.profile.testMode end,
