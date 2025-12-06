@@ -1,7 +1,7 @@
 ## Interface: 110207
 ## Interface-Retail: 110207
 ## Title: AutoSay
-## Notes: Automatically sends greetings and farewells in party, raid, and guild chat
+## Notes: Automatically sends greetings, farewells, and reconnect messages in party, raid, and guild chat
 ## Author: AqueGen
 ## Version: @project-version@
 ## X-Curse-Version: @project-version@
