@@ -11,7 +11,7 @@ function Addon:RegisterEvents()
     -- Player login for guild greeting
     self:RegisterEvent("PLAYER_ENTERING_WORLD")
 
-    -- Player logout for guild farewell
+    -- Player logout for guild goodbye
     self:RegisterEvent("PLAYER_LOGOUT")
 
     self:DebugPrint("Events registered")
@@ -69,14 +69,14 @@ end
 function Addon:GROUP_LEFT()
     self:DebugPrint("EVENT: GROUP_LEFT - We left the group")
 
-    -- Note: Farewell is now sent via HookLeaveGroupFunctions() BEFORE leaving
+    -- Note: Goodbye is now sent via HookLeaveGroupFunctions() BEFORE leaving
     -- This event fires AFTER we've already left, so we just reset state here
 
     -- Reset state
     self.state.previousGroup = nil
     self.state.sentGreetings = {}
     self.state.currentGroupType = nil
-    self.state.groupFarewellSent = false
+    self.state.groupGoodbyeSent = false
 end
 
 -- Handle GROUP_ROSTER_UPDATE - group composition changed
@@ -260,12 +260,12 @@ function Addon:GetCurrentGroupMembers()
     return members
 end
 
--- Handle PLAYER_LOGOUT - for guild farewell on logout (fallback if hooks didn't fire)
+-- Handle PLAYER_LOGOUT - for guild goodbye on logout (fallback if hooks didn't fire)
 function Addon:PLAYER_LOGOUT()
     self:DebugPrint("EVENT: PLAYER_LOGOUT - Player is logging out")
     self:DebugPrint("IsInGuild:", tostring(IsInGuild()))
-    self:DebugPrint("Guild settings - enabled:", tostring(self.db.profile.guild.enabled), "sendFarewell:", tostring(self.db.profile.guild.sendFarewell))
+    self:DebugPrint("Guild settings - enabled:", tostring(self.db.profile.guild.enabled), "sendGoodbye:", tostring(self.db.profile.guild.sendGoodbye))
 
-    -- Send guild farewell if enabled (uses SendGuildFarewellOnce to avoid duplicates with hooks)
-    self:SendGuildFarewellOnce()
+    -- Send guild goodbye if enabled (uses SendGuildGoodbyeOnce to avoid duplicates with hooks)
+    self:SendGuildGoodbyeOnce()
 end

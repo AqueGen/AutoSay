@@ -43,8 +43,8 @@ local defaultGreetings = {
     hello = true,
     hey = true,
     greetings = true,
-    wassup = true,
     -- Disabled by default
+    wassup = false,
     yo = false,
     heya = false,
     sup = false,
@@ -54,8 +54,8 @@ local defaultGreetings = {
     hellothere = false,
 }
 
--- Default enabled farewells
-local defaultFarewells = {
+-- Default enabled goodbyes
+local defaultGoodbyes = {
     bye = true,
     goodbye = true,
     gtg = true,
@@ -108,7 +108,7 @@ local defaults = {
 
         -- Timing (global)
         messageDelay = 1.0,
-        cooldown = 0,
+        cooldown = 5,
 
         -- Party settings
         party = {
@@ -117,48 +117,48 @@ local defaults = {
             onOthersJoin = false,
             onReconnect = true, -- Send greeting when reconnecting to group
             includeNames = false,
-            sendFarewell = true,
+            sendGoodbye = true,
             enabledGreetings = DeepCopy(defaultGreetings),
-            enabledFarewells = DeepCopy(defaultFarewells),
+            enabledGoodbyes = DeepCopy(defaultGoodbyes),
             enabledReconnects = DeepCopy(defaultReconnects),
             customGreeting = "",
-            customFarewell = "",
+            customGoodbye = "",
             customReconnect = "",
             useCustomGreeting = false,
-            useCustomFarewell = false,
+            useCustomGoodbye = false,
             useCustomReconnect = false,
         },
 
-        -- Raid settings
+        -- Raid settings (disabled by default - raids are more formal content)
         raid = {
-            enabled = true,
-            onSelfJoin = true,
-            onOthersJoin = false, -- Disabled by default for raids (too many people)
-            onReconnect = true, -- Send greeting when reconnecting to raid
-            includeNames = false, -- Disabled by default for raids
-            sendFarewell = true,
+            enabled = false,
+            onSelfJoin = false,
+            onOthersJoin = false,
+            onReconnect = false,
+            includeNames = false,
+            sendGoodbye = false,
             enabledGreetings = DeepCopy(defaultGreetings),
-            enabledFarewells = DeepCopy(defaultFarewells),
+            enabledGoodbyes = DeepCopy(defaultGoodbyes),
             enabledReconnects = DeepCopy(defaultReconnects),
             customGreeting = "",
-            customFarewell = "",
+            customGoodbye = "",
             customReconnect = "",
             useCustomGreeting = false,
-            useCustomFarewell = false,
+            useCustomGoodbye = false,
             useCustomReconnect = false,
         },
 
-        -- Guild settings (same structure as party/raid)
+        -- Guild settings (disabled by default - less commonly needed)
         guild = {
-            enabled = true,
+            enabled = false,
             onSelfJoin = false,  -- Send greeting on login (disabled by default)
-            sendFarewell = false, -- Send farewell on logout (disabled by default)
+            sendGoodbye = false, -- Send goodbye on logout (disabled by default)
             enabledGreetings = DeepCopy(defaultGreetings),
-            enabledFarewells = DeepCopy(defaultFarewells),
+            enabledGoodbyes = DeepCopy(defaultGoodbyes),
             customGreeting = "",
-            customFarewell = "",
+            customGoodbye = "",
             useCustomGreeting = false,
-            useCustomFarewell = false,
+            useCustomGoodbye = false,
         },
     },
 }
@@ -168,11 +168,11 @@ Addon.state = {
     previousGroup = nil,
     lastGroupMessageTime = 0, -- Cooldown for party/raid messages
     lastGuildMessageTime = 0, -- Cooldown for guild messages (separate from group)
-    pendingFarewell = false,
+    pendingGoodbye = false,
     currentGroupType = nil,
     sentGreetings = {},
     isInGuild = false, -- Cached guild status (IsInGuild() returns false during logout)
-    groupFarewellSent = false, -- Track if group farewell was sent (to avoid duplicates)
+    groupGoodbyeSent = false, -- Track if group goodbye was sent (to avoid duplicates)
 }
 
 -- Test mode simulation state
@@ -215,58 +215,58 @@ function Addon:UpdateGuildStatus()
     self:DebugPrint("Guild status cached:", tostring(self.state.isInGuild))
 end
 
--- Hook Logout and Quit to send guild farewell before instant logout
+-- Hook Logout and Quit to send guild goodbye before instant logout
 function Addon:HookLogoutFunctions()
-    -- Track if we already sent farewell to avoid duplicates
-    self.state.farewellSent = false
+    -- Track if we already sent goodbye to avoid duplicates
+    self.state.goodbyeSent = false
 
     -- Hook Logout function
     if not self:IsHooked("Logout") then
         self:SecureHook("Logout", function()
-            self:DebugPrint("Logout() called - sending farewell (cached guild:", tostring(self.state.isInGuild), ")")
-            self:SendGuildFarewellOnce()
+            self:DebugPrint("Logout() called - sending goodbye (cached guild:", tostring(self.state.isInGuild), ")")
+            self:SendGuildGoodbyeOnce()
         end)
     end
 
     -- Hook Quit function
     if not self:IsHooked("Quit") then
         self:SecureHook("Quit", function()
-            self:DebugPrint("Quit() called - sending farewell (cached guild:", tostring(self.state.isInGuild), ")")
-            self:SendGuildFarewellOnce()
+            self:DebugPrint("Quit() called - sending goodbye (cached guild:", tostring(self.state.isInGuild), ")")
+            self:SendGuildGoodbyeOnce()
         end)
     end
 
     -- Hook ForceQuit function (Alt+F4 or crash protection)
     if ForceQuit and not self:IsHooked("ForceQuit") then
         self:SecureHook("ForceQuit", function()
-            self:DebugPrint("ForceQuit() called - sending farewell")
-            self:SendGuildFarewellOnce()
+            self:DebugPrint("ForceQuit() called - sending goodbye")
+            self:SendGuildGoodbyeOnce()
         end)
     end
 
     self:DebugPrint("Logout functions hooked")
 end
 
--- Send guild farewell only once per logout session
-function Addon:SendGuildFarewellOnce()
-    if self.state.farewellSent then
-        self:DebugPrint("Farewell already sent, skipping")
+-- Send guild goodbye only once per logout session
+function Addon:SendGuildGoodbyeOnce()
+    if self.state.goodbyeSent then
+        self:DebugPrint("Goodbye already sent, skipping")
         return
     end
-    self.state.farewellSent = true
-    self:SendGuildFarewell()
+    self.state.goodbyeSent = true
+    self:SendGuildGoodbye()
 end
 
--- Hook LeaveParty to send group farewell before leaving
+-- Hook LeaveParty to send group goodbye before leaving
 function Addon:HookLeaveGroupFunctions()
-    -- Track if we already sent group farewell to avoid duplicates
-    self.state.groupFarewellSent = false
+    -- Track if we already sent group goodbye to avoid duplicates
+    self.state.groupGoodbyeSent = false
 
     -- Hook C_PartyInfo.LeaveParty (retail WoW API) - use RawHook to run BEFORE the function
     if C_PartyInfo and C_PartyInfo.LeaveParty and not self:IsHooked(C_PartyInfo, "LeaveParty") then
         self:RawHook(C_PartyInfo, "LeaveParty", function(category)
-            self:DebugPrint("C_PartyInfo.LeaveParty() intercepted - sending farewell BEFORE leaving")
-            self:SendGroupFarewellOnce()
+            self:DebugPrint("C_PartyInfo.LeaveParty() intercepted - sending goodbye BEFORE leaving")
+            self:SendGroupGoodbyeOnce()
             -- Call the original function
             return self.hooks[C_PartyInfo].LeaveParty(category)
         end, true)
@@ -275,8 +275,8 @@ function Addon:HookLeaveGroupFunctions()
     -- Hook LeaveParty (classic/fallback) - use RawHook to run BEFORE the function
     if LeaveParty and not self:IsHooked("LeaveParty") then
         self:RawHook("LeaveParty", function()
-            self:DebugPrint("LeaveParty() intercepted - sending farewell BEFORE leaving")
-            self:SendGroupFarewellOnce()
+            self:DebugPrint("LeaveParty() intercepted - sending goodbye BEFORE leaving")
+            self:SendGroupGoodbyeOnce()
             -- Call the original function
             return self.hooks.LeaveParty()
         end, true)
@@ -285,26 +285,26 @@ function Addon:HookLeaveGroupFunctions()
     self:DebugPrint("Leave group functions hooked")
 end
 
--- Send group farewell only once per leave action
-function Addon:SendGroupFarewellOnce()
-    if self.state.groupFarewellSent then
-        self:DebugPrint("Group farewell already sent, skipping")
+-- Send group goodbye only once per leave action
+function Addon:SendGroupGoodbyeOnce()
+    if self.state.groupGoodbyeSent then
+        self:DebugPrint("Group goodbye already sent, skipping")
         return
     end
 
     local channel = self.state.currentGroupType
     if not channel then
-        self:DebugPrint("No current group type cached, skipping farewell")
+        self:DebugPrint("No current group type cached, skipping goodbye")
         return
     end
 
-    self.state.groupFarewellSent = true
-    self:DebugPrint("Sending farewell to", channel, "before leaving")
-    self:SendFarewell(channel)
+    self.state.groupGoodbyeSent = true
+    self:DebugPrint("Sending goodbye to", channel, "before leaving")
+    self:SendGoodbye(channel)
 
     -- Reset flag after a short delay (in case GROUP_LEFT also tries to send)
     self:ScheduleTimer(function()
-        self.state.groupFarewellSent = false
+        self.state.groupGoodbyeSent = false
     end, 2)
 end
 
@@ -350,7 +350,7 @@ function Addon:SlashCommand(input)
         elseif subcmd == "guild" or subcmd == "g" then
             self:TestGuildGreeting()
         elseif subcmd == "guildbye" or subcmd == "gb" then
-            self:TestGuildFarewell()
+            self:TestGuildGoodbye()
         elseif subcmd == "reconnect" or subcmd == "re" then
             self:TestReconnect()
         elseif subcmd == "player" or subcmd == "join" then
@@ -366,7 +366,7 @@ function Addon:SlashCommand(input)
             self:Print("  /as test raid - Simulate joining a raid")
             self:Print("  /as test leave - Simulate leaving group")
             self:Print("  /as test guild - Simulate guild login greeting")
-            self:Print("  /as test guildbye - Simulate guild logout farewell")
+            self:Print("  /as test guildbye - Simulate guild logout goodbye")
             self:Print("  /as test reconnect - Simulate reconnecting to group")
             self:Print("  /as test player [name] - Simulate player joining")
             self:Print("  /as test reset - Reset test state")
@@ -524,10 +524,10 @@ function Addon:GetRandomMessageForChannel(messageType, channel)
         messages = AutoSay.Greetings
         enabledKey = "enabledGreetings"
         customKey = "customGreeting"
-    elseif messageType == "farewells" then
-        messages = AutoSay.Farewells
-        enabledKey = "enabledFarewells"
-        customKey = "customFarewell"
+    elseif messageType == "goodbyes" then
+        messages = AutoSay.Goodbyes
+        enabledKey = "enabledGoodbyes"
+        customKey = "customGoodbye"
     elseif messageType == "reconnects" then
         messages = AutoSay.Reconnects
         enabledKey = "enabledReconnects"
@@ -616,8 +616,8 @@ function Addon:SendGreeting(playerNames, reason)
     self:SendMessageToChat(message, channel)
 end
 
--- Send farewell
-function Addon:SendFarewell(channel)
+-- Send goodbye
+function Addon:SendGoodbye(channel)
     local db = self.db.profile
 
     if not db.enabled then return end
@@ -625,20 +625,20 @@ function Addon:SendFarewell(channel)
     local settings = self:GetChannelSettings(channel)
     if not settings then return end
 
-    -- Check if farewell is enabled for this channel
-    if not settings.sendFarewell then
-        self:DebugPrint(channel, "farewells disabled")
+    -- Check if goodbye is enabled for this channel
+    if not settings.sendGoodbye then
+        self:DebugPrint(channel, "goodbyes disabled")
         return
     end
 
-    -- Get random farewell for this channel
-    local message = self:GetRandomMessageForChannel("farewells", channel)
+    -- Get random goodbye for this channel
+    local message = self:GetRandomMessageForChannel("goodbyes", channel)
     if not message then
-        self:DebugPrint("No farewells enabled for", channel)
+        self:DebugPrint("No goodbyes enabled for", channel)
         return
     end
 
-    -- Send immediately (no delay for farewells since we're leaving)
+    -- Send immediately (no delay for goodbyes since we're leaving)
     self:DoSendMessage(message, channel)
 end
 
@@ -664,40 +664,40 @@ function Addon:SendGuildGreeting()
     self:SendMessageToChat(message, "GUILD")
 end
 
--- Send guild farewell on logout
-function Addon:SendGuildFarewell()
-    self:DebugPrint("SendGuildFarewell called")
+-- Send guild goodbye on logout
+function Addon:SendGuildGoodbye()
+    self:DebugPrint("SendGuildGoodbye called")
     local db = self.db.profile
 
     if not db.enabled then
-        self:DebugPrint("Addon disabled, skipping guild farewell")
+        self:DebugPrint("Addon disabled, skipping guild goodbye")
         return
     end
     if not db.guild.enabled then
-        self:DebugPrint("Guild channel disabled, skipping farewell")
+        self:DebugPrint("Guild channel disabled, skipping goodbye")
         return
     end
-    if not db.guild.sendFarewell then
-        self:DebugPrint("Guild farewell on logout disabled")
+    if not db.guild.sendGoodbye then
+        self:DebugPrint("Guild goodbye on logout disabled")
         return
     end
 
     local inGuild = self:IsInGuildOrTest()
     self:DebugPrint("IsInGuildOrTest:", tostring(inGuild))
     if not inGuild then
-        self:DebugPrint("Not in guild, skipping farewell")
+        self:DebugPrint("Not in guild, skipping goodbye")
         return
     end
 
-    -- Get random farewell for guild
-    local message = self:GetRandomMessageForChannel("farewells", "GUILD")
+    -- Get random goodbye for guild
+    local message = self:GetRandomMessageForChannel("goodbyes", "GUILD")
     if not message then
-        self:DebugPrint("No farewells enabled for GUILD")
+        self:DebugPrint("No goodbyes enabled for GUILD")
         return
     end
 
-    self:DebugPrint("Sending guild farewell:", message)
-    -- Send immediately (no delay for farewells)
+    self:DebugPrint("Sending guild goodbye:", message)
+    -- Send immediately (no delay for goodbyes)
     self:DoSendMessage(message, "GUILD")
 end
 
@@ -793,8 +793,8 @@ function Addon:TestLeaveGroup()
     local groupType = self.testState.simulatedGroupType
     self:TestPrint("=== Simulating LEAVE " .. groupType .. " ===")
 
-    -- Send farewell before "leaving"
-    self:SendFarewell(groupType)
+    -- Send goodbye before "leaving"
+    self:SendGoodbye(groupType)
 
     -- Reset simulated group state
     self.testState.simulatedGroupType = nil
@@ -844,16 +844,16 @@ function Addon:TestGuildGreeting()
     self.testState.simulatedInGuild = false
 end
 
--- Simulate guild logout farewell
-function Addon:TestGuildFarewell()
+-- Simulate guild logout goodbye
+function Addon:TestGuildGoodbye()
     if not self:IsTestMode() then
         self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
         return
     end
 
-    self:TestPrint("=== Simulating GUILD LOGOUT farewell ===")
+    self:TestPrint("=== Simulating GUILD LOGOUT goodbye ===")
     self.testState.simulatedInGuild = true
-    self:SendGuildFarewell()
+    self:SendGuildGoodbye()
     self.testState.simulatedInGuild = false
 end
 
@@ -901,13 +901,13 @@ function Addon:TestStatus()
         "| Self:", db.party.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
         "| Others:", db.party.onOthersJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
         "| Names:", db.party.includeNames and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Bye:", db.party.sendFarewell and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
+        "| Bye:", db.party.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
     self:Print("Raid:", db.raid.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
         "| Self:", db.raid.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
         "| Others:", db.raid.onOthersJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
         "| Names:", db.raid.includeNames and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Bye:", db.raid.sendFarewell and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
+        "| Bye:", db.raid.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
     self:Print("Guild:", db.guild.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
         "| Login:", db.guild.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Logout:", db.guild.sendFarewell and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
+        "| Logout:", db.guild.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
 end

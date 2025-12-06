@@ -213,8 +213,8 @@ local function BuildReconnectToggles(channel)
     return args
 end
 
--- Build farewell toggles for a specific channel
-local function BuildFarewellToggles(channel)
+-- Build goodbye toggles for a specific channel
+local function BuildGoodbyeToggles(channel)
     local args = {}
     local order = 1
     local defaultCount = 5 -- First 5 are enabled by default
@@ -228,24 +228,24 @@ local function BuildFarewellToggles(channel)
     order = order + 1
 
     if channel == "guild" then
-        args.sendFarewell = {
+        args.sendGoodbye = {
             type = "toggle",
             name = L["On logout"],
-            desc = L["Send farewell when you log out"],
+            desc = L["Send goodbye when you log out"],
             order = order,
             width = 1.2,
-            get = function() return Addon.db.profile.guild.sendFarewell end,
-            set = function(_, val) Addon.db.profile.guild.sendFarewell = val end,
+            get = function() return Addon.db.profile.guild.sendGoodbye end,
+            set = function(_, val) Addon.db.profile.guild.sendGoodbye = val end,
         }
     else
-        args.sendFarewell = {
+        args.sendGoodbye = {
             type = "toggle",
-            name = L["Send farewell on leave"],
-            desc = channel == "party" and L["Send farewell when leaving party"] or L["Send farewell when leaving raid"],
+            name = L["Send goodbye on leave"],
+            desc = channel == "party" and L["Send goodbye when leaving party"] or L["Send goodbye when leaving raid"],
             order = order,
             width = 1.5,
-            get = function() return Addon.db.profile[channel].sendFarewell end,
-            set = function(_, val) Addon.db.profile[channel].sendFarewell = val end,
+            get = function() return Addon.db.profile[channel].sendGoodbye end,
+            set = function(_, val) Addon.db.profile[channel].sendGoodbye = val end,
         }
     end
     order = order + 1
@@ -258,8 +258,8 @@ local function BuildFarewellToggles(channel)
     }
     order = order + 1
 
-    -- All farewells with category headers
-    for i, msg in ipairs(AutoSay.Farewells) do
+    -- All goodbyes with category headers
+    for i, msg in ipairs(AutoSay.Goodbyes) do
         -- Add "More" header after default messages
         if i == defaultCount + 1 then
             args.headerMore = {
@@ -275,39 +275,39 @@ local function BuildFarewellToggles(channel)
             name = msg.text,
             order = order,
             width = 0.6,
-            get = function() return Addon.db.profile[channel].enabledFarewells[msg.key] end,
-            set = function(_, val) Addon.db.profile[channel].enabledFarewells[msg.key] = val end,
+            get = function() return Addon.db.profile[channel].enabledGoodbyes[msg.key] end,
+            set = function(_, val) Addon.db.profile[channel].enabledGoodbyes[msg.key] = val end,
         }
         order = order + 1
     end
 
-    -- Custom farewell
+    -- Custom goodbye
     args.headerCustom = {
         type = "header",
-        name = L["Custom farewell"],
+        name = L["Custom goodbye"],
         order = order,
     }
     order = order + 1
 
-    args.useCustomFarewell = {
+    args.useCustomGoodbye = {
         type = "toggle",
-        name = L["Use custom farewell"],
-        desc = L["Include your custom farewell in the message pool"],
+        name = L["Use custom goodbye"],
+        desc = L["Include your custom goodbye in the message pool"],
         order = order,
         width = 1.2,
-        get = function() return Addon.db.profile[channel].useCustomFarewell end,
-        set = function(_, val) Addon.db.profile[channel].useCustomFarewell = val end,
+        get = function() return Addon.db.profile[channel].useCustomGoodbye end,
+        set = function(_, val) Addon.db.profile[channel].useCustomGoodbye = val end,
     }
     order = order + 1
 
-    args.customFarewell = {
+    args.customGoodbye = {
         type = "input",
-        name = L["Custom farewell"],
-        desc = L["Enter your custom farewell message"],
+        name = L["Custom goodbye"],
+        desc = L["Enter your custom goodbye message"],
         order = order,
         width = "full",
-        get = function() return Addon.db.profile[channel].customFarewell end,
-        set = function(_, val) Addon.db.profile[channel].customFarewell = val end,
+        get = function() return Addon.db.profile[channel].customGoodbye end,
+        set = function(_, val) Addon.db.profile[channel].customGoodbye = val end,
     }
 
     return args
@@ -342,7 +342,7 @@ local options = {
                 enableParty = {
                     type = "toggle",
                     name = L["Enable Party"],
-                    desc = L["Send greetings and farewells in party chat"],
+                    desc = L["Send greetings and goodbyes in party chat"],
                     order = 6,
                     width = "full",
                     get = function() return Addon.db.profile.party.enabled end,
@@ -351,7 +351,7 @@ local options = {
                 enableRaid = {
                     type = "toggle",
                     name = L["Enable Raid"],
-                    desc = L["Send greetings and farewells in raid chat"],
+                    desc = L["Send greetings and goodbyes in raid chat"],
                     order = 7,
                     width = "full",
                     get = function() return Addon.db.profile.raid.enabled end,
@@ -360,7 +360,7 @@ local options = {
                 enableGuild = {
                     type = "toggle",
                     name = L["Enable Guild"],
-                    desc = L["Send greetings and farewells to guild chat"],
+                    desc = L["Send greetings and goodbyes to guild chat"],
                     order = 8,
                     width = "full",
                     get = function() return Addon.db.profile.guild.enabled end,
@@ -428,7 +428,7 @@ local options = {
             type = "group",
             name = "|cFF00FF00Party|r Goodbyes",
             order = 11,
-            args = BuildFarewellToggles("party"),
+            args = BuildGoodbyeToggles("party"),
         },
 
         partyReconnects = {
@@ -450,7 +450,7 @@ local options = {
             type = "group",
             name = "|cFFFF9900Raid|r Goodbyes",
             order = 21,
-            args = BuildFarewellToggles("raid"),
+            args = BuildGoodbyeToggles("raid"),
         },
 
         raidReconnects = {
@@ -472,7 +472,7 @@ local options = {
             type = "group",
             name = "|cFF00CCFFGuild|r Goodbyes",
             order = 31,
-            args = BuildFarewellToggles("guild"),
+            args = BuildGoodbyeToggles("guild"),
         },
 
         -- Test mode settings
@@ -561,11 +561,11 @@ local options = {
                 },
                 simulateGuildBye = {
                     type = "execute",
-                    name = L["Guild Farewell"],
-                    desc = L["Simulate guild logout farewell"],
+                    name = L["Guild Goodbye"],
+                    desc = L["Simulate guild logout goodbye"],
                     order = 16,
                     width = 0.8,
-                    func = function() Addon:TestGuildFarewell() end,
+                    func = function() Addon:TestGuildGoodbye() end,
                     disabled = function() return not Addon.db.profile.testMode end,
                 },
                 headerPlayerJoin = {

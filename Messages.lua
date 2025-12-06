@@ -6,8 +6,8 @@ AutoSay.Greetings = {
     { key = "hello", text = "Hello!" },
     { key = "hey", text = "Hey!" },
     { key = "greetings", text = "Greetings!" },
-    { key = "wassup", text = "Wassup!" },
     -- Disabled by default
+    { key = "wassup", text = "Wassup!" },
     { key = "yo", text = "Yo!" },
     { key = "heya", text = "Heya!" },
     { key = "sup", text = "Sup?" },
@@ -17,8 +17,8 @@ AutoSay.Greetings = {
     { key = "hellothere", text = "Hello there!" },
 }
 
--- Farewells database (enabled by default first)
-AutoSay.Farewells = {
+-- Goodbyes database (enabled by default first)
+AutoSay.Goodbyes = {
     { key = "bye", text = "Bye!" },
     { key = "goodbye", text = "Goodbye!" },
     { key = "gtg", text = "GTG, bye!" },
