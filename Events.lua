@@ -47,6 +47,13 @@ function Addon:GROUP_JOINED()
 
         self:DebugPrint("Detected group type:", channel)
 
+        -- If we're the group leader, we created the group - don't send self_join greeting
+        -- The others_join greeting will handle welcoming people who joined our group
+        if UnitIsGroupLeader("player") then
+            self:DebugPrint("We're the leader (created group), skipping self_join greeting")
+            return
+        end
+
         -- Check per-channel settings
         if not self:ShouldGreetOnSelfJoin(channel) then
             self:DebugPrint("Self join greetings disabled for", channel)
@@ -62,27 +69,20 @@ end
 function Addon:GROUP_LEFT()
     self:DebugPrint("EVENT: GROUP_LEFT - We left the group")
 
-    local db = self.db.profile
-
-    if not db.enabled then return end
-
-    -- Determine what type of group we were in
-    local channel = self.state.currentGroupType
-
-    if channel then
-        -- Send farewell before leaving
-        -- Note: We need to send this immediately as we're leaving
-        self:SendFarewell(channel)
-    end
+    -- Note: Farewell is now sent via HookLeaveGroupFunctions() BEFORE leaving
+    -- This event fires AFTER we've already left, so we just reset state here
 
     -- Reset state
     self.state.previousGroup = nil
     self.state.sentGreetings = {}
     self.state.currentGroupType = nil
+    self.state.groupFarewellSent = false
 end
 
 -- Handle GROUP_ROSTER_UPDATE - group composition changed
 function Addon:GROUP_ROSTER_UPDATE()
+    self:DebugPrint("EVENT: GROUP_ROSTER_UPDATE triggered")
+
     local db = self.db.profile
 
     if not db.enabled then return end
@@ -96,9 +96,25 @@ function Addon:GROUP_ROSTER_UPDATE()
         self.state.currentGroupType = nil
     end
 
+    self:DebugPrint("Group type:", self.state.currentGroupType, "Size:", GetNumGroupMembers())
+
+    -- Debug: show all units and their connection status
+    local isRaid = IsInRaid()
+    local groupSize = GetNumGroupMembers()
+    for i = 1, groupSize do
+        local unitID = isRaid and ("raid" .. i) or ("party" .. i)
+        local name = UnitName(unitID)
+        local connected = UnitIsConnected(unitID)
+        local exists = UnitExists(unitID)
+        self:DebugPrint("  Unit:", unitID, "Name:", tostring(name), "Exists:", tostring(exists), "Connected:", tostring(connected))
+    end
+
     -- Get current group members
     local currentGroup = self:GetCurrentGroupMembers()
     local playerName = UnitName("player")
+
+    self:DebugPrint("Current connected members:", self:TableKeysToString(currentGroup))
+    self:DebugPrint("Previous members:", self:TableKeysToString(self.state.previousGroup))
 
     -- First run - initialize state
     if not self.state.previousGroup then
@@ -107,14 +123,25 @@ function Addon:GROUP_ROSTER_UPDATE()
         return
     end
 
+    -- Find members who left (to clear their greeting status for re-join)
+    for name in pairs(self.state.previousGroup) do
+        if not currentGroup[name] and name ~= playerName then
+            self:DebugPrint("Member left group:", name)
+            -- Clear greeting status so they get greeted if they rejoin
+            self.state.sentGreetings[name] = nil
+        end
+    end
+
     -- Find newly joined members
     local newMembers = {}
     for name in pairs(currentGroup) do
         if not self.state.previousGroup[name] and name ~= playerName then
+            self:DebugPrint("Detected new member:", name, "Already greeted:", tostring(self.state.sentGreetings[name]))
             -- Check if we already greeted this player
             if not self.state.sentGreetings[name] then
                 table.insert(newMembers, name)
                 self.state.sentGreetings[name] = true
+                self:DebugPrint("Added to newMembers:", name)
             end
         end
     end
@@ -124,7 +151,7 @@ function Addon:GROUP_ROSTER_UPDATE()
 
     -- If others joined and we have that setting enabled for current channel
     if #newMembers > 0 then
-        self:DebugPrint("New members joined:", table.concat(newMembers, ", "))
+        self:DebugPrint("New members to greet:", table.concat(newMembers, ", "))
 
         local channel = self.state.currentGroupType
         if channel and self:ShouldGreetOnOthersJoin(channel) then
@@ -139,11 +166,16 @@ end
 function Addon:PLAYER_ENTERING_WORLD(event, isInitialLogin, isReloadingUi)
     self:DebugPrint("EVENT: PLAYER_ENTERING_WORLD", "isInitialLogin:", tostring(isInitialLogin), "isReloadingUi:", tostring(isReloadingUi))
 
+    -- Update cached guild status
+    self:UpdateGuildStatus()
+
     -- Only send guild greeting on initial login, not on reload or zone change
     if isInitialLogin then
         self:DebugPrint("Initial login detected, scheduling guild greeting")
         -- Delay guild greeting to allow guild roster to load
         self:ScheduleTimer(function()
+            -- Update guild status after delay
+            self:UpdateGuildStatus()
             self:DebugPrint("Attempting to send guild greeting, IsInGuild:", tostring(IsInGuild()))
             if IsInGuild() then
                 self:SendGuildGreeting()
@@ -151,6 +183,7 @@ function Addon:PLAYER_ENTERING_WORLD(event, isInitialLogin, isReloadingUi)
                 -- Retry once more after additional delay if guild not loaded yet
                 self:DebugPrint("Guild not loaded yet, retrying in 5 seconds")
                 self:ScheduleTimer(function()
+                    self:UpdateGuildStatus()
                     self:DebugPrint("Retry: IsInGuild:", tostring(IsInGuild()))
                     self:SendGuildGreeting()
                 end, 5)
@@ -169,7 +202,7 @@ function Addon:PLAYER_ENTERING_WORLD(event, isInitialLogin, isReloadingUi)
     end
 end
 
--- Get current group members as a table
+-- Get current group members as a table (only connected members)
 function Addon:GetCurrentGroupMembers()
     local members = {}
     local isRaid = IsInRaid()
@@ -179,7 +212,8 @@ function Addon:GetCurrentGroupMembers()
         local unitID = isRaid and ("raid" .. i) or ("party" .. i)
         local name = UnitName(unitID)
 
-        if name and name ~= "" and name ~= "Unknown" then
+        -- Only include members who are actually connected (not pending invites)
+        if name and name ~= "" and name ~= "Unknown" and UnitIsConnected(unitID) then
             members[name] = true
         end
     end
@@ -193,10 +227,12 @@ function Addon:GetCurrentGroupMembers()
     return members
 end
 
--- Handle PLAYER_LOGOUT - for guild farewell on logout
+-- Handle PLAYER_LOGOUT - for guild farewell on logout (fallback if hooks didn't fire)
 function Addon:PLAYER_LOGOUT()
     self:DebugPrint("EVENT: PLAYER_LOGOUT - Player is logging out")
+    self:DebugPrint("IsInGuild:", tostring(IsInGuild()))
+    self:DebugPrint("Guild settings - enabled:", tostring(self.db.profile.guild.enabled), "sendFarewell:", tostring(self.db.profile.guild.sendFarewell))
 
-    -- Send guild farewell if enabled
-    self:SendGuildFarewell()
+    -- Send guild farewell if enabled (uses SendGuildFarewellOnce to avoid duplicates with hooks)
+    self:SendGuildFarewellOnce()
 end

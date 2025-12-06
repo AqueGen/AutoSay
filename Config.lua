@@ -173,15 +173,6 @@ local options = {
                     get = function() return Addon.db.profile.enabled end,
                     set = function(_, val) Addon.db.profile.enabled = val end,
                 },
-                debugMode = {
-                    type = "toggle",
-                    name = L["Debug mode"],
-                    desc = L["Show debug messages in chat"],
-                    order = 2,
-                    width = "full",
-                    get = function() return Addon.db.profile.debugMode end,
-                    set = function(_, val) Addon.db.profile.debugMode = val end,
-                },
                 headerTiming = {
                     type = "header",
                     name = L["Timing"],
@@ -576,6 +567,20 @@ local options = {
                         -- Trigger options refresh
                         LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
                     end,
+                },
+                headerDebug = {
+                    type = "header",
+                    name = L["Debug"],
+                    order = 40,
+                },
+                debugMode = {
+                    type = "toggle",
+                    name = L["Debug mode"],
+                    desc = L["Show debug messages in chat"],
+                    order = 41,
+                    width = "full",
+                    get = function() return Addon.db.profile.debugMode end,
+                    set = function(_, val) Addon.db.profile.debugMode = val end,
                 },
             },
         },

@@ -139,3 +139,6 @@ L["Reset Test State"] = "Reset Test State"
 L["Reset all test state and cooldowns"] = "Reset all test state and cooldowns"
 L["Refresh Status"] = "Refresh Status"
 L["Refresh the status display"] = "Refresh the status display"
+
+-- Debug
+L["Debug"] = "Debug"

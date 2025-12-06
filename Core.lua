@@ -1,7 +1,7 @@
 local ADDON_NAME, AutoSay = ...
 
 -- Create addon using Ace3
-local Addon = LibStub("AceAddon-3.0"):NewAddon(AutoSay, ADDON_NAME, "AceConsole-3.0", "AceEvent-3.0", "AceTimer-3.0")
+local Addon = LibStub("AceAddon-3.0"):NewAddon(AutoSay, ADDON_NAME, "AceConsole-3.0", "AceEvent-3.0", "AceTimer-3.0", "AceHook-3.0")
 local L = LibStub("AceLocale-3.0"):GetLocale(ADDON_NAME)
 
 -- Version (replaced by packager with git tag)
@@ -24,6 +24,17 @@ end
 -- Check if we're in test mode
 function Addon:IsTestMode()
     return self.db and self.db.profile.testMode
+end
+
+-- Helper to convert table keys to string for debug output
+function Addon:TableKeysToString(tbl)
+    if not tbl then return "nil" end
+    local keys = {}
+    for k in pairs(tbl) do
+        table.insert(keys, tostring(k))
+    end
+    if #keys == 0 then return "(empty)" end
+    return table.concat(keys, ", ")
 end
 
 -- Default enabled greetings
@@ -98,7 +109,7 @@ local defaults = {
 
         -- Timing (global)
         messageDelay = 1.0,
-        cooldown = 30,
+        cooldown = 0,
 
         -- Party settings
         party = {
@@ -146,6 +157,8 @@ Addon.state = {
     pendingFarewell = false,
     currentGroupType = nil,
     sentGreetings = {},
+    isInGuild = false, -- Cached guild status (IsInGuild() returns false during logout)
+    groupFarewellSent = false, -- Track if group farewell was sent (to avoid duplicates)
 }
 
 -- Test mode simulation state
@@ -170,7 +183,115 @@ function Addon:OnEnable()
     -- Register events
     self:RegisterEvents()
 
+    -- Cache guild membership status (IsInGuild() returns false during logout)
+    self:UpdateGuildStatus()
+
+    -- Hook logout/quit functions to send farewell before instant logout
+    self:HookLogoutFunctions()
+
+    -- Hook leave group functions to send farewell before leaving
+    self:HookLeaveGroupFunctions()
+
     self:DebugPrint("Addon enabled")
+end
+
+-- Update cached guild status
+function Addon:UpdateGuildStatus()
+    self.state.isInGuild = IsInGuild()
+    self:DebugPrint("Guild status cached:", tostring(self.state.isInGuild))
+end
+
+-- Hook Logout and Quit to send guild farewell before instant logout
+function Addon:HookLogoutFunctions()
+    -- Track if we already sent farewell to avoid duplicates
+    self.state.farewellSent = false
+
+    -- Hook Logout function
+    if not self:IsHooked("Logout") then
+        self:SecureHook("Logout", function()
+            self:DebugPrint("Logout() called - sending farewell (cached guild:", tostring(self.state.isInGuild), ")")
+            self:SendGuildFarewellOnce()
+        end)
+    end
+
+    -- Hook Quit function
+    if not self:IsHooked("Quit") then
+        self:SecureHook("Quit", function()
+            self:DebugPrint("Quit() called - sending farewell (cached guild:", tostring(self.state.isInGuild), ")")
+            self:SendGuildFarewellOnce()
+        end)
+    end
+
+    -- Hook ForceQuit function (Alt+F4 or crash protection)
+    if ForceQuit and not self:IsHooked("ForceQuit") then
+        self:SecureHook("ForceQuit", function()
+            self:DebugPrint("ForceQuit() called - sending farewell")
+            self:SendGuildFarewellOnce()
+        end)
+    end
+
+    self:DebugPrint("Logout functions hooked")
+end
+
+-- Send guild farewell only once per logout session
+function Addon:SendGuildFarewellOnce()
+    if self.state.farewellSent then
+        self:DebugPrint("Farewell already sent, skipping")
+        return
+    end
+    self.state.farewellSent = true
+    self:SendGuildFarewell()
+end
+
+-- Hook LeaveParty to send group farewell before leaving
+function Addon:HookLeaveGroupFunctions()
+    -- Track if we already sent group farewell to avoid duplicates
+    self.state.groupFarewellSent = false
+
+    -- Hook C_PartyInfo.LeaveParty (retail WoW API) - use RawHook to run BEFORE the function
+    if C_PartyInfo and C_PartyInfo.LeaveParty and not self:IsHooked(C_PartyInfo, "LeaveParty") then
+        self:RawHook(C_PartyInfo, "LeaveParty", function(category)
+            self:DebugPrint("C_PartyInfo.LeaveParty() intercepted - sending farewell BEFORE leaving")
+            self:SendGroupFarewellOnce()
+            -- Call the original function
+            return self.hooks[C_PartyInfo].LeaveParty(category)
+        end, true)
+    end
+
+    -- Hook LeaveParty (classic/fallback) - use RawHook to run BEFORE the function
+    if LeaveParty and not self:IsHooked("LeaveParty") then
+        self:RawHook("LeaveParty", function()
+            self:DebugPrint("LeaveParty() intercepted - sending farewell BEFORE leaving")
+            self:SendGroupFarewellOnce()
+            -- Call the original function
+            return self.hooks.LeaveParty()
+        end, true)
+    end
+
+    self:DebugPrint("Leave group functions hooked")
+end
+
+-- Send group farewell only once per leave action
+function Addon:SendGroupFarewellOnce()
+    if self.state.groupFarewellSent then
+        self:DebugPrint("Group farewell already sent, skipping")
+        return
+    end
+
+    local channel = self.state.currentGroupType
+    if not channel then
+        self:DebugPrint("No current group type cached, skipping farewell")
+        return
+    end
+
+    self.state.groupFarewellSent = true
+    self:DebugPrint("Sending farewell to", channel, "before leaving")
+    self:SendFarewell(channel)
+
+    -- Reset flag after a short delay (in case GROUP_LEFT also tries to send)
+    self:ScheduleTimer(function()
+        self.state.groupFarewellSent = false
+    end, 2)
 end
 
 function Addon:OnDisable()
@@ -335,12 +456,15 @@ function Addon:GetChatChannel()
     return nil
 end
 
--- Check if in guild (with test mode support)
+-- Check if in guild (with test mode support and cached fallback for logout)
 function Addon:IsInGuildOrTest()
-    if self:IsTestMode() then
-        return self.testState.simulatedInGuild
+    -- For test mode, only use simulation if explicitly set (during test commands)
+    -- Otherwise use real guild status (for actual logout)
+    if self:IsTestMode() and self.testState.simulatedInGuild then
+        return true
     end
-    return IsInGuild()
+    -- Use cached value as fallback (IsInGuild() returns false during logout)
+    return IsInGuild() or self.state.isInGuild
 end
 
 -- Get channel settings table
@@ -482,15 +606,28 @@ end
 
 -- Send guild farewell on logout
 function Addon:SendGuildFarewell()
+    self:DebugPrint("SendGuildFarewell called")
     local db = self.db.profile
 
-    if not db.enabled then return end
-    if not db.guild.enabled then return end
+    if not db.enabled then
+        self:DebugPrint("Addon disabled, skipping guild farewell")
+        return
+    end
+    if not db.guild.enabled then
+        self:DebugPrint("Guild channel disabled, skipping farewell")
+        return
+    end
     if not db.guild.sendFarewell then
         self:DebugPrint("Guild farewell on logout disabled")
         return
     end
-    if not self:IsInGuildOrTest() then return end
+
+    local inGuild = self:IsInGuildOrTest()
+    self:DebugPrint("IsInGuildOrTest:", tostring(inGuild))
+    if not inGuild then
+        self:DebugPrint("Not in guild, skipping farewell")
+        return
+    end
 
     -- Get random farewell for guild
     local message = self:GetRandomMessageForChannel("farewells", "GUILD")
@@ -499,6 +636,7 @@ function Addon:SendGuildFarewell()
         return
     end
 
+    self:DebugPrint("Sending guild farewell:", message)
     -- Send immediately (no delay for farewells)
     self:DoSendMessage(message, "GUILD")
 end
