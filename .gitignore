@@ -1,0 +1,26 @@
+# Libraries (downloaded by packager)
+Libs/
+
+# WoW generated files
+*.bak
+*.orig
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE/Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Packager output
+.release/
+*.zip
+
+# Local testing
+test.lua
+debug.lua
