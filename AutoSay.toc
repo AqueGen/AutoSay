@@ -1,8 +1,10 @@
-## Interface: 110105
+## Interface: 110207
 ## Title: AutoSay
 ## Notes: Automatically sends greetings and farewells in party, raid, and guild chat
-## Author: YourName
+## Author: AqueGen
 ## Version: @project-version@
+## X-License: MIT
+## X-Website: https://github.com/AqueGen/AutoSay
 ## SavedVariables: AutoSayDB
 ## IconTexture: Interface\Icons\Spell_Holy_Devotion
 ## Category: Chat & Communication
