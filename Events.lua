@@ -25,22 +25,37 @@ function Addon:GROUP_JOINED()
 
     if not db.enabled then return end
 
-    -- Initialize group tracking
-    self.state.previousGroup = self:GetCurrentGroupMembers()
-    self.state.sentGreetings = {}
+    -- Delay to allow raid/party state to fully initialize
+    self:ScheduleTimer(function()
+        -- Initialize group tracking
+        self.state.previousGroup = self:GetCurrentGroupMembers()
+        self.state.sentGreetings = {}
 
-    -- Determine channel type
-    local channel = self:GetChatChannel()
-    if not channel then return end
+        -- Update current group type
+        if IsInRaid() then
+            self.state.currentGroupType = "RAID"
+        elseif IsInGroup() then
+            self.state.currentGroupType = "PARTY"
+        end
 
-    -- Check per-channel settings
-    if not self:ShouldGreetOnSelfJoin(channel) then
-        self:DebugPrint("Self join greetings disabled for", channel)
-        return
-    end
+        -- Determine channel type
+        local channel = self:GetChatChannel()
+        if not channel then
+            self:DebugPrint("Not in group after delay, skipping greeting")
+            return
+        end
 
-    -- Send greeting
-    self:SendGreeting(nil, "self_join")
+        self:DebugPrint("Detected group type:", channel)
+
+        -- Check per-channel settings
+        if not self:ShouldGreetOnSelfJoin(channel) then
+            self:DebugPrint("Self join greetings disabled for", channel)
+            return
+        end
+
+        -- Send greeting
+        self:SendGreeting(nil, "self_join")
+    end, 1) -- 1 second delay for group state to initialize
 end
 
 -- Handle GROUP_LEFT - we left a group
@@ -122,14 +137,25 @@ end
 
 -- Handle PLAYER_ENTERING_WORLD - for guild greeting on login
 function Addon:PLAYER_ENTERING_WORLD(event, isInitialLogin, isReloadingUi)
-    self:DebugPrint("EVENT: PLAYER_ENTERING_WORLD", "isInitialLogin:", isInitialLogin, "isReloadingUi:", isReloadingUi)
+    self:DebugPrint("EVENT: PLAYER_ENTERING_WORLD", "isInitialLogin:", tostring(isInitialLogin), "isReloadingUi:", tostring(isReloadingUi))
 
     -- Only send guild greeting on initial login, not on reload or zone change
     if isInitialLogin then
+        self:DebugPrint("Initial login detected, scheduling guild greeting")
         -- Delay guild greeting to allow guild roster to load
         self:ScheduleTimer(function()
-            self:SendGuildGreeting()
-        end, 3) -- 3 second delay for guild to load
+            self:DebugPrint("Attempting to send guild greeting, IsInGuild:", tostring(IsInGuild()))
+            if IsInGuild() then
+                self:SendGuildGreeting()
+            else
+                -- Retry once more after additional delay if guild not loaded yet
+                self:DebugPrint("Guild not loaded yet, retrying in 5 seconds")
+                self:ScheduleTimer(function()
+                    self:DebugPrint("Retry: IsInGuild:", tostring(IsInGuild()))
+                    self:SendGuildGreeting()
+                end, 5)
+            end
+        end, 5) -- 5 second delay for guild to load
     end
 
     -- Initialize group state if already in a group
