@@ -2,35 +2,40 @@
 
 [![CurseForge](https://img.shields.io/badge/CurseForge-AutoSay-orange)](https://www.curseforge.com/wow/addons/autosay)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![WoW Version](https://img.shields.io/badge/WoW-11.2.7-brightgreen)](https://worldofwarcraft.com)
+[![WoW Version](https://img.shields.io/badge/WoW-11.2.7+-brightgreen)](https://worldofwarcraft.com)
 
 A World of Warcraft addon that automatically sends greetings and farewells in party, raid, and guild chat. Never forget to say hello or goodbye again!
 
 ## Features
 
 ### Per-Channel Configuration
+
 Configure each channel independently with its own settings:
-- **Party Chat** - Greet your dungeon groups automatically
-- **Raid Chat** - Welcome your raid members
-- **Guild Chat** - Send greetings on login and farewells on logout
+
+- **Party Chat** - Greet your dungeon groups automatically (enabled by default)
+- **Raid Chat** - Welcome your raid members (disabled by default)
+- **Guild Chat** - Send greetings on login and farewells on logout (disabled by default)
 
 ### Smart Triggers
 Choose when messages are sent:
 - **On Self Join** - When you join a group/raid or log in (guild)
 - **On Others Join** - When other players join your group (party/raid only)
+- **On Reconnect** - Send reconnect message after disconnecting (party/raid only)
 - **On Leave** - Send farewells when leaving groups
 - **On Logout** - Send guild farewell when logging out
 
 ### Message Customization
-- **24 Built-in Greetings** - From casual "Hi!" to international "Konnichiwa!"
-- **20 Built-in Farewells** - From simple "Bye!" to multilingual "Sayonara!"
-- **Custom Messages** - Add your own personalized greetings and farewells
+- **12 Built-in Greetings** - From casual "Hi!" to friendly "Hello there!"
+- **12 Built-in Farewells** - From simple "Bye!" to "Later all!"
+- **14 Reconnect Messages** - From "Back!" to "Sorry, got disconnected!"
+- **Custom Messages** - Add your own personalized messages per channel
 - **Per-Channel Selection** - Enable different messages for different channels
 - **Random Selection** - Messages are randomly picked from your enabled pool
 
 ### Additional Features
 - **Player Names** - Optionally include joining player's name in greetings
-- **Cooldown System** - Prevent spam with configurable cooldown timer
+- **Cooldown System** - Separate cooldowns for guild and group messages (default: 5s)
+- **Message Delay** - Configurable delay before sending (default: 1s)
 - **Test Mode** - Test all functionality without sending actual messages
 - **Debug Mode** - Detailed logging for troubleshooting
 - **Profile Support** - Save different configurations per character
@@ -58,6 +63,7 @@ Install via [CurseForge](https://www.curseforge.com/wow/addons/autosay) app for 
 | `/as` | Open settings |
 | `/as toggle` | Enable/disable addon |
 | `/as testmode` | Toggle test mode |
+| `/as debug` | Toggle debug mode |
 | `/as status` | Show current status |
 | `/as help` | Show all commands |
 
@@ -70,6 +76,7 @@ Install via [CurseForge](https://www.curseforge.com/wow/addons/autosay) app for 
 | `/as test leave` | Simulate leaving group |
 | `/as test guild` | Simulate guild login greeting |
 | `/as test guildbye` | Simulate guild logout farewell |
+| `/as test reconnect` | Simulate reconnecting to group |
 | `/as test player [name]` | Simulate player joining your group |
 | `/as test reset` | Reset test state |
 | `/as test status` | Show test status |
@@ -83,9 +90,10 @@ Install via [CurseForge](https://www.curseforge.com/wow/addons/autosay) app for 
 4. Choose triggers:
    - **On Self Join** - Greet when you join
    - **On Others Join** - Greet when others join
+   - **On Reconnect** - Send reconnect message after DC
    - **Include Names** - Add player names to greetings
    - **Send Farewell** - Say goodbye when leaving
-5. Select messages in **Greetings** and **Farewells** sub-tabs
+5. Select messages in **Greetings**, **Farewells**, and **Reconnects** sub-tabs
 
 ### Guild Settings
 1. Select **Guild** tab
@@ -96,36 +104,62 @@ Install via [CurseForge](https://www.curseforge.com/wow/addons/autosay) app for 
 4. Select your preferred messages
 
 ### General Settings
-- **Cooldown** - Minimum seconds between messages (default: 5)
-- **Message Delay** - Delay before sending (default: 2 seconds)
+
+- **Cooldown** - Minimum seconds between messages (default: 5s, separate for guild/group)
+- **Message Delay** - Delay before sending (default: 1s)
 - **Debug Mode** - Enable detailed console logging
 
 ## Built-in Messages
 
-### Greetings
-| English | International |
-|---------|---------------|
-| Hi!, Hello!, Hey! | Hola!, Ciao!, Bonjour! |
-| Yo!, Heya!, Sup? | Konnichiwa!, Ni hao! |
-| Howdy!, Hiya! | Annyeonghaseyo!, Merhaba! |
-| Greetings!, Wassup! | Aloha!, Shalom!, Namaste! |
+### Greetings (12)
 
-### Farewells
-| English | International |
-|---------|---------------|
-| Bye!, Goodbye!, See ya! | Adios!, Ciao!, Au revoir! |
-| Later!, Cya!, Take care! | Sayonara!, Zai jian! |
-| Peace!, Cheers!, GN! | Annyeong!, Tschuss! |
-| BB!, GTG bye!, Later all! | Do svidaniya! |
+| Default Enabled | Disabled by Default |
+|-----------------|---------------------|
+| Hi! | Wassup! |
+| Hello! | Yo! |
+| Hey! | Heya! |
+| Greetings! | Sup? |
+| | Howdy! |
+| | Hiya! |
+| | Yo yo! |
+| | Hello there! |
+
+### Farewells (12)
+
+| Default Enabled | Disabled by Default |
+|-----------------|---------------------|
+| Bye! | See ya! |
+| Goodbye! | Later! |
+| GTG, bye! | Cya! |
+| Take care! | Cheers! |
+| Peace! | GN! |
+| | BB! |
+| | Later all! |
+
+### Reconnect Messages (14)
+
+| Default Enabled | Disabled by Default |
+|-----------------|---------------------|
+| Back! | Re! |
+| Reconnected! | Back again! |
+| I'm back! | Here we go again! |
+| | Miss me? |
+| | Back in the game! |
+| | Sorry for DC! |
+| | Sorry, got disconnected! |
+| | DC, sorry about that! |
+| | My bad, DC! |
+| | Internet issues, back now! |
+| | Lagged out, I'm back! |
 
 ## Requirements
 
-- World of Warcraft: The War Within (11.2.7+)
+- World of Warcraft: The War Within (11.0.2+)
 - No additional addons required (libraries included)
 
 ## Dependencies (Bundled)
 
-- Ace3 Framework (AceAddon, AceDB, AceConfig, AceConsole, AceEvent, AceTimer, AceLocale, AceGUI)
+- Ace3 Framework (AceAddon, AceDB, AceConfig, AceConsole, AceEvent, AceTimer, AceHook, AceLocale, AceGUI)
 - LibStub
 - CallbackHandler
 
