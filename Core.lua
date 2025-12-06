@@ -107,7 +107,7 @@ local defaults = {
         testMode = false,
 
         -- Timing (global)
-        messageDelay = 3.0,
+        messageDelay = 1.0,
         cooldown = 0,
 
         -- Party settings
@@ -124,6 +124,9 @@ local defaults = {
             customGreeting = "",
             customFarewell = "",
             customReconnect = "",
+            useCustomGreeting = false,
+            useCustomFarewell = false,
+            useCustomReconnect = false,
         },
 
         -- Raid settings
@@ -140,6 +143,9 @@ local defaults = {
             customGreeting = "",
             customFarewell = "",
             customReconnect = "",
+            useCustomGreeting = false,
+            useCustomFarewell = false,
+            useCustomReconnect = false,
         },
 
         -- Guild settings (same structure as party/raid)
@@ -151,6 +157,8 @@ local defaults = {
             enabledFarewells = DeepCopy(defaultFarewells),
             customGreeting = "",
             customFarewell = "",
+            useCustomGreeting = false,
+            useCustomFarewell = false,
         },
     },
 }
@@ -521,8 +529,9 @@ function Addon:GetRandomMessageForChannel(messageType, channel)
         end
     end
 
-    -- Add custom message if set
-    if settings[customKey] and settings[customKey] ~= "" then
+    -- Add custom message if enabled and set
+    local useCustomKey = "useCustom" .. customKey:sub(7, 7):upper() .. customKey:sub(8) -- customGreeting -> useCustomGreeting
+    if settings[useCustomKey] and settings[customKey] and settings[customKey] ~= "" then
         table.insert(enabled, settings[customKey])
     end
 

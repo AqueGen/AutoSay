@@ -49,6 +49,17 @@ local function BuildGreetingToggles(channel)
     }
     order = order + 1
 
+    args.useCustomGreeting = {
+        type = "toggle",
+        name = L["Use custom greeting"],
+        desc = L["Include your custom greeting in the message pool"],
+        order = order,
+        width = 1.2,
+        get = function() return Addon.db.profile[channel].useCustomGreeting end,
+        set = function(_, val) Addon.db.profile[channel].useCustomGreeting = val end,
+    }
+    order = order + 1
+
     args.customGreeting = {
         type = "input",
         name = L["Custom greeting"],
@@ -107,6 +118,17 @@ local function BuildReconnectToggles(channel)
     }
     order = order + 1
 
+    args.useCustomReconnect = {
+        type = "toggle",
+        name = L["Use custom reconnect"],
+        desc = L["Include your custom reconnect in the message pool"],
+        order = order,
+        width = 1.2,
+        get = function() return Addon.db.profile[channel].useCustomReconnect end,
+        set = function(_, val) Addon.db.profile[channel].useCustomReconnect = val end,
+    }
+    order = order + 1
+
     args.customReconnect = {
         type = "input",
         name = L["Custom reconnect"],
@@ -162,6 +184,17 @@ local function BuildFarewellToggles(channel)
         type = "header",
         name = L["Custom farewell"],
         order = order,
+    }
+    order = order + 1
+
+    args.useCustomFarewell = {
+        type = "toggle",
+        name = L["Use custom farewell"],
+        desc = L["Include your custom farewell in the message pool"],
+        order = order,
+        width = 1.2,
+        get = function() return Addon.db.profile[channel].useCustomFarewell end,
+        set = function(_, val) Addon.db.profile[channel].useCustomFarewell = val end,
     }
     order = order + 1
 
