@@ -603,11 +603,21 @@ local options = {
                             status = status .. "Simulated group: |cFF888888None|r\n"
                         end
 
-                        local cooldownRemaining = math.max(0, Addon.db.profile.cooldown - (GetTime() - Addon.state.lastMessageTime))
-                        if cooldownRemaining > 0 then
-                            status = status .. "Cooldown: |cFFFF8800" .. string.format("%.1f", cooldownRemaining) .. "s|r"
+                        local groupCooldown = math.max(0, Addon.db.profile.cooldown - (GetTime() - Addon.state.lastGroupMessageTime))
+                        local guildCooldown = math.max(0, Addon.db.profile.cooldown - (GetTime() - Addon.state.lastGuildMessageTime))
+
+                        status = status .. "Group cooldown: "
+                        if groupCooldown > 0 then
+                            status = status .. "|cFFFF8800" .. string.format("%.1f", groupCooldown) .. "s|r"
                         else
-                            status = status .. "Cooldown: |cFF00FF00Ready|r"
+                            status = status .. "|cFF00FF00Ready|r"
+                        end
+
+                        status = status .. " | Guild cooldown: "
+                        if guildCooldown > 0 then
+                            status = status .. "|cFFFF8800" .. string.format("%.1f", guildCooldown) .. "s|r"
+                        else
+                            status = status .. "|cFF00FF00Ready|r"
                         end
 
                         return status

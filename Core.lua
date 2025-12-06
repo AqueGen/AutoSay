@@ -151,8 +151,8 @@ local defaults = {
         -- Guild settings (same structure as party/raid)
         guild = {
             enabled = true,
-            onSelfJoin = true,  -- Send greeting on login
-            sendFarewell = true, -- Send farewell on logout
+            onSelfJoin = false,  -- Send greeting on login (disabled by default)
+            sendFarewell = false, -- Send farewell on logout (disabled by default)
             enabledGreetings = DeepCopy(defaultGreetings),
             enabledFarewells = DeepCopy(defaultFarewells),
             customGreeting = "",
@@ -166,7 +166,8 @@ local defaults = {
 -- State tracking
 Addon.state = {
     previousGroup = nil,
-    lastMessageTime = 0,
+    lastGroupMessageTime = 0, -- Cooldown for party/raid messages
+    lastGuildMessageTime = 0, -- Cooldown for guild messages (separate from group)
     pendingFarewell = false,
     currentGroupType = nil,
     sentGreetings = {},
@@ -392,13 +393,21 @@ function Addon:OpenConfig()
     Settings.OpenToCategory("AutoSay")
 end
 
--- Check if cooldown has passed
-function Addon:CanSendMessage()
+-- Check if cooldown has passed for a specific channel type
+function Addon:CanSendMessage(channelType)
     local now = GetTime()
     local cooldown = self.db.profile.cooldown
 
-    if (now - self.state.lastMessageTime) < cooldown then
-        self:DebugPrint("Cooldown active, skipping message")
+    -- Use separate cooldowns for guild vs group
+    local lastMessageTime
+    if channelType == "GUILD" then
+        lastMessageTime = self.state.lastGuildMessageTime
+    else
+        lastMessageTime = self.state.lastGroupMessageTime
+    end
+
+    if (now - lastMessageTime) < cooldown then
+        self:DebugPrint("Cooldown active for", channelType or "unknown", ", skipping message")
         return false
     end
 
@@ -412,7 +421,7 @@ function Addon:SendMessageToChat(message, channel, target)
         return
     end
 
-    if not self:CanSendMessage() then
+    if not self:CanSendMessage(channel) then
         return
     end
 
@@ -434,6 +443,15 @@ function Addon:DoSendMessage(message, channel, target)
         return
     end
 
+    -- Update appropriate cooldown based on channel type
+    local function updateCooldown()
+        if channel == "GUILD" then
+            self.state.lastGuildMessageTime = GetTime()
+        else
+            self.state.lastGroupMessageTime = GetTime()
+        end
+    end
+
     -- In test mode, print to chat instead of actually sending
     if self:IsTestMode() then
         local channelColor = "|cFF00CCFF" -- Default blue
@@ -446,13 +464,13 @@ function Addon:DoSendMessage(message, channel, target)
         end
 
         print("|cFFFF9900[AutoSay TEST]|r Would send to " .. channelColor .. "[" .. channel .. "]|r: " .. message)
-        self.state.lastMessageTime = GetTime()
+        updateCooldown()
         self:DebugPrint("Test mode - simulated send to", channel, ":", message)
         return
     end
 
     SendChatMessage(message, channel, nil, target)
-    self.state.lastMessageTime = GetTime()
+    updateCooldown()
 
     self:DebugPrint("Sent to", channel, ":", message)
 end
@@ -713,7 +731,8 @@ function Addon:TestReset()
     self.state.previousGroup = nil
     self.state.sentGreetings = {}
     self.state.currentGroupType = nil
-    self.state.lastMessageTime = 0
+    self.state.lastGroupMessageTime = 0
+    self.state.lastGuildMessageTime = 0
     self:TestPrint("Test state reset")
 end
 
@@ -872,7 +891,9 @@ function Addon:TestStatus()
         self:Print("Simulated group:", "|cFF888888None|r")
     end
 
-    self:Print("Cooldown remaining:", math.max(0, self.db.profile.cooldown - (GetTime() - self.state.lastMessageTime)) .. "s")
+    local groupCooldown = math.max(0, self.db.profile.cooldown - (GetTime() - self.state.lastGroupMessageTime))
+    local guildCooldown = math.max(0, self.db.profile.cooldown - (GetTime() - self.state.lastGuildMessageTime))
+    self:Print("Cooldown remaining: Group:", string.format("%.1fs", groupCooldown), "| Guild:", string.format("%.1fs", guildCooldown))
 
     -- Show channel status
     local db = self.db.profile
