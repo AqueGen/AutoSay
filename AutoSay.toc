@@ -10,7 +10,7 @@
 ## SavedVariables: AutoSayDB
 ## IconTexture: Interface\Icons\Spell_Holy_Devotion
 ## Category: Chat & Communication
-## X-Curse-Project-Id: 1399061
+## X-Curse-Project-ID: 1399061
 
 # Libraries
 Libs\LibStub\LibStub.lua
