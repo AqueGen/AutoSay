@@ -15,6 +15,10 @@ on:
           - release
           - beta
           - alpha
+      version:
+        description: 'Version (e.g., 1.0.4-beta.1). Leave empty for auto from latest tag.'
+        required: false
+        type: string
       dry_run:
         description: 'Dry run (no upload)'
         required: false
@@ -34,27 +38,55 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Determine release type from tag
-        id: release_type
+      - name: Determine version for manual dispatch
+        id: version
+        if: github.event_name == 'workflow_dispatch'
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "type=${{ inputs.release_type }}" >> $GITHUB_OUTPUT
-            echo "args=-r ${{ inputs.release_type }}" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref_name }}" == *"-alpha"* ]]; then
-            echo "type=alpha" >> $GITHUB_OUTPUT
-            echo "args=" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref_name }}" == *"-beta"* ]]; then
-            echo "type=beta" >> $GITHUB_OUTPUT
-            echo "args=" >> $GITHUB_OUTPUT
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
           else
-            echo "type=release" >> $GITHUB_OUTPUT
-            echo "args=" >> $GITHUB_OUTPUT
+            # Get latest tag and append release type suffix
+            LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+            BASE_VERSION=${LATEST_TAG#v}
+
+            # Parse version components
+            MAJOR=$(echo $BASE_VERSION | cut -d. -f1)
+            MINOR=$(echo $BASE_VERSION | cut -d. -f2)
+            PATCH=$(echo $BASE_VERSION | cut -d. -f3 | cut -d- -f1)
+
+            # Increment patch for new version
+            NEW_PATCH=$((PATCH + 1))
+
+            case "${{ inputs.release_type }}" in
+              alpha)
+                VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}-alpha.1"
+                ;;
+              beta)
+                VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}-beta.1"
+                ;;
+              release)
+                VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+                ;;
+            esac
           fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "📦 Version: $VERSION"
+
+      - name: Create tag for manual dispatch
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${VERSION}" -m "Release v${VERSION}"
+          git push origin "v${VERSION}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Package and Release
         uses: BigWigsMods/packager@v2
         with:
-          args: ${{ inputs.dry_run && '-d' || '' }} ${{ steps.release_type.outputs.args }}
+          args: ${{ inputs.dry_run && '-d' || '' }}
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
