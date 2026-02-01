@@ -1,5 +1,5 @@
-## Interface: 110207, 120000
-## Interface-Retail: 110207, 120000
+## Interface: 120000, 120001
+## Interface-Retail: 120000, 120001
 ## Title: AutoSay
 ## Notes: Automatically sends greetings, farewells, and reconnect messages in party, raid, and guild chat
 ## Author: AqueGen

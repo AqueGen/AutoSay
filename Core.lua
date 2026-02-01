@@ -407,7 +407,11 @@ function Addon:CanSendMessage(channelType)
     end
 
     if (now - lastMessageTime) < cooldown then
-        self:DebugPrint("Cooldown active for", channelType or "unknown", ", skipping message")
+        local remaining = cooldown - (now - lastMessageTime)
+        self:DebugPrint("Cooldown active for", channelType or "unknown", ", skipping message (" .. string.format("%.1f", remaining) .. "s remaining)")
+        if self:IsTestMode() then
+            self:TestPrint("Message blocked by cooldown (" .. string.format("%.1f", remaining) .. "s remaining). Wait " .. cooldown .. "s between messages.")
+        end
         return false
     end
 
@@ -469,10 +473,18 @@ function Addon:DoSendMessage(message, channel, target)
         return
     end
 
-    SendChatMessage(message, channel, nil, target)
-    updateCooldown()
-
-    self:DebugPrint("Sent to", channel, ":", message)
+    -- WoW 12.0+ restricts SendChatMessage in certain instance contexts
+    -- (active M+ key, PvP match, boss encounter). Use pcall to handle gracefully.
+    local ok, err = pcall(SendChatMessage, message, channel, nil, target)
+    if ok then
+        updateCooldown()
+        self:DebugPrint("Sent to", channel, ":", message)
+    else
+        self:DebugPrint("Failed to send to", channel, ":", tostring(err))
+        if self:IsTestMode() then
+            self:TestPrint("Failed to send message (possible instance restriction): " .. tostring(err))
+        end
+    end
 end
 
 -- Get appropriate chat channel

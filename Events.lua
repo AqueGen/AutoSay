@@ -206,8 +206,26 @@ function Addon:PLAYER_ENTERING_WORLD(event, isInitialLogin, isReloadingUi)
             self:DebugPrint("Reconnect detected - already in group on login")
             self:ScheduleTimer(function()
                 self:HandleGroupReconnect()
-            end, 2) -- Small delay for group state to fully initialize
+            end, 3) -- Delay for group state to fully initialize (increased for 12.0 compatibility)
         end
+    elseif isInitialLogin and not isReloadingUi then
+        -- Group state might not be available yet on 12.0+
+        -- Schedule a retry to check if we're actually in a group
+        self:DebugPrint("Initial login but not in group yet - scheduling reconnect check retry")
+        self:ScheduleTimer(function()
+            if IsInGroup() then
+                self:DebugPrint("Reconnect retry: now in group, handling reconnect")
+                self.state.previousGroup = self:GetCurrentGroupMembers()
+                if IsInRaid() then
+                    self.state.currentGroupType = "RAID"
+                else
+                    self.state.currentGroupType = "PARTY"
+                end
+                self:HandleGroupReconnect()
+            else
+                self:DebugPrint("Reconnect retry: still not in group, no reconnect needed")
+            end
+        end, 5) -- Longer delay for group state to load after disconnect
     end
 end
 

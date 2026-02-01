@@ -5,6 +5,21 @@ All notable changes to AutoSay will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-02-01
+
+### Changed
+
+- Updated Interface version to 120001 (WoW 12.0.1 Midnight)
+- Increased reconnect detection delay from 2s to 3s for better reliability on 12.0+
+
+### Fixed
+
+- Fixed reconnect detection failing when group state loads after PLAYER_ENTERING_WORLD on 12.0+
+  - Added retry mechanism with 5s delay as fallback for late group loading
+- Fixed test mode showing no feedback when messages are blocked by cooldown
+  - Now displays remaining cooldown time in test mode
+- Added graceful error handling for SendChatMessage in 12.0 instance restrictions (M+ keys, PvP, encounters)
+
 ## [1.0.3] - 2024-12-07
 
 ### Added
@@ -64,6 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[1.1.0]: https://github.com/AqueGen/AutoSay/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/AqueGen/AutoSay/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/AqueGen/AutoSay/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/AqueGen/AutoSay/compare/v1.0.0...v1.0.1
