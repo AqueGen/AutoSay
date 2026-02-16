@@ -2,7 +2,7 @@
 
 [![CurseForge](https://img.shields.io/badge/CurseForge-AutoSay-orange)](https://www.curseforge.com/wow/addons/autosay)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![WoW Version](https://img.shields.io/badge/WoW-11.2.7+-brightgreen)](https://worldofwarcraft.com)
+[![WoW Version](https://img.shields.io/badge/WoW-12.0.1+-brightgreen)](https://worldofwarcraft.com)
 
 A World of Warcraft addon that automatically sends greetings and farewells in party, raid, and guild chat. Never forget to say hello or goodbye again!
 
@@ -154,7 +154,7 @@ Install via [CurseForge](https://www.curseforge.com/wow/addons/autosay) app for 
 
 ## Requirements
 
-- World of Warcraft: The War Within (11.0.2+)
+- World of Warcraft: Midnight (12.0.1+)
 - No additional addons required (libraries included)
 
 ## Dependencies (Bundled)
