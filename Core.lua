@@ -390,7 +390,8 @@ function Addon:SlashCommand(input)
 end
 
 function Addon:OpenConfig()
-    Settings.OpenToCategory("AutoSay")
+    local AceConfigDialog = LibStub("AceConfigDialog-3.0")
+    AceConfigDialog:Open("AutoSay")
 end
 
 -- Check if cooldown has passed for a specific channel type
