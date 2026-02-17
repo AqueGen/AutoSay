@@ -86,7 +86,7 @@ local function BuildGreetingToggles(channel)
             type = "toggle",
             name = msg.text,
             order = order,
-            width = 0.6,
+            width = 1.0,
             get = function() return Addon.db.profile[channel].enabledGreetings[msg.key] end,
             set = function(_, val) Addon.db.profile[channel].enabledGreetings[msg.key] = val end,
         }
@@ -174,7 +174,7 @@ local function BuildReconnectToggles(channel)
             type = "toggle",
             name = msg.text,
             order = order,
-            width = 0.8,
+            width = 1.0,
             get = function() return Addon.db.profile[channel].enabledReconnects[msg.key] end,
             set = function(_, val) Addon.db.profile[channel].enabledReconnects[msg.key] = val end,
         }
@@ -274,7 +274,7 @@ local function BuildGoodbyeToggles(channel)
             type = "toggle",
             name = msg.text,
             order = order,
-            width = 0.6,
+            width = 1.0,
             get = function() return Addon.db.profile[channel].enabledGoodbyes[msg.key] end,
             set = function(_, val) Addon.db.profile[channel].enabledGoodbyes[msg.key] = val end,
         }
@@ -316,7 +316,7 @@ end
 -- Main options table
 local options = {
     type = "group",
-    name = "AutoSay",
+    name = "|cFF0099FFAuto|r|cFFFFD700Say|r",
     handler = Addon,
     args = {
         -- General settings
@@ -658,29 +658,6 @@ local options = {
                     width = "full",
                     get = function() return Addon.db.profile.debugMode end,
                     set = function(_, val) Addon.db.profile.debugMode = val end,
-                },
-            },
-        },
-
-        -- About tab
-        about = {
-            type = "group",
-            name = "About",
-            order = 100,
-            args = {
-                slava = {
-                    type = "description",
-                    name = "|cFF0057B7Slava Ukraini!|r |cFFFFD700Heroiam Slava!|r",
-                    order = 1,
-                    fontSize = "large",
-                    width = "full",
-                },
-                stand = {
-                    type = "description",
-                    name = "|cFFFFFFFFStand with Ukraine|r\n",
-                    order = 2,
-                    fontSize = "medium",
-                    width = "full",
                 },
             },
         },

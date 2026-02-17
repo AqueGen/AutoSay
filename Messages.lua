@@ -15,6 +15,7 @@ AutoSay.Greetings = {
     { key = "hiya", text = "Hiya!" },
     { key = "yoyo", text = "Yo yo!" },
     { key = "hellothere", text = "Hello there!" },
+    { key = "slavaukraini", text = "Slava Ukraini!" },
 }
 
 -- Goodbyes database (enabled by default first)
@@ -32,6 +33,7 @@ AutoSay.Goodbyes = {
     { key = "gn", text = "GN!" },
     { key = "bb", text = "BB!" },
     { key = "laterall", text = "Later all!" },
+    { key = "heroiamslava", text = "Heroiam Slava!" },
 }
 
 -- Reconnect messages database (enabled by default first)
