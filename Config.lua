@@ -508,6 +508,7 @@ local options = {
                                 else
                                     Addon:Print("|cFFFF9900Simulation:|r |cFFFF0000OFF|r")
                                     Addon:TestReset()
+                                    Addon.db.profile.debugMode = false
                                 end
                                 LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
                             end,

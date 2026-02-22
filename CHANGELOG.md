@@ -5,6 +5,13 @@ All notable changes to AutoSay will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-02-23
+
+### Fixed
+
+- Debug logs no longer appear when Simulation is disabled
+- Disabling Simulation now also turns off the Logging toggle
+
 ## [1.1.0] - 2026-02-22
 
 ### Added
@@ -95,6 +102,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[1.1.1]: https://github.com/AqueGen/AutoSay/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/AqueGen/AutoSay/compare/v1.0.7...v1.1.0
 [1.0.3]: https://github.com/AqueGen/AutoSay/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/AqueGen/AutoSay/compare/v1.0.1...v1.0.2

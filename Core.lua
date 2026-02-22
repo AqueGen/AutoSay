@@ -9,7 +9,7 @@ Addon.version = "@project-version@"
 
 -- Debug print helper
 function Addon:DebugPrint(...)
-    if self.db and self.db.profile.debugMode then
+    if self.db and self.db.profile.debugMode and self.db.profile.testMode then
         print("|cFF00FF00[AutoSay Debug]|r", ...)
     end
 end
