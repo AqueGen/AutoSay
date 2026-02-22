@@ -5,15 +5,31 @@ All notable changes to AutoSay will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1.0] - 2026-02-01
+## [1.1.0] - 2026-02-22
+
+### Added
+
+- **Cooldown Message Queue**: Messages blocked by cooldown are saved and sent later as a batch with automatic name merging
+- **Greeting Text Caching**: Prevents different random greetings within the same cooldown window
+- **Window Persistence**: Settings window size and position are saved across sessions via SavedVariables
+- **Reset Window Size**: Button in General settings to restore default window dimensions (1000×700)
+- **Ukrainian Phrases**: New greetings and goodbyes in Ukrainian language
 
 ### Changed
 
+- **Settings UI Redesign**: Consolidated 9 channel tabs into 3 (Party/Raid/Guild) with Greetings/Goodbyes/Reconnects sub-tabs
+- Disabled channels now hide their tabs entirely with instant tree refresh
+- Moved Simulation toggle to General settings; Simulation tab hidden when disabled
+- Renamed "Test Mode" to "Simulation", "Debug" to "Logging"/"Show debug log"
+- Added `width="full"` to sub-option toggles to prevent text truncation
+- Updated addon title formatting
 - Updated Interface version to 120001 (WoW 12.0.1 Midnight)
 - Increased reconnect detection delay from 2s to 3s for better reliability on 12.0+
 
 ### Fixed
 
+- Fixed race condition in SendMessageToChat where rapid calls all passed cooldown check
+- Fixed settings panel opening via AceConfigDialog:Open
 - Fixed reconnect detection failing when group state loads after PLAYER_ENTERING_WORLD on 12.0+
   - Added retry mechanism with 5s delay as fallback for late group loading
 - Fixed test mode showing no feedback when messages are blocked by cooldown
@@ -79,7 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[1.1.0]: https://github.com/AqueGen/AutoSay/compare/v1.0.3...v1.1.0
+[1.1.0]: https://github.com/AqueGen/AutoSay/compare/v1.0.7...v1.1.0
 [1.0.3]: https://github.com/AqueGen/AutoSay/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/AqueGen/AutoSay/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/AqueGen/AutoSay/compare/v1.0.0...v1.0.1
