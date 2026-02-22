@@ -6,14 +6,15 @@ L["AutoSay"] = "AutoSay"
 L["Enable"] = "Enable"
 L["Enable addon"] = "Enable addon"
 L["Channels"] = "Channels"
-L["Debug mode"] = "Debug mode"
-L["Show debug messages in chat"] = "Show debug messages in chat"
+L["Debug mode"] = "Show debug log"
+L["Show debug messages in chat"] = "Print detailed debug messages to chat window"
 
 -- Categories / Tabs
 L["General"] = "General"
 L["Greetings"] = "Greetings"
 L["Goodbyes"] = "Goodbyes"
 L["Messages"] = "Messages"
+L["Reconnects"] = "Reconnects"
 
 -- Channel names
 L["Party"] = "Party"
@@ -80,10 +81,18 @@ L["Send greeting when you log in"] = "Send greeting when you log in"
 L["On logout"] = "On logout"
 L["Send goodbye when you log out"] = "Send goodbye when you log out"
 
+-- Greet newcomers group
+L["Greet newcomers"] = "Greet newcomers"
+L["Only if leader"] = "Only if leader"
+L["Only greet newcomers when you are the party leader"] = "Only greet newcomers when you are the party leader"
+L["Only greet newcomers when you are the raid leader"] = "Only greet newcomers when you are the raid leader"
+
 -- Names
 L["Player Names"] = "Player Names"
 L["Include player names"] = "Include player names"
 L["Add joined player names to the greeting"] = "Add joined player names to the greeting"
+L["Include group member names"] = "Include group member names"
+L["Add names of current group members to the greeting"] = "Add names of current group members to the greeting"
 
 -- Goodbyes
 L["Send Goodbye"] = "Send Goodbye"
@@ -132,12 +141,12 @@ L["Addon disabled"] = "Addon disabled"
 L["Sent greeting to"] = "Sent greeting to"
 L["Sent goodbye to"] = "Sent goodbye to"
 
--- Test Mode
-L["Test Mode"] = "Test Mode"
-L["Test mode description"] = "Test mode allows you to test all addon functionality without being in a group, raid, or guild. Messages will be printed to chat instead of actually sent."
+-- Simulation
+L["Test Mode"] = "Simulation"
+L["Test mode description"] = "Simulation mode allows you to test all addon functionality without being in a group, raid, or guild. Messages will be printed to chat instead of actually sent."
 L["Test Mode Toggle"] = "Test Mode Toggle"
-L["Enable Test Mode"] = "Enable Test Mode"
-L["Enable test mode desc"] = "Enable test mode to simulate events and preview messages without sending them"
+L["Enable Test Mode"] = "Enable Simulation"
+L["Enable test mode desc"] = "Enable simulation mode to test events and preview messages without sending them"
 L["Simulate Events"] = "Simulate Events"
 L["Join Party"] = "Join Party"
 L["Simulate joining a party"] = "Simulate joining a party"
@@ -160,10 +169,12 @@ L["Reset all test state and cooldowns"] = "Reset all test state and cooldowns"
 L["Refresh Status"] = "Refresh Status"
 L["Refresh the status display"] = "Refresh the status display"
 
--- Debug
-L["Debug"] = "Debug"
+-- Debug / Logging
+L["Debug"] = "Logging"
 
 -- Reset
+L["Reset window size"] = "Reset window size"
+L["Reset settings window to default size and position"] = "Reset settings window to default size and position"
 L["Reset to Defaults"] = "Reset to Defaults"
 L["Reset all settings to default values"] = "Reset all settings to default values"
 L["Are you sure you want to reset all settings to defaults?"] = "Are you sure you want to reset all settings to defaults?"

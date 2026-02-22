@@ -60,8 +60,23 @@ function Addon:GROUP_JOINED()
             return
         end
 
+        -- Collect group member names if enabled
+        local memberNames = nil
+        local settings = self:GetChannelSettings(channel)
+        if settings and settings.includeGroupNames then
+            memberNames = {}
+            local currentGroup = self:GetCurrentGroupMembers()
+            local myName = UnitName("player")
+            for name in pairs(currentGroup) do
+                if name ~= myName then
+                    table.insert(memberNames, name)
+                end
+            end
+            self:DebugPrint("Including group member names:", table.concat(memberNames, ", "))
+        end
+
         -- Send greeting
-        self:SendGreeting(nil, "self_join")
+        self:SendGreeting(memberNames, "self_join")
     end, 1) -- 1 second delay for group state to initialize
 end
 
@@ -77,6 +92,21 @@ function Addon:GROUP_LEFT()
     self.state.sentGreetings = {}
     self.state.currentGroupType = nil
     self.state.groupGoodbyeSent = false
+    self.state.pendingNewMembers = {}
+    if self.state.pendingGreetTimer then
+        self:CancelTimer(self.state.pendingGreetTimer)
+        self.state.pendingGreetTimer = nil
+    end
+    if #self.state.messageQueue > 0 then
+        self:DebugPrint("GROUP_LEFT -> clearing", #self.state.messageQueue, "queued message(s)")
+    end
+    self.state.messageQueue = {}
+    if self.state.queueTimer then
+        self:DebugPrint("GROUP_LEFT -> cancelling queue timer")
+        self:CancelTimer(self.state.queueTimer)
+        self.state.queueTimer = nil
+    end
+    self.state.lastGreetingText = {}
 end
 
 -- Handle GROUP_ROSTER_UPDATE - group composition changed
@@ -149,13 +179,36 @@ function Addon:GROUP_ROSTER_UPDATE()
     -- Update state
     self.state.previousGroup = currentGroup
 
-    -- If others joined and we have that setting enabled for current channel
+    -- If others joined, batch them before sending greeting
+    -- (GROUP_ROSTER_UPDATE fires multiple times when a group of players joins)
     if #newMembers > 0 then
-        self:DebugPrint("New members to greet:", table.concat(newMembers, ", "))
+        self:DebugPrint("New members detected:", table.concat(newMembers, ", "))
 
         local channel = self.state.currentGroupType
         if channel and self:ShouldGreetOnOthersJoin(channel) then
-            self:SendGreeting(newMembers, "others_join")
+            -- Add to pending batch
+            for _, name in ipairs(newMembers) do
+                self.state.pendingNewMembers[name] = true
+            end
+
+            -- Start batch timer only if not already running
+            -- (subsequent joiners just accumulate in pendingNewMembers)
+            if not self.state.pendingGreetTimer then
+                local batchWindow = 2 -- seconds to collect rapid GROUP_ROSTER_UPDATE events
+                self.state.pendingGreetTimer = self:ScheduleTimer(function()
+                    local names = {}
+                    for name in pairs(self.state.pendingNewMembers) do
+                        table.insert(names, name)
+                    end
+                    self.state.pendingNewMembers = {}
+                    self.state.pendingGreetTimer = nil
+
+                    if #names > 0 then
+                        self:DebugPrint("Sending batched greeting for:", table.concat(names, ", "))
+                        self:SendGreeting(names, "others_join")
+                    end
+                end, batchWindow)
+            end
         else
             self:DebugPrint("Others join greeting disabled for", channel or "unknown")
         end

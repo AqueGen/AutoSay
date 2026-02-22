@@ -115,8 +115,10 @@ local defaults = {
             enabled = true,
             onSelfJoin = true,
             onOthersJoin = false,
+            onOthersJoinLeaderOnly = false, -- Only greet newcomers when you are the group leader
             onReconnect = true, -- Send greeting when reconnecting to group
-            includeNames = false,
+            includeNames = false, -- Include names of players who joined (others join)
+            includeGroupNames = false, -- Include names of existing group members (self join)
             sendGoodbye = true,
             enabledGreetings = DeepCopy(defaultGreetings),
             enabledGoodbyes = DeepCopy(defaultGoodbyes),
@@ -134,8 +136,10 @@ local defaults = {
             enabled = false,
             onSelfJoin = false,
             onOthersJoin = false,
+            onOthersJoinLeaderOnly = false, -- Only greet newcomers when you are the raid leader
             onReconnect = false,
-            includeNames = false,
+            includeNames = false, -- Include names of players who joined (others join)
+            includeGroupNames = false, -- Include names of existing group members (self join)
             sendGoodbye = false,
             enabledGreetings = DeepCopy(defaultGreetings),
             enabledGoodbyes = DeepCopy(defaultGoodbyes),
@@ -147,6 +151,9 @@ local defaults = {
             useCustomGoodbye = false,
             useCustomReconnect = false,
         },
+
+        -- Config window status (persisted size/position)
+        configWindowStatus = nil,
 
         -- Guild settings (disabled by default - less commonly needed)
         guild = {
@@ -173,6 +180,11 @@ Addon.state = {
     sentGreetings = {},
     isInGuild = false, -- Cached guild status (IsInGuild() returns false during logout)
     groupGoodbyeSent = false, -- Track if group goodbye was sent (to avoid duplicates)
+    pendingNewMembers = {}, -- Batch new members for others_join greeting
+    pendingGreetTimer = nil, -- Timer for batched greeting
+    messageQueue = {}, -- Queue for cooldown-blocked messages
+    queueTimer = nil, -- Timer for processing queued messages
+    lastGreetingText = {}, -- Cache greeting text per channel:reason for consistency
 }
 
 -- Test mode simulation state
@@ -180,6 +192,7 @@ Addon.testState = {
     simulatedGroupType = nil, -- "PARTY", "RAID", or nil
     simulatedInGuild = false,
     simulatedGroupMembers = {},
+    simulatedIsLeader = true, -- Simulate being group leader (default true for test)
 }
 
 function Addon:OnInitialize()
@@ -391,7 +404,37 @@ end
 
 function Addon:OpenConfig()
     local AceConfigDialog = LibStub("AceConfigDialog-3.0")
+
+    -- Restore saved window status or set default size
+    local status = AceConfigDialog:GetStatusTable("AutoSay")
+    local saved = self.db.profile.configWindowStatus
+    if saved and saved.width then
+        status.width = saved.width
+        status.height = saved.height
+        status.top = saved.top
+        status.left = saved.left
+    elseif not status.width then
+        status.width = 1000
+        status.height = 700
+    end
+
     AceConfigDialog:Open("AutoSay")
+
+    -- Hook frame close to save window status
+    local frame = AceConfigDialog.OpenFrames["AutoSay"]
+    if frame then
+        frame:SetCallback("OnClose", function(widget, event)
+            local s = AceConfigDialog:GetStatusTable("AutoSay")
+            self.db.profile.configWindowStatus = {
+                width = s.width,
+                height = s.height,
+                top = s.top,
+                left = s.left,
+            }
+            AceConfigDialog.OpenFrames["AutoSay"] = nil
+            LibStub("AceGUI-3.0"):Release(widget)
+        end)
+    end
 end
 
 -- Check if cooldown has passed for a specific channel type
@@ -423,11 +466,19 @@ end
 function Addon:SendMessageToChat(message, channel, target)
     if not self.db.profile.enabled then
         self:DebugPrint("Addon disabled, not sending")
-        return
+        return false
     end
 
     if not self:CanSendMessage(channel) then
-        return
+        return false
+    end
+
+    -- Update cooldown immediately to prevent race conditions with rapid calls
+    -- (without this, multiple SendGreeting calls within messageDelay all pass cooldown check)
+    if channel == "GUILD" then
+        self.state.lastGuildMessageTime = GetTime()
+    else
+        self.state.lastGroupMessageTime = GetTime()
     end
 
     local delay = self.db.profile.messageDelay
@@ -440,6 +491,7 @@ function Addon:SendMessageToChat(message, channel, target)
     else
         self:DoSendMessage(message, channel, target)
     end
+    return true
 end
 
 function Addon:DoSendMessage(message, channel, target)
@@ -514,6 +566,14 @@ function Addon:IsInGuildOrTest()
     return IsInGuild() or self.state.isInGuild
 end
 
+-- Check if player is group leader (with test mode support)
+function Addon:IsGroupLeaderOrTest()
+    if self:IsTestMode() and self.testState.simulatedGroupType then
+        return self.testState.simulatedIsLeader
+    end
+    return UnitIsGroupLeader("player")
+end
+
 -- Get channel settings table
 function Addon:GetChannelSettings(channel)
     local db = self.db.profile
@@ -582,7 +642,7 @@ function Addon:AddPlayersToMessage(message, playerNames, includeNames)
     return message .. " " .. table.concat(playerNames, ", ")
 end
 
--- Send greeting
+-- Send greeting (checks cooldown and queues if blocked)
 function Addon:SendGreeting(playerNames, reason)
     local db = self.db.profile
 
@@ -603,30 +663,246 @@ function Addon:SendGreeting(playerNames, reason)
         return
     end
 
-    -- Get random message based on reason
-    local message
-    if reason == "reconnect" then
-        -- Use reconnect messages for reconnect reason
-        message = self:GetRandomMessageForChannel("reconnects", channel)
-        if not message then
-            self:DebugPrint("No reconnects enabled for", channel, "- falling back to greetings")
-            message = self:GetRandomMessageForChannel("greetings", channel)
-        end
-    else
-        -- Use regular greetings for other reasons
-        message = self:GetRandomMessageForChannel("greetings", channel)
-    end
+    self:DebugPrint("SendGreeting called - reason:", reason, "channel:", channel,
+        "names:", playerNames and table.concat(playerNames, ", ") or "none")
 
-    if not message then
-        self:DebugPrint("No greetings enabled for", channel)
+    -- Check cooldown - if blocked, queue for later delivery
+    if not self:CanSendMessage(channel) then
+        self:DebugPrint("SendGreeting -> cooldown active, queuing message")
+        self:QueueGreeting(channel, reason, playerNames)
         return
     end
 
+    -- Send immediately
+    self:DebugPrint("SendGreeting -> cooldown OK, sending immediately")
+    self:BuildAndSendGreeting(channel, reason, playerNames)
+end
+
+-- Build a greeting message and send it (used by both direct send and queue processing)
+function Addon:BuildAndSendGreeting(channel, reason, playerNames)
+    local settings = self:GetChannelSettings(channel)
+    if not settings or not settings.enabled then return end
+
+    local textKey = channel .. ":" .. reason
+    local cooldown = self.db.profile.cooldown
+    local now = GetTime()
+
+    -- Reuse same greeting text within cooldown window for consistency
+    -- (so queued messages use the same "Hey!" as the original send)
+    local message
+    local cached = self.state.lastGreetingText[textKey]
+    if cached and (now - cached.time) < cooldown * 2 then
+        message = cached.text
+        self:DebugPrint("BuildAndSend -> reusing cached greeting for consistency:", message,
+            "(age:", string.format("%.1f", now - cached.time) .. "s, window:", cooldown * 2 .. "s)")
+    else
+        -- Pick new random message based on reason
+        if reason == "reconnect" then
+            message = self:GetRandomMessageForChannel("reconnects", channel)
+            if not message then
+                self:DebugPrint("No reconnects enabled for", channel, "- falling back to greetings")
+                message = self:GetRandomMessageForChannel("greetings", channel)
+            end
+        else
+            message = self:GetRandomMessageForChannel("greetings", channel)
+        end
+
+        if not message then
+            self:DebugPrint("No greetings enabled for", channel)
+            return
+        end
+
+        -- Cache for consistency within cooldown window
+        self.state.lastGreetingText[textKey] = { text = message, time = now }
+        self:DebugPrint("BuildAndSend -> new random greeting picked and cached:", message, "key:", textKey)
+    end
+
     -- Add player names if enabled for this channel
-    local includeNames = settings.includeNames or false
+    -- For self_join: names are pre-collected based on includeGroupNames, always append if provided
+    -- For others_join: check includeNames setting
+    local includeNames
+    if reason == "self_join" then
+        includeNames = (playerNames ~= nil and #playerNames > 0)
+    else
+        includeNames = settings.includeNames or false
+    end
     message = self:AddPlayersToMessage(message, playerNames, includeNames)
 
-    self:SendMessageToChat(message, channel)
+    self:DebugPrint("BuildAndSend -> final message:", message)
+
+    local sent = self:SendMessageToChat(message, channel)
+    if sent then
+        self:DebugPrint("BuildAndSend -> message accepted for sending")
+    else
+        -- Cooldown blocked (race condition) - re-queue for retry
+        self:DebugPrint("BuildAndSend -> SendMessageToChat returned false, re-queuing")
+        self:QueueGreeting(channel, reason, playerNames)
+    end
+end
+
+-- Queue a greeting intent for later delivery (when cooldown blocked)
+function Addon:QueueGreeting(channel, reason, playerNames)
+    -- Copy playerNames to avoid reference issues
+    local namesCopy = nil
+    if playerNames and #playerNames > 0 then
+        namesCopy = {}
+        for _, name in ipairs(playerNames) do
+            table.insert(namesCopy, name)
+        end
+    end
+
+    table.insert(self.state.messageQueue, {
+        channel = channel,
+        reason = reason,
+        playerNames = namesCopy,
+    })
+
+    self:DebugPrint("QUEUE -> added entry:", reason, "channel:", channel,
+        "names:", namesCopy and table.concat(namesCopy, ", ") or "none",
+        "| queue size now:", #self.state.messageQueue)
+
+    if self:IsTestMode() then
+        local namesStr = namesCopy and (" for " .. table.concat(namesCopy, ", ")) or ""
+        self:TestPrint("Message queued (cooldown active): " .. reason .. namesStr .. " | queue size: " .. #self.state.messageQueue)
+    end
+
+    -- Schedule queue processing when cooldown expires
+    self:ScheduleQueueProcessing(channel)
+end
+
+-- Schedule processing of the message queue when cooldown expires
+function Addon:ScheduleQueueProcessing(channel)
+    if self.state.queueTimer then
+        self:DebugPrint("QUEUE -> timer already scheduled, skipping")
+        return
+    end
+
+    local cooldown = self.db.profile.cooldown
+    local lastTime
+    if channel == "GUILD" then
+        lastTime = self.state.lastGuildMessageTime
+    else
+        lastTime = self.state.lastGroupMessageTime
+    end
+
+    local elapsed = GetTime() - lastTime
+    local remaining = cooldown - elapsed
+
+    -- Account for messageDelay: DoSendMessage updates cooldown AFTER delay,
+    -- so queue must wait for cooldown + messageDelay to avoid being blocked again
+    local messageDelay = self.db.profile.messageDelay or 0
+    if messageDelay > 0 then
+        remaining = remaining + messageDelay
+    end
+
+    if remaining < 0.1 then remaining = 0.1 end
+
+    self:DebugPrint("QUEUE -> scheduling processing in", string.format("%.1f", remaining) .. "s",
+        "(cooldown:", cooldown .. "s, elapsed:", string.format("%.1f", elapsed) .. "s, messageDelay:", messageDelay .. "s)")
+
+    if self:IsTestMode() then
+        self:TestPrint("Queue will process in " .. string.format("%.1f", remaining) .. "s (cooldown: " .. cooldown .. "s)")
+    end
+
+    self.state.queueTimer = self:ScheduleTimer(function()
+        self.state.queueTimer = nil
+        self:DebugPrint("QUEUE -> timer fired, processing queue")
+        self:ProcessMessageQueue()
+    end, remaining)
+end
+
+-- Process queued messages: merge same-type entries, deduplicate, concatenate names
+function Addon:ProcessMessageQueue()
+    if #self.state.messageQueue == 0 then
+        self:DebugPrint("QUEUE PROCESS -> queue is empty, nothing to do")
+        return
+    end
+
+    self:DebugPrint("QUEUE PROCESS -> starting, entries:", #self.state.messageQueue)
+
+    -- Log each entry before grouping
+    for i, entry in ipairs(self.state.messageQueue) do
+        self:DebugPrint("  entry", i, ":", entry.channel, entry.reason,
+            "names:", entry.playerNames and table.concat(entry.playerNames, ", ") or "none")
+    end
+
+    -- Group entries by (channel, reason) - merge names, deduplicate
+    local groups = {}
+    local groupOrder = {}
+    for _, entry in ipairs(self.state.messageQueue) do
+        local key = entry.channel .. ":" .. entry.reason
+        if not groups[key] then
+            groups[key] = {
+                channel = entry.channel,
+                reason = entry.reason,
+                playerNames = {},
+                nameSet = {},
+            }
+            table.insert(groupOrder, key)
+        end
+        -- Merge player names with deduplication
+        if entry.playerNames then
+            for _, name in ipairs(entry.playerNames) do
+                if not groups[key].nameSet[name] then
+                    groups[key].nameSet[name] = true
+                    table.insert(groups[key].playerNames, name)
+                else
+                    self:DebugPrint("  dedup: skipping duplicate name", name, "in group", key)
+                end
+            end
+        end
+    end
+
+    self:DebugPrint("QUEUE PROCESS -> grouped into", #groupOrder, "group(s):")
+    for i, key in ipairs(groupOrder) do
+        local g = groups[key]
+        self:DebugPrint("  group", i, ":", key,
+            "names:", #g.playerNames > 0 and table.concat(g.playerNames, ", ") or "none")
+    end
+
+    -- Clear queue
+    self.state.messageQueue = {}
+
+    -- Send the first merged group
+    local firstKey = groupOrder[1]
+    if firstKey then
+        local group = groups[firstKey]
+        local names = #group.playerNames > 0 and group.playerNames or nil
+
+        self:DebugPrint("QUEUE PROCESS -> sending first group:", group.reason, "channel:", group.channel,
+            "merged names:", names and table.concat(names, ", ") or "none")
+
+        if self:IsTestMode() then
+            local namesStr = names and (" " .. table.concat(names, ", ")) or ""
+            self:TestPrint("Processing queue: sending " .. group.reason .. " to " .. group.channel .. namesStr)
+        end
+
+        self:BuildAndSendGreeting(group.channel, group.reason, names)
+
+        -- Re-queue remaining groups (different channel/reason combos need separate sends)
+        if #groupOrder > 1 then
+            self:DebugPrint("QUEUE PROCESS -> re-queuing", #groupOrder - 1, "remaining group(s)")
+            for i = 2, #groupOrder do
+                local key = groupOrder[i]
+                local g = groups[key]
+                local n = #g.playerNames > 0 and g.playerNames or nil
+                table.insert(self.state.messageQueue, {
+                    channel = g.channel,
+                    reason = g.reason,
+                    playerNames = n,
+                })
+                self:DebugPrint("  re-queued:", key,
+                    "names:", n and table.concat(n, ", ") or "none")
+            end
+
+            -- Schedule next processing if queue still has entries
+            local nextEntry = self.state.messageQueue[1]
+            self:DebugPrint("QUEUE PROCESS -> scheduling next processing for:", nextEntry.channel, nextEntry.reason)
+            self:ScheduleQueueProcessing(nextEntry.channel)
+        else
+            self:DebugPrint("QUEUE PROCESS -> queue fully processed")
+        end
+    end
 end
 
 -- Send goodbye
@@ -666,6 +942,12 @@ function Addon:SendGuildGreeting()
         return
     end
     if not self:IsInGuildOrTest() then return end
+
+    -- Check cooldown - if blocked, queue for later delivery
+    if not self:CanSendMessage("GUILD") then
+        self:QueueGreeting("GUILD", "guild_login", nil)
+        return
+    end
 
     -- Get random greeting for guild
     local message = self:GetRandomMessageForChannel("greetings", "GUILD")
@@ -723,7 +1005,15 @@ end
 -- Check if should greet on others join for channel
 function Addon:ShouldGreetOnOthersJoin(channel)
     local settings = self:GetChannelSettings(channel)
-    return settings and settings.enabled and settings.onOthersJoin
+    if not settings or not settings.enabled or not settings.onOthersJoin then
+        return false
+    end
+    -- If leader-only is enabled, check if player is the group leader
+    if settings.onOthersJoinLeaderOnly and not self:IsGroupLeaderOrTest() then
+        self:DebugPrint("Leader-only greeting enabled but not leader, skipping")
+        return false
+    end
+    return true
 end
 
 -- Check if should greet on reconnect for channel
@@ -741,11 +1031,23 @@ function Addon:TestReset()
     self.testState.simulatedGroupType = nil
     self.testState.simulatedInGuild = false
     self.testState.simulatedGroupMembers = {}
+    self.testState.simulatedIsLeader = true
     self.state.previousGroup = nil
     self.state.sentGreetings = {}
     self.state.currentGroupType = nil
     self.state.lastGroupMessageTime = 0
     self.state.lastGuildMessageTime = 0
+    self.state.pendingNewMembers = {}
+    if self.state.pendingGreetTimer then
+        self:CancelTimer(self.state.pendingGreetTimer)
+        self.state.pendingGreetTimer = nil
+    end
+    self.state.messageQueue = {}
+    if self.state.queueTimer then
+        self:CancelTimer(self.state.queueTimer)
+        self.state.queueTimer = nil
+    end
+    self.state.lastGreetingText = {}
     self:TestPrint("Test state reset")
 end
 
@@ -907,6 +1209,35 @@ function Addon:TestStatus()
     local groupCooldown = math.max(0, self.db.profile.cooldown - (GetTime() - self.state.lastGroupMessageTime))
     local guildCooldown = math.max(0, self.db.profile.cooldown - (GetTime() - self.state.lastGuildMessageTime))
     self:Print("Cooldown remaining: Group:", string.format("%.1fs", groupCooldown), "| Guild:", string.format("%.1fs", guildCooldown))
+
+    -- Queue status
+    local queueSize = #self.state.messageQueue
+    if queueSize > 0 then
+        self:Print("Queued messages:", "|cFFFFFF00" .. queueSize .. "|r",
+            "| Timer:", self.state.queueTimer and "|cFF00FF00scheduled|r" or "|cFFFF0000none|r")
+        for i, entry in ipairs(self.state.messageQueue) do
+            local namesStr = entry.playerNames and table.concat(entry.playerNames, ", ") or "none"
+            self:Print("  [" .. i .. "]", entry.channel, entry.reason, "names:", namesStr)
+        end
+    else
+        self:Print("Queued messages:", "|cFF00FF000|r")
+    end
+
+    -- Greeting text cache status
+    local cacheCount = 0
+    local now = GetTime()
+    local cooldown = self.db.profile.cooldown
+    for key, cached in pairs(self.state.lastGreetingText) do
+        local age = now - cached.time
+        if age < cooldown * 2 then
+            cacheCount = cacheCount + 1
+            self:Print("Cached greeting:", "|cFFFFFF00" .. key .. "|r", "=", "|cFF00FF00" .. cached.text .. "|r",
+                "(age:", string.format("%.1fs", age) .. ")")
+        end
+    end
+    if cacheCount == 0 then
+        self:Print("Cached greetings:", "|cFF888888none|r")
+    end
 
     -- Show channel status
     local db = self.db.profile
