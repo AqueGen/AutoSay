@@ -123,12 +123,9 @@ local defaults = {
             enabledGreetings = DeepCopy(defaultGreetings),
             enabledGoodbyes = DeepCopy(defaultGoodbyes),
             enabledReconnects = DeepCopy(defaultReconnects),
-            customGreeting = "",
-            customGoodbye = "",
-            customReconnect = "",
-            useCustomGreeting = false,
-            useCustomGoodbye = false,
-            useCustomReconnect = false,
+            customGreetings = {},
+            customGoodbyes = {},
+            customReconnects = {},
         },
 
         -- Raid settings (disabled by default - raids are more formal content)
@@ -144,12 +141,9 @@ local defaults = {
             enabledGreetings = DeepCopy(defaultGreetings),
             enabledGoodbyes = DeepCopy(defaultGoodbyes),
             enabledReconnects = DeepCopy(defaultReconnects),
-            customGreeting = "",
-            customGoodbye = "",
-            customReconnect = "",
-            useCustomGreeting = false,
-            useCustomGoodbye = false,
-            useCustomReconnect = false,
+            customGreetings = {},
+            customGoodbyes = {},
+            customReconnects = {},
         },
 
         -- Config window status (persisted size/position)
@@ -162,10 +156,8 @@ local defaults = {
             sendGoodbye = false, -- Send goodbye on logout (disabled by default)
             enabledGreetings = DeepCopy(defaultGreetings),
             enabledGoodbyes = DeepCopy(defaultGoodbyes),
-            customGreeting = "",
-            customGoodbye = "",
-            useCustomGreeting = false,
-            useCustomGoodbye = false,
+            customGreetings = {},
+            customGoodbyes = {},
         },
     },
 }
@@ -199,11 +191,42 @@ function Addon:OnInitialize()
     -- Initialize database
     self.db = LibStub("AceDB-3.0"):New("AutoSayDB", defaults, true)
 
+    -- Migrate old single custom message format to new array format
+    self:MigrateCustomMessages()
+
     -- Register slash commands
     self:RegisterChatCommand("autosay", "SlashCommand")
     self:RegisterChatCommand("as", "SlashCommand")
 
     self:DebugPrint("Addon initialized")
+end
+
+-- Migrate old single custom message fields to the new array format
+function Addon:MigrateCustomMessages()
+    local migrations = {
+        { old = "customGreeting",  useOld = "useCustomGreeting",  new = "customGreetings" },
+        { old = "customGoodbye",   useOld = "useCustomGoodbye",   new = "customGoodbyes" },
+        { old = "customReconnect", useOld = "useCustomReconnect", new = "customReconnects" },
+    }
+
+    for _, channel in ipairs({"party", "raid", "guild"}) do
+        local settings = self.db.profile[channel]
+        if settings then
+            for _, m in ipairs(migrations) do
+                if type(settings[m.old]) == "string" then
+                    if settings[m.old] ~= "" then
+                        settings[m.new] = settings[m.new] or {}
+                        table.insert(settings[m.new], {
+                            text = settings[m.old],
+                            enabled = settings[m.useOld] or false,
+                        })
+                    end
+                    settings[m.old] = nil
+                    settings[m.useOld] = nil
+                end
+            end
+        end
+    end
 end
 
 function Addon:OnEnable()
@@ -592,19 +615,19 @@ function Addon:GetRandomMessageForChannel(messageType, channel)
     local settings = self:GetChannelSettings(channel)
     if not settings then return nil end
 
-    local messages, enabledKey, customKey
+    local messages, enabledKey, customsKey
     if messageType == "greetings" then
         messages = AutoSay.Greetings
         enabledKey = "enabledGreetings"
-        customKey = "customGreeting"
+        customsKey = "customGreetings"
     elseif messageType == "goodbyes" then
         messages = AutoSay.Goodbyes
         enabledKey = "enabledGoodbyes"
-        customKey = "customGoodbye"
+        customsKey = "customGoodbyes"
     elseif messageType == "reconnects" then
         messages = AutoSay.Reconnects
         enabledKey = "enabledReconnects"
-        customKey = "customReconnect"
+        customsKey = "customReconnects"
     else
         return nil
     end
@@ -620,10 +643,13 @@ function Addon:GetRandomMessageForChannel(messageType, channel)
         end
     end
 
-    -- Add custom message if enabled and set
-    local useCustomKey = "useCustom" .. customKey:sub(7, 7):upper() .. customKey:sub(8) -- customGreeting -> useCustomGreeting
-    if settings[useCustomKey] and settings[customKey] and settings[customKey] ~= "" then
-        table.insert(enabled, settings[customKey])
+    -- Add enabled custom messages
+    if settings[customsKey] then
+        for _, entry in ipairs(settings[customsKey]) do
+            if entry.enabled and entry.text and entry.text ~= "" then
+                table.insert(enabled, entry.text)
+            end
+        end
     end
 
     if #enabled == 0 then

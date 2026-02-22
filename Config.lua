@@ -4,6 +4,97 @@ local L = LibStub("AceLocale-3.0"):GetLocale(ADDON_NAME)
 local AceConfig = LibStub("AceConfig-3.0")
 local AceConfigDialog = LibStub("AceConfigDialog-3.0")
 
+local MAX_CUSTOM_MESSAGES = 10
+
+-- Build a custom message list UI group for any message type
+-- Pre-allocates all MAX_CUSTOM_MESSAGES slots with hidden functions
+-- so that add/delete dynamically shows/hides entries via NotifyChange.
+local function BuildCustomMessageList(channel, customsKey, labelKey)
+    local args = {}
+
+    -- Header showing count
+    args.header = {
+        type = "description",
+        name = function()
+            local n = #(Addon.db.profile[channel][customsKey] or {})
+            return L[labelKey] .. " (" .. n .. "/" .. MAX_CUSTOM_MESSAGES .. ")"
+        end,
+        order = 1,
+        fontSize = "medium",
+    }
+
+    -- Pre-allocate all possible message slots (hidden when idx > current count)
+    for i = 1, MAX_CUSTOM_MESSAGES do
+        local idx = i
+        local baseOrder = 10 + (i - 1) * 3
+
+        args["toggle_" .. idx] = {
+            type = "toggle",
+            name = function()
+                local entry = (Addon.db.profile[channel][customsKey] or {})[idx]
+                return entry and entry.text or ""
+            end,
+            order = baseOrder,
+            width = 2.5,
+            hidden = function()
+                return idx > #(Addon.db.profile[channel][customsKey] or {})
+            end,
+            get = function()
+                local entry = (Addon.db.profile[channel][customsKey] or {})[idx]
+                return entry and entry.enabled or false
+            end,
+            set = function(_, val)
+                local entry = (Addon.db.profile[channel][customsKey] or {})[idx]
+                if entry then entry.enabled = val end
+            end,
+        }
+
+        args["delete_" .. idx] = {
+            type = "execute",
+            name = L["Delete"],
+            order = baseOrder + 1,
+            width = 0.5,
+            hidden = function()
+                return idx > #(Addon.db.profile[channel][customsKey] or {})
+            end,
+            func = function()
+                local list = Addon.db.profile[channel][customsKey]
+                if list then
+                    table.remove(list, idx)
+                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+                end
+            end,
+        }
+    end
+
+    -- New message input — pressing Okay/Enter directly adds the message
+    args.newMessageInput = {
+        type = "input",
+        name = L["Add"],
+        order = 10 + MAX_CUSTOM_MESSAGES * 3,
+        width = "full",
+        hidden = function()
+            return #(Addon.db.profile[channel][customsKey] or {}) >= MAX_CUSTOM_MESSAGES
+        end,
+        get = function() return "" end,
+        set = function(_, val)
+            if val and val ~= "" then
+                local list = Addon.db.profile[channel][customsKey]
+                if not list then
+                    list = {}
+                    Addon.db.profile[channel][customsKey] = list
+                end
+                if #list < MAX_CUSTOM_MESSAGES then
+                    table.insert(list, { text = val, enabled = true })
+                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+                end
+            end
+        end,
+    }
+
+    return args
+end
+
 -- Build greeting toggles for a specific channel
 local function BuildGreetingToggles(channel)
     local args = {}
@@ -146,32 +237,13 @@ local function BuildGreetingToggles(channel)
     }
     order = order + 1
 
-    -- Custom greeting panel
+    -- Custom greetings panel
     args.customGroup = {
         type = "group",
-        name = L["Custom greeting"],
+        name = L["Custom greetings"],
         inline = true,
         order = order,
-        args = {
-            useCustomGreeting = {
-                type = "toggle",
-                name = L["Use custom greeting"],
-                desc = L["Include your custom greeting in the message pool"],
-                order = 1,
-                width = 1.2,
-                get = function() return Addon.db.profile[channel].useCustomGreeting end,
-                set = function(_, val) Addon.db.profile[channel].useCustomGreeting = val end,
-            },
-            customGreeting = {
-                type = "input",
-                name = L["Custom greeting"],
-                desc = L["Enter your custom greeting message"],
-                order = 2,
-                width = "full",
-                get = function() return Addon.db.profile[channel].customGreeting end,
-                set = function(_, val) Addon.db.profile[channel].customGreeting = val end,
-            },
-        },
+        args = BuildCustomMessageList(channel, "customGreetings", "Custom greetings"),
     }
 
     return args
@@ -247,32 +319,13 @@ local function BuildReconnectToggles(channel)
     }
     order = order + 1
 
-    -- Custom reconnect panel
+    -- Custom reconnects panel
     args.customGroup = {
         type = "group",
-        name = L["Custom reconnect"],
+        name = L["Custom reconnects"],
         inline = true,
         order = order,
-        args = {
-            useCustomReconnect = {
-                type = "toggle",
-                name = L["Use custom reconnect"],
-                desc = L["Include your custom reconnect in the message pool"],
-                order = 1,
-                width = 1.2,
-                get = function() return Addon.db.profile[channel].useCustomReconnect end,
-                set = function(_, val) Addon.db.profile[channel].useCustomReconnect = val end,
-            },
-            customReconnect = {
-                type = "input",
-                name = L["Custom reconnect"],
-                desc = L["Enter your custom reconnect message"],
-                order = 2,
-                width = "full",
-                get = function() return Addon.db.profile[channel].customReconnect end,
-                set = function(_, val) Addon.db.profile[channel].customReconnect = val end,
-            },
-        },
+        args = BuildCustomMessageList(channel, "customReconnects", "Custom reconnects"),
     }
 
     return args
@@ -360,32 +413,13 @@ local function BuildGoodbyeToggles(channel)
     }
     order = order + 1
 
-    -- Custom goodbye panel
+    -- Custom goodbyes panel
     args.customGroup = {
         type = "group",
-        name = L["Custom goodbye"],
+        name = L["Custom goodbyes"],
         inline = true,
         order = order,
-        args = {
-            useCustomGoodbye = {
-                type = "toggle",
-                name = L["Use custom goodbye"],
-                desc = L["Include your custom goodbye in the message pool"],
-                order = 1,
-                width = 1.2,
-                get = function() return Addon.db.profile[channel].useCustomGoodbye end,
-                set = function(_, val) Addon.db.profile[channel].useCustomGoodbye = val end,
-            },
-            customGoodbye = {
-                type = "input",
-                name = L["Custom goodbye"],
-                desc = L["Enter your custom goodbye message"],
-                order = 2,
-                width = "full",
-                get = function() return Addon.db.profile[channel].customGoodbye end,
-                set = function(_, val) Addon.db.profile[channel].customGoodbye = val end,
-            },
-        },
+        args = BuildCustomMessageList(channel, "customGoodbyes", "Custom goodbyes"),
     }
 
     return args
@@ -480,8 +514,8 @@ local options = {
                             desc = L["Minimum time between messages (seconds)"],
                             order = 2,
                             min = 0,
-                            max = 300,
-                            step = 5,
+                            max = 60,
+                            step = 1,
                             width = "full",
                             get = function() return Addon.db.profile.cooldown end,
                             set = function(_, val) Addon.db.profile.cooldown = val end,

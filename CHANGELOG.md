@@ -5,6 +5,17 @@ All notable changes to AutoSay will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-02-23
+
+### Added
+
+- **Multiple Custom Messages**: Support up to 10 custom messages per channel per message type (greetings, goodbyes, reconnects) with individual enable/disable toggles
+- Automatic migration from old single custom message format to new array format
+
+### Changed
+
+- Cooldown slider: reduced max from 300s to 60s, step from 5s to 1s
+
 ## [1.1.1] - 2026-02-23
 
 ### Fixed
@@ -102,6 +113,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[1.2.0]: https://github.com/AqueGen/AutoSay/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/AqueGen/AutoSay/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/AqueGen/AutoSay/compare/v1.0.7...v1.1.0
 [1.0.3]: https://github.com/AqueGen/AutoSay/compare/v1.0.2...v1.0.3
