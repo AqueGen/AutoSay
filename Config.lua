@@ -559,6 +559,15 @@ local options = {
                                 LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
                             end,
                         },
+                        autoDisable = {
+                            type = "toggle",
+                            name = L["Auto-disable on real events"],
+                            desc = L["Auto-disable simulation when you join a real group"],
+                            order = 2,
+                            width = "full",
+                            get = function() return Addon.db.profile.autoDisableTestMode end,
+                            set = function(_, val) Addon.db.profile.autoDisableTestMode = val end,
+                        },
                     },
                 },
                 resetWindowSize = {

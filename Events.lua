@@ -16,6 +16,7 @@ function Addon:RegisterEvents()
 
     -- LFG listing updates (for M+ key announce)
     self:RegisterEvent("LFG_LIST_ACTIVE_ENTRY_UPDATE")
+    self:RegisterEvent("LFG_LIST_ENTRY_EXPIRED_TOO_MANY_PLAYERS")
 
     self:DebugPrint("Events registered")
 end
@@ -25,6 +26,14 @@ function Addon:GROUP_JOINED()
     self:DebugPrint("EVENT: GROUP_JOINED - We joined a group")
 
     local db = self.db.profile
+
+    -- Auto-disable simulation mode on real group events
+    if db.testMode and db.autoDisableTestMode then
+        db.testMode = false
+        db.debugMode = false
+        self:Print("|cFFFF9900Simulation auto-disabled|r (real group detected)")
+        LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+    end
 
     if not db.enabled then return end
 
@@ -251,13 +260,19 @@ function Addon:LFG_LIST_ACTIVE_ENTRY_UPDATE()
 
     local entryData = C_LFGList.GetActiveEntryInfo()
     if entryData then
-        local activityInfo = C_LFGList.GetActivityInfoTable and
-            C_LFGList.GetActivityInfoTable(entryData.activityID)
+        -- API returns activityIDs (array), not activityID
+        local activityID = entryData.activityIDs and entryData.activityIDs[1]
+        if not activityID then
+            self:DebugPrint("LFG listing has no activityIDs, skipping")
+            return
+        end
+
+        local activityInfo = C_LFGList.GetActivityInfoTable(activityID)
         local fullName = activityInfo and activityInfo.fullName or nil
-        local isMythicPlus = fullName and fullName:find("Mythic Keystone") ~= nil or false
+        local isMythicPlus = activityInfo and activityInfo.isMythicPlusActivity or false
 
         self.state.cachedLFGListing = {
-            activityID = entryData.activityID,
+            activityID = activityID,
             title = entryData.name or "",
             dungeonName = fullName,
             isMythicPlus = isMythicPlus,
@@ -266,8 +281,30 @@ function Addon:LFG_LIST_ACTIVE_ENTRY_UPDATE()
         self:DebugPrint("LFG listing cached:", fullName or "unknown",
             "title:", entryData.name or "none", "isM+:", tostring(isMythicPlus))
     else
-        -- Listing removed - keep cache for pending announce
+        -- Listing removed (delisted) - keep cache for pending announce
         self:DebugPrint("LFG listing removed (keeping cache)")
+    end
+end
+
+-- Handle LFG_LIST_ENTRY_EXPIRED_TOO_MANY_PLAYERS - group filled via Group Finder
+function Addon:LFG_LIST_ENTRY_EXPIRED_TOO_MANY_PLAYERS()
+    self:DebugPrint("EVENT: LFG_LIST_ENTRY_EXPIRED_TOO_MANY_PLAYERS - listing auto-delisted (group full)")
+
+    local db = self.db.profile
+    if not db.enabled then return end
+    if not db.mythicplus or not db.mythicplus.enabled or not db.mythicplus.announceOnFull then return end
+    if self.state.keyAnnounced then return end
+
+    -- Check if we have cached M+ listing data
+    if self.state.cachedLFGListing and self.state.cachedLFGListing.isMythicPlus then
+        self.state.keyAnnounced = true
+        self:DebugPrint("M+ listing delisted (group full), scheduling key announce")
+        -- Small delay to send after any greeting messages
+        self:ScheduleTimer(function()
+            self:SendKeyAnnounce()
+        end, 2)
+    else
+        self:DebugPrint("Listing delisted but no M+ cache available")
     end
 end
 

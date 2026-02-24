@@ -112,6 +112,7 @@ local defaults = {
         enabled = true,
         debugMode = false,
         testMode = false,
+        autoDisableTestMode = true, -- Auto-disable simulation when real group events fire
 
         -- Timing (global)
         messageDelay = 1.0,
@@ -1095,33 +1096,53 @@ function Addon:GetKeyLevel()
         return nil
     end
 
-    -- Try parsing from listing title ("+13", "13", etc.)
-    if listing and listing.title then
-        local level = tonumber(listing.title:match("%+?(%d+)"))
-        if level and level >= 2 and level <= 99 then
-            return level
-        end
-    end
-
     if mode == "withlevel" then
-        -- withlevel mode only uses title, if not found return nil
+        -- 1. Try GetKeystoneForActivity (most reliable)
+        if listing and listing.activityID and C_LFGList.GetKeystoneForActivity then
+            local keystoneLevel = C_LFGList.GetKeystoneForActivity(listing.activityID)
+            if keystoneLevel and keystoneLevel > 0 then
+                self:DebugPrint("withlevel: GetKeystoneForActivity returned level:", keystoneLevel)
+                return keystoneLevel
+            end
+        end
+        -- 2. Fallback: parse from listing title
+        if listing and listing.title then
+            local level = tonumber(listing.title:match("%+?(%d+)"))
+            if level and level >= 2 and level <= 99 then
+                self:DebugPrint("withlevel: parsed level from title:", level)
+                return level
+            end
+        end
         return nil
     end
 
-    -- Smart mode: fallback to own keystone if dungeon matches
-    if mode == "smart" and C_MythicPlus and C_MythicPlus.GetOwnedKeystoneLevel then
-        local ownLevel = C_MythicPlus.GetOwnedKeystoneLevel()
-        if ownLevel and ownLevel > 0 then
-            -- Check if own keystone matches the listed dungeon
-            local ownMapID = C_MythicPlus.GetOwnedKeystoneChallengeMapID and
-                C_MythicPlus.GetOwnedKeystoneChallengeMapID()
-            if ownMapID and listing and listing.activityID then
-                local activityInfo = C_LFGList and C_LFGList.GetActivityInfoTable and
-                    C_LFGList.GetActivityInfoTable(listing.activityID)
-                -- If we can't verify dungeon match, still return the level in smart mode
+    -- Smart mode: API first (most reliable), then title, then own keystone
+    if mode == "smart" then
+        -- 1. Try GetKeystoneForActivity (returns key level for the listed dungeon)
+        if listing and listing.activityID and C_LFGList.GetKeystoneForActivity then
+            local keystoneLevel = C_LFGList.GetKeystoneForActivity(listing.activityID)
+            if keystoneLevel and keystoneLevel > 0 then
+                self:DebugPrint("GetKeystoneForActivity returned level:", keystoneLevel)
+                return keystoneLevel
+            end
+        end
+
+        -- 2. Try own keystone level
+        if C_MythicPlus and C_MythicPlus.GetOwnedKeystoneLevel then
+            local ownLevel = C_MythicPlus.GetOwnedKeystoneLevel()
+            if ownLevel and ownLevel > 0 then
+                self:DebugPrint("GetOwnedKeystoneLevel returned level:", ownLevel)
                 return ownLevel
             end
-            return ownLevel
+        end
+
+        -- 3. Last resort: parse from listing title
+        if listing and listing.title then
+            local level = tonumber(listing.title:match("%+?(%d+)"))
+            if level and level >= 2 and level <= 99 then
+                self:DebugPrint("Parsed key level from title:", level)
+                return level
+            end
         end
     end
 
