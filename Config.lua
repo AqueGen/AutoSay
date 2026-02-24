@@ -488,6 +488,18 @@ local options = {
                                 LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
                             end,
                         },
+                        enableMythicPlus = {
+                            type = "toggle",
+                            name = L["Enable Mythic+"],
+                            desc = L["Send key announcement in party chat when group is full"],
+                            order = 4,
+                            width = "full",
+                            get = function() return Addon.db.profile.mythicplus.enabled end,
+                            set = function(_, val)
+                                Addon.db.profile.mythicplus.enabled = val
+                                LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+                            end,
+                        },
                     },
                 },
                 timingGroup = {
@@ -669,6 +681,103 @@ local options = {
             },
         },
 
+        -- === MYTHIC+ ===
+        mythicplus = {
+            type = "group",
+            name = "|cFFFF00FFMythic+|r",
+            order = 35,
+            hidden = function() return not Addon.db.profile.mythicplus.enabled end,
+            args = {
+                settingsGroup = {
+                    type = "group",
+                    name = L["Settings"],
+                    inline = true,
+                    order = 1,
+                    args = {
+                        announceOnFull = {
+                            type = "toggle",
+                            name = L["Announce when group is full"],
+                            desc = L["Send a message when your M+ group reaches 5 players"],
+                            order = 1,
+                            width = "full",
+                            get = function() return Addon.db.profile.mythicplus.announceOnFull end,
+                            set = function(_, val) Addon.db.profile.mythicplus.announceOnFull = val end,
+                        },
+                        howItWorks = {
+                            type = "description",
+                            name = "|cFF888888" .. L["M+ how it works"] .. "|r",
+                            order = 2,
+                            fontSize = "medium",
+                        },
+                        messageMode = {
+                            type = "select",
+                            name = L["Key level detection"],
+                            desc = L["How to detect the keystone level for announcements"],
+                            order = 3,
+                            width = 1.5,
+                            values = {
+                                basic = L["Basic (dungeon name only)"],
+                                withlevel = L["With key level (from title)"],
+                                smart = L["Smart (auto-detect)"],
+                            },
+                            sorting = { "basic", "withlevel", "smart" },
+                            get = function() return Addon.db.profile.mythicplus.messageMode end,
+                            set = function(_, val) Addon.db.profile.mythicplus.messageMode = val end,
+                        },
+                    },
+                },
+                modeDescription = {
+                    type = "description",
+                    name = function()
+                        local mode = Addon.db.profile.mythicplus.messageMode
+                        if mode == "basic" then
+                            return "|cFF888888" .. L["Basic mode desc"] .. "|r"
+                        elseif mode == "withlevel" then
+                            return "|cFF888888" .. L["With level mode desc"] .. "|r"
+                        elseif mode == "smart" then
+                            return "|cFFFF8800" .. L["Smart mode desc"] .. "|r"
+                        end
+                        return ""
+                    end,
+                    order = 2,
+                    fontSize = "medium",
+                },
+                messagesGroup = {
+                    type = "group",
+                    name = L["Messages"],
+                    inline = true,
+                    order = 10,
+                    args = (function()
+                        local args = {}
+                        for i, msg in ipairs(AutoSay.KeyAnnounce) do
+                            args[msg.key] = {
+                                type = "toggle",
+                                name = msg.text,
+                                order = i,
+                                width = 1.5,
+                                get = function() return Addon.db.profile.mythicplus.enabledKeyAnnounce[msg.key] end,
+                                set = function(_, val) Addon.db.profile.mythicplus.enabledKeyAnnounce[msg.key] = val end,
+                            }
+                        end
+                        return args
+                    end)(),
+                },
+                customGroup = {
+                    type = "group",
+                    name = L["Custom Messages"],
+                    inline = true,
+                    order = 12,
+                    args = BuildCustomMessageList("mythicplus", "customKeyAnnounce", "Custom Messages"),
+                },
+                placeholderNote = {
+                    type = "description",
+                    name = "|cFF888888" .. L["Placeholder hint"] .. "|r",
+                    order = 13,
+                    fontSize = "medium",
+                },
+            },
+        },
+
         -- Test mode settings
         testMode = {
             type = "group",
@@ -740,6 +849,15 @@ local options = {
                             order = 6,
                             width = 0.8,
                             func = function() Addon:TestGuildGoodbye() end,
+                            disabled = function() return not Addon.db.profile.testMode end,
+                        },
+                        simulateKeyAnnounce = {
+                            type = "execute",
+                            name = L["Simulate M+ Flow"],
+                            desc = L["Simulate M+ flow desc"],
+                            order = 7,
+                            width = 1.2,
+                            func = function() Addon:TestMythicPlusFlow() end,
                             disabled = function() return not Addon.db.profile.testMode end,
                         },
                     },

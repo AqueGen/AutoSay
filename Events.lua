@@ -14,6 +14,9 @@ function Addon:RegisterEvents()
     -- Player logout for guild goodbye
     self:RegisterEvent("PLAYER_LOGOUT")
 
+    -- LFG listing updates (for M+ key announce)
+    self:RegisterEvent("LFG_LIST_ACTIVE_ENTRY_UPDATE")
+
     self:DebugPrint("Events registered")
 end
 
@@ -107,6 +110,8 @@ function Addon:GROUP_LEFT()
         self.state.queueTimer = nil
     end
     self.state.lastGreetingText = {}
+    self.state.keyAnnounced = false
+    self.state.cachedLFGListing = nil
 end
 
 -- Handle GROUP_ROSTER_UPDATE - group composition changed
@@ -212,6 +217,57 @@ function Addon:GROUP_ROSTER_UPDATE()
         else
             self:DebugPrint("Others join greeting disabled for", channel or "unknown")
         end
+    end
+
+    -- M+ key announce: reset flag when group drops below 5
+    if self.state.keyAnnounced and GetNumGroupMembers() < 5 then
+        self.state.keyAnnounced = false
+        self:DebugPrint("Group dropped below 5, key announce reset")
+    end
+
+    -- M+ key announce: check if group is full 5/5
+    if db.mythicplus and db.mythicplus.enabled
+       and db.mythicplus.announceOnFull
+       and not self.state.keyAnnounced
+       and GetNumGroupMembers() == 5 then
+
+        -- Check if we have cached LFG listing data for a M+ key
+        if self.state.cachedLFGListing and self.state.cachedLFGListing.isMythicPlus then
+            self.state.keyAnnounced = true
+            self:DebugPrint("Group full 5/5 with M+ listing, scheduling key announce")
+            -- Small delay to send after any greeting messages
+            self:ScheduleTimer(function()
+                self:SendKeyAnnounce()
+            end, 2)
+        else
+            self:DebugPrint("Group full 5/5 but no M+ listing cached")
+        end
+    end
+end
+
+-- Handle LFG_LIST_ACTIVE_ENTRY_UPDATE - cache listing data for M+ key announce
+function Addon:LFG_LIST_ACTIVE_ENTRY_UPDATE()
+    if not C_LFGList or not C_LFGList.GetActiveEntryInfo then return end
+
+    local entryData = C_LFGList.GetActiveEntryInfo()
+    if entryData then
+        local activityInfo = C_LFGList.GetActivityInfoTable and
+            C_LFGList.GetActivityInfoTable(entryData.activityID)
+        local fullName = activityInfo and activityInfo.fullName or nil
+        local isMythicPlus = fullName and fullName:find("Mythic Keystone") ~= nil or false
+
+        self.state.cachedLFGListing = {
+            activityID = entryData.activityID,
+            title = entryData.name or "",
+            dungeonName = fullName,
+            isMythicPlus = isMythicPlus,
+        }
+
+        self:DebugPrint("LFG listing cached:", fullName or "unknown",
+            "title:", entryData.name or "none", "isM+:", tostring(isMythicPlus))
+    else
+        -- Listing removed - keep cache for pending announce
+        self:DebugPrint("LFG listing removed (keeping cache)")
     end
 end
 

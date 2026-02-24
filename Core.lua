@@ -90,6 +90,13 @@ local defaultReconnects = {
     laggedout = false,
 }
 
+-- Default enabled key announce messages
+local defaultKeyAnnounce = {
+    letsgo = true,
+    ready = true,
+    gogogo = true,
+}
+
 -- Deep copy helper for defaults
 local function DeepCopy(orig)
     local copy = {}
@@ -146,6 +153,15 @@ local defaults = {
             customReconnects = {},
         },
 
+        -- Mythic+ settings (disabled by default)
+        mythicplus = {
+            enabled = false,
+            announceOnFull = true,      -- Announce when group fills 5/5
+            messageMode = "basic",      -- "basic" | "withlevel" | "smart"
+            enabledKeyAnnounce = DeepCopy(defaultKeyAnnounce),
+            customKeyAnnounce = {},
+        },
+
         -- Config window status (persisted size/position)
         configWindowStatus = nil,
 
@@ -177,6 +193,8 @@ Addon.state = {
     messageQueue = {}, -- Queue for cooldown-blocked messages
     queueTimer = nil, -- Timer for processing queued messages
     lastGreetingText = {}, -- Cache greeting text per channel:reason for consistency
+    cachedLFGListing = nil, -- Cached LFG listing data (before auto-delist)
+    keyAnnounced = false, -- Prevent duplicate M+ key announcements per group
 }
 
 -- Test mode simulation state
@@ -392,6 +410,8 @@ function Addon:SlashCommand(input)
         elseif subcmd == "player" or subcmd == "join" then
             local _, _, playerName = self:GetArgs(input, 3)
             self:TestPlayerJoins(playerName)
+        elseif subcmd == "key" or subcmd == "k" then
+            self:TestMythicPlusFlow()
         elseif subcmd == "reset" then
             self:TestReset()
         elseif subcmd == "status" or subcmd == "s" then
@@ -405,6 +425,7 @@ function Addon:SlashCommand(input)
             self:Print("  /as test guildbye - Simulate guild logout goodbye")
             self:Print("  /as test reconnect - Simulate reconnecting to group")
             self:Print("  /as test player [name] - Simulate player joining")
+            self:Print("  /as test key - Simulate full M+ flow (listing → joins → announce)")
             self:Print("  /as test reset - Reset test state")
             self:Print("  /as test status - Show test status")
         end
@@ -1049,6 +1070,144 @@ function Addon:ShouldGreetOnReconnect(channel)
 end
 
 --------------------------------------------------------------------------------
+-- MYTHIC+ KEY ANNOUNCE FUNCTIONS
+--------------------------------------------------------------------------------
+
+-- Replace {dungeon} and {key} placeholders in a message
+function Addon:ReplacePlaceholders(message, dungeon, keyLevel)
+    if not message then return nil end
+    message = message:gsub("{dungeon}", dungeon or "")
+    if keyLevel then
+        message = message:gsub("{key}", "+" .. keyLevel)
+    else
+        -- Remove {key} and any preceding space
+        message = message:gsub(" ?{key}", "")
+    end
+    return message
+end
+
+-- Get key level based on message mode
+function Addon:GetKeyLevel()
+    local mode = self.db.profile.mythicplus.messageMode
+    local listing = self.state.cachedLFGListing
+
+    if mode == "basic" then
+        return nil
+    end
+
+    -- Try parsing from listing title ("+13", "13", etc.)
+    if listing and listing.title then
+        local level = tonumber(listing.title:match("%+?(%d+)"))
+        if level and level >= 2 and level <= 99 then
+            return level
+        end
+    end
+
+    if mode == "withlevel" then
+        -- withlevel mode only uses title, if not found return nil
+        return nil
+    end
+
+    -- Smart mode: fallback to own keystone if dungeon matches
+    if mode == "smart" and C_MythicPlus and C_MythicPlus.GetOwnedKeystoneLevel then
+        local ownLevel = C_MythicPlus.GetOwnedKeystoneLevel()
+        if ownLevel and ownLevel > 0 then
+            -- Check if own keystone matches the listed dungeon
+            local ownMapID = C_MythicPlus.GetOwnedKeystoneChallengeMapID and
+                C_MythicPlus.GetOwnedKeystoneChallengeMapID()
+            if ownMapID and listing and listing.activityID then
+                local activityInfo = C_LFGList and C_LFGList.GetActivityInfoTable and
+                    C_LFGList.GetActivityInfoTable(listing.activityID)
+                -- If we can't verify dungeon match, still return the level in smart mode
+                return ownLevel
+            end
+            return ownLevel
+        end
+    end
+
+    return nil
+end
+
+-- Get a random key announce message from enabled pool
+function Addon:GetRandomKeyAnnounce()
+    local settings = self.db.profile.mythicplus
+    local enabled = {}
+
+    -- Add enabled preset messages
+    if settings.enabledKeyAnnounce then
+        for _, msg in ipairs(AutoSay.KeyAnnounce) do
+            if settings.enabledKeyAnnounce[msg.key] then
+                table.insert(enabled, msg.text)
+            end
+        end
+    end
+
+    -- Add enabled custom messages
+    if settings.customKeyAnnounce then
+        for _, entry in ipairs(settings.customKeyAnnounce) do
+            if entry.enabled and entry.text and entry.text ~= "" then
+                table.insert(enabled, entry.text)
+            end
+        end
+    end
+
+    if #enabled == 0 then return nil end
+
+    return enabled[math.random(#enabled)]
+end
+
+-- Send key announce message to party chat
+function Addon:SendKeyAnnounce()
+    local db = self.db.profile
+    if not db.enabled or not db.mythicplus.enabled then return end
+
+    local listing = self.state.cachedLFGListing
+    if not listing or not listing.dungeonName then
+        self:DebugPrint("SendKeyAnnounce: no cached listing data")
+        return
+    end
+
+    -- Clean dungeon name (remove " (Mythic Keystone)" suffix)
+    local dungeon = listing.dungeonName:gsub(" %(Mythic Keystone%)", "")
+
+    -- Get key level based on mode
+    local keyLevel = self:GetKeyLevel()
+
+    -- Get random message template
+    local template = self:GetRandomKeyAnnounce()
+    if not template then
+        self:DebugPrint("SendKeyAnnounce: no key announce messages enabled")
+        return
+    end
+
+    -- Replace placeholders
+    local message = self:ReplacePlaceholders(template, dungeon, keyLevel)
+
+    self:DebugPrint("SendKeyAnnounce:", message, "(mode:", db.mythicplus.messageMode,
+        "dungeon:", dungeon, "level:", tostring(keyLevel) .. ")")
+
+    -- Determine channel
+    local channel = self:GetChatChannel()
+    if not channel then
+        channel = "PARTY" -- Default to party for M+
+    end
+
+    -- Send the message (bypasses greeting cooldown, uses DoSendMessage directly)
+    if self:IsTestMode() then
+        local channelColor = "|cFFAAAAFF"
+        print("|cFFFF9900[AutoSay TEST]|r Would send to " .. channelColor .. "[" .. channel .. "]|r: " .. message)
+        self:DebugPrint("Test mode - simulated key announce to", channel)
+    else
+        local ok, err = pcall(SendChatMessage, message, channel, nil, nil)
+        if ok then
+            self:DebugPrint("Key announce sent to", channel, ":", message)
+        else
+            self:DebugPrint("Failed to send key announce:", tostring(err))
+        end
+    end
+end
+
+--------------------------------------------------------------------------------
 -- TEST MODE SIMULATION FUNCTIONS
 --------------------------------------------------------------------------------
 
@@ -1074,6 +1233,9 @@ function Addon:TestReset()
         self.state.queueTimer = nil
     end
     self.state.lastGreetingText = {}
+    self.state.cachedLFGListing = nil
+    self.state.keyAnnounced = false
+    self.state.mythicPlusFlowActive = false
     self:TestPrint("Test state reset")
 end
 
@@ -1220,6 +1382,93 @@ function Addon:TestReconnect()
     end
 end
 
+-- Simulate full M+ flow: create listing → players join → 5/5 → announce
+function Addon:TestMythicPlusFlow()
+    if not self:IsTestMode() then
+        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
+        return
+    end
+
+    -- Prevent overlapping simulations
+    if self.state.mythicPlusFlowActive then
+        self:TestPrint("M+ flow simulation already in progress!")
+        return
+    end
+
+    self:TestPrint("=== Simulating M+ Full Flow ===")
+    self.state.mythicPlusFlowActive = true
+
+    -- Step 1: Reset and create party with LFG listing
+    self:TestReset()
+    self.testState.simulatedGroupType = "PARTY"
+    self.testState.simulatedIsLeader = true
+    self.state.currentGroupType = "PARTY"
+    self.state.previousGroup = { [UnitName("player")] = true }
+    self.testState.simulatedGroupMembers = { UnitName("player") }
+
+    -- Randomize dungeon
+    local dungeons = {
+        "The Dawnbreaker", "Cinderbrew Meadery", "Darkflame Cleft",
+        "The Rookery", "Priory of the Sacred Flame", "The Stonevault",
+        "City of Threads", "Ara-Kara, City of Echoes",
+    }
+    local dungeon = dungeons[math.random(#dungeons)]
+    local keyLevel = math.random(4, 15)
+
+    self.state.cachedLFGListing = {
+        activityID = 0,
+        title = "+" .. keyLevel,
+        dungeonName = dungeon .. " (Mythic Keystone)",
+        isMythicPlus = true,
+    }
+    self.state.keyAnnounced = false
+
+    self:TestPrint("Listed in Group Finder: " .. dungeon .. " +" .. keyLevel)
+    self:TestPrint("Waiting for group to fill...")
+
+    -- Step 2: Players join with delays
+    local fakeNames = { "Tankmaster", "HolyPala", "Shadowmage", "Hunterbro" }
+    for i, name in ipairs(fakeNames) do
+        self:ScheduleTimer(function()
+            table.insert(self.testState.simulatedGroupMembers, name)
+            local count = #self.testState.simulatedGroupMembers
+            self:TestPrint(name .. " joined (" .. count .. "/5)")
+
+            -- Greet if enabled
+            if self.db.profile.enabled and self:ShouldGreetOnOthersJoin("PARTY") then
+                if not self.state.sentGreetings[name] then
+                    self.state.sentGreetings[name] = true
+                    self:SendGreeting({ name }, "others_join")
+                end
+            end
+
+            -- Check if group is full 5/5
+            if count == 5 then
+                local db = self.db.profile
+                if db.mythicplus and db.mythicplus.enabled
+                   and db.mythicplus.announceOnFull
+                   and not self.state.keyAnnounced then
+                    if self.state.cachedLFGListing and self.state.cachedLFGListing.isMythicPlus then
+                        self.state.keyAnnounced = true
+                        self:TestPrint("Group full 5/5! Sending key announce...")
+                        self:ScheduleTimer(function()
+                            self:SendKeyAnnounce()
+                            self.state.mythicPlusFlowActive = false
+                        end, 2)
+                    else
+                        self.state.mythicPlusFlowActive = false
+                    end
+                else
+                    if not db.mythicplus.enabled then
+                        self:TestPrint("M+ announcements disabled in settings")
+                    end
+                    self.state.mythicPlusFlowActive = false
+                end
+            end
+        end, i * 2) -- 2 seconds between each join
+    end
+end
+
 -- Show current test state
 function Addon:TestStatus()
     self:Print("=== AutoSay Test Status ===")
@@ -1280,4 +1529,12 @@ function Addon:TestStatus()
     self:Print("Guild:", db.guild.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
         "| Login:", db.guild.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
         "| Logout:", db.guild.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
+    self:Print("M+:", db.mythicplus.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
+        "| Mode:", db.mythicplus.messageMode,
+        "| Announced:", self.state.keyAnnounced and "|cFFFFFF00Yes|r" or "|cFF888888No|r")
+    if self.state.cachedLFGListing then
+        self:Print("  LFG cache:", self.state.cachedLFGListing.dungeonName or "unknown",
+            "| Title:", self.state.cachedLFGListing.title or "none",
+            "| M+:", self.state.cachedLFGListing.isMythicPlus and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
+    end
 end

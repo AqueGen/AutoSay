@@ -54,3 +54,10 @@ AutoSay.Reconnects = {
     { key = "internetissues", text = "Internet issues, back now!" },
     { key = "laggedout", text = "Lagged out, I'm back!" },
 }
+
+-- Key announce messages (M+ group full)
+AutoSay.KeyAnnounce = {
+    { key = "letsgo",   text = "Let's go! {dungeon} {key}" },
+    { key = "ready",    text = "Ready! {dungeon} {key}" },
+    { key = "gogogo",   text = "{dungeon} {key}, let's do this!" },
+}

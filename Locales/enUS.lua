@@ -165,6 +165,26 @@ L["Refresh the status display"] = "Refresh the status display"
 -- Debug / Logging
 L["Debug"] = "Logging"
 
+-- Mythic+
+L["Mythic+"] = "Mythic+"
+L["Enable Mythic+"] = "Enable Mythic+"
+L["Send key announcement in party chat when group is full"] = "Send key announcement in party chat when group is full"
+L["Settings"] = "Settings"
+L["Announce when group is full"] = "Announce when group is full"
+L["Send a message when your M+ group reaches 5 players"] = "Send a message when your M+ group reaches 5 players"
+L["M+ how it works"] = "Works when you create a Group Finder listing for a Mythic Keystone dungeon. When the group fills to 5/5, a message is automatically sent to party chat."
+L["Key level detection"] = "Key level detection"
+L["How to detect the keystone level for announcements"] = "How to detect the keystone level for announcements"
+L["Basic (dungeon name only)"] = "Basic (dungeon name only)"
+L["With key level (from title)"] = "With key level (from listing title)"
+L["Smart (auto-detect)"] = "Smart (auto-detect)"
+L["Basic mode desc"] = "Always reliable. Announces only the dungeon name without key level."
+L["With level mode desc"] = "Parses the key level from your Group Finder listing title (e.g. \"+13\"). If the title doesn't contain a number, only the dungeon name is shown."
+L["Smart mode desc"] = "Attempts to auto-detect key level from listing title or your own keystone. May be inaccurate with custom titles or when listing someone else's key."
+L["Placeholder hint"] = "Use {dungeon} for dungeon name and {key} for key level in custom messages."
+L["Simulate M+ Flow"] = "Simulate M+ Flow"
+L["Simulate M+ flow desc"] = "Simulate the full M+ flow: create listing, players join one by one, and key announce fires when group reaches 5/5"
+
 -- Reset
 L["Reset window size"] = "Reset window size"
 L["Reset settings window to default size and position"] = "Reset settings window to default size and position"
