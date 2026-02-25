@@ -18,6 +18,9 @@ function Addon:RegisterEvents()
     self:RegisterEvent("LFG_LIST_ACTIVE_ENTRY_UPDATE")
     self:RegisterEvent("LFG_LIST_ENTRY_EXPIRED_TOO_MANY_PLAYERS")
 
+    -- M+ dungeon completion
+    self:RegisterEvent("CHALLENGE_MODE_COMPLETED")
+
     self:DebugPrint("Events registered")
 end
 
@@ -26,6 +29,11 @@ function Addon:GROUP_JOINED()
     self:DebugPrint("EVENT: GROUP_JOINED - We joined a group")
 
     local db = self.db.profile
+
+    -- Clear stale M+ listing cache when joining a new group
+    -- (prevents announce from firing with old data when joining someone else's group)
+    self.state.cachedLFGListing = nil
+    self.state.keyAnnounced = false
 
     -- Auto-disable simulation mode on real group events
     if db.testMode and db.autoDisableTestMode then
@@ -238,7 +246,8 @@ function Addon:GROUP_ROSTER_UPDATE()
     if db.mythicplus and db.mythicplus.enabled
        and db.mythicplus.announceOnFull
        and not self.state.keyAnnounced
-       and GetNumGroupMembers() == 5 then
+       and GetNumGroupMembers() == 5
+       and UnitIsGroupLeader("player") then
 
         -- Check if we have cached LFG listing data for a M+ key
         if self.state.cachedLFGListing and self.state.cachedLFGListing.isMythicPlus then
@@ -257,6 +266,13 @@ end
 -- Handle LFG_LIST_ACTIVE_ENTRY_UPDATE - cache listing data for M+ key announce
 function Addon:LFG_LIST_ACTIVE_ENTRY_UPDATE()
     if not C_LFGList or not C_LFGList.GetActiveEntryInfo then return end
+
+    -- Only cache listing data if we are the group leader (listing creator)
+    -- This event can fire for non-leaders too, but the data may be unreliable
+    if not UnitIsGroupLeader("player") then
+        self:DebugPrint("LFG_LIST_ACTIVE_ENTRY_UPDATE: not the leader, ignoring")
+        return
+    end
 
     local entryData = C_LFGList.GetActiveEntryInfo()
     if entryData then
@@ -294,6 +310,10 @@ function Addon:LFG_LIST_ENTRY_EXPIRED_TOO_MANY_PLAYERS()
     if not db.enabled then return end
     if not db.mythicplus or not db.mythicplus.enabled or not db.mythicplus.announceOnFull then return end
     if self.state.keyAnnounced then return end
+    if not UnitIsGroupLeader("player") then
+        self:DebugPrint("Not the leader, skipping key announce")
+        return
+    end
 
     -- Check if we have cached M+ listing data
     if self.state.cachedLFGListing and self.state.cachedLFGListing.isMythicPlus then
@@ -306,6 +326,54 @@ function Addon:LFG_LIST_ENTRY_EXPIRED_TOO_MANY_PLAYERS()
     else
         self:DebugPrint("Listing delisted but no M+ cache available")
     end
+end
+
+-- Handle CHALLENGE_MODE_COMPLETED - M+ dungeon finished (timed or depleted)
+function Addon:CHALLENGE_MODE_COMPLETED()
+    self:DebugPrint("EVENT: CHALLENGE_MODE_COMPLETED")
+
+    local db = self.db.profile
+    if not db.enabled then return end
+    if not db.mythicplus or not db.mythicplus.enabled or not db.mythicplus.completionEnabled then return end
+
+    if not C_ChallengeMode or not C_ChallengeMode.GetChallengeCompletionInfo then return end
+
+    local info = C_ChallengeMode.GetChallengeCompletionInfo()
+    if not info then
+        self:DebugPrint("No completion info available")
+        return
+    end
+
+    -- Skip practice runs
+    if info.practiceRun then
+        self:DebugPrint("Practice run, skipping completion message")
+        return
+    end
+
+    -- Get dungeon name
+    local dungeonName = "Unknown"
+    if C_ChallengeMode.GetMapUIInfo then
+        local name = C_ChallengeMode.GetMapUIInfo(info.mapChallengeModeID)
+        if name then dungeonName = name end
+    end
+
+    local keyLevel = info.level
+    local onTime = info.onTime
+    local upgrade = info.keystoneUpgradeLevels or 0
+
+    -- Format completion time as mm:ss
+    local timeSec = (info.time or 0) / 1000
+    local minutes = math.floor(timeSec / 60)
+    local seconds = math.floor(timeSec % 60)
+    local timeFormatted = string.format("%d:%02d", minutes, seconds)
+
+    self:DebugPrint("M+ completed:", dungeonName, "+", keyLevel,
+        "onTime:", tostring(onTime), "upgrade:", upgrade, "time:", timeFormatted)
+
+    -- Small delay so it doesn't overlap with Blizzard's completion UI
+    self:ScheduleTimer(function()
+        self:SendCompletionMessage(dungeonName, keyLevel, onTime, upgrade, timeFormatted)
+    end, 3)
 end
 
 -- Handle PLAYER_ENTERING_WORLD - for guild greeting on login and group reconnect

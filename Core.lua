@@ -97,6 +97,36 @@ local defaultKeyAnnounce = {
     gogogo = true,
 }
 
+-- Default enabled completion timed messages
+local defaultCompletionTimed = {
+    gg = true,
+    ggwp = true,
+    gjteam = true,
+    nicerun = true,
+    -- Disabled by default
+    letsgo = false,
+    cleanrun = false,
+    greatteam = false,
+    wpall = false,
+    timed = false,
+    upgraded = false,
+}
+
+-- Default enabled completion depleted messages
+local defaultCompletionDepleted = {
+    gg = true,
+    ggwp = true,
+    tyrun = true,
+    tyall = true,
+    -- Disabled by default
+    goodrun = false,
+    ggeveryone = false,
+    gjteam = false,
+    wpall = false,
+    done = false,
+    tyfun = false,
+}
+
 -- Deep copy helper for defaults
 local function DeepCopy(orig)
     local copy = {}
@@ -161,6 +191,12 @@ local defaults = {
             messageMode = "basic",      -- "basic" | "withlevel" | "smart"
             enabledKeyAnnounce = DeepCopy(defaultKeyAnnounce),
             customKeyAnnounce = {},
+            -- Completion messages
+            completionEnabled = true,   -- Send message on M+ completion
+            enabledCompletionTimed = DeepCopy(defaultCompletionTimed),
+            enabledCompletionDepleted = DeepCopy(defaultCompletionDepleted),
+            customCompletionTimed = {},
+            customCompletionDepleted = {},
         },
 
         -- Config window status (persisted size/position)
@@ -204,6 +240,7 @@ Addon.testState = {
     simulatedInGuild = false,
     simulatedGroupMembers = {},
     simulatedIsLeader = true, -- Simulate being group leader (default true for test)
+    mythicPlusRole = "leader", -- "leader" or "joined" for M+ flow simulation
 }
 
 function Addon:OnInitialize()
@@ -460,7 +497,7 @@ function Addon:OpenConfig()
         status.left = saved.left
     elseif not status.width then
         status.width = 1000
-        status.height = 700
+        status.height = 900
     end
 
     AceConfigDialog:Open("AutoSay")
@@ -1075,7 +1112,7 @@ end
 --------------------------------------------------------------------------------
 
 -- Replace {dungeon} and {key} placeholders in a message
-function Addon:ReplacePlaceholders(message, dungeon, keyLevel)
+function Addon:ReplacePlaceholders(message, dungeon, keyLevel, extraReplacements)
     if not message then return nil end
     message = message:gsub("{dungeon}", dungeon or "")
     if keyLevel then
@@ -1083,6 +1120,12 @@ function Addon:ReplacePlaceholders(message, dungeon, keyLevel)
     else
         -- Remove {key} and any preceding space
         message = message:gsub(" ?{key}", "")
+    end
+    -- Extra replacements for completion messages ({upgrade}, {time}, etc.)
+    if extraReplacements then
+        for placeholder, value in pairs(extraReplacements) do
+            message = message:gsub("{" .. placeholder .. "}", value)
+        end
     end
     return message
 end
@@ -1116,9 +1159,9 @@ function Addon:GetKeyLevel()
         return nil
     end
 
-    -- Smart mode: API first (most reliable), then title, then own keystone
+    -- Smart mode: API first (most reliable), then title parsing
     if mode == "smart" then
-        -- 1. Try GetKeystoneForActivity (returns key level for the listed dungeon)
+        -- 1. Try GetKeystoneForActivity (returns key level only if our key matches the listed dungeon)
         if listing and listing.activityID and C_LFGList.GetKeystoneForActivity then
             local keystoneLevel = C_LFGList.GetKeystoneForActivity(listing.activityID)
             if keystoneLevel and keystoneLevel > 0 then
@@ -1127,16 +1170,7 @@ function Addon:GetKeyLevel()
             end
         end
 
-        -- 2. Try own keystone level
-        if C_MythicPlus and C_MythicPlus.GetOwnedKeystoneLevel then
-            local ownLevel = C_MythicPlus.GetOwnedKeystoneLevel()
-            if ownLevel and ownLevel > 0 then
-                self:DebugPrint("GetOwnedKeystoneLevel returned level:", ownLevel)
-                return ownLevel
-            end
-        end
-
-        -- 3. Last resort: parse from listing title
+        -- 2. Parse from listing title
         if listing and listing.title then
             local level = tonumber(listing.title:match("%+?(%d+)"))
             if level and level >= 2 and level <= 99 then
@@ -1224,6 +1258,76 @@ function Addon:SendKeyAnnounce()
             self:DebugPrint("Key announce sent to", channel, ":", message)
         else
             self:DebugPrint("Failed to send key announce:", tostring(err))
+        end
+    end
+end
+
+-- Get a random completion message from enabled pool
+function Addon:GetRandomCompletionMessage(onTime)
+    local settings = self.db.profile.mythicplus
+    local enabled = {}
+
+    local presetDB = onTime and AutoSay.CompletionTimed or AutoSay.CompletionDepleted
+    local enabledPresets = onTime and settings.enabledCompletionTimed or settings.enabledCompletionDepleted
+    local customMessages = onTime and settings.customCompletionTimed or settings.customCompletionDepleted
+
+    -- Add enabled preset messages
+    if enabledPresets then
+        for _, msg in ipairs(presetDB) do
+            if enabledPresets[msg.key] then
+                table.insert(enabled, msg.text)
+            end
+        end
+    end
+
+    -- Add enabled custom messages
+    if customMessages then
+        for _, entry in ipairs(customMessages) do
+            if entry.enabled and entry.text and entry.text ~= "" then
+                table.insert(enabled, entry.text)
+            end
+        end
+    end
+
+    if #enabled == 0 then return nil end
+
+    return enabled[math.random(#enabled)]
+end
+
+-- Send completion message to party chat
+function Addon:SendCompletionMessage(dungeon, keyLevel, onTime, upgrade, timeFormatted)
+    local db = self.db.profile
+    if not db.enabled or not db.mythicplus.enabled or not db.mythicplus.completionEnabled then return end
+
+    local template = self:GetRandomCompletionMessage(onTime)
+    if not template then
+        self:DebugPrint("SendCompletionMessage: no completion messages enabled for", onTime and "timed" or "depleted")
+        return
+    end
+
+    local extra = {
+        upgrade = tostring(upgrade or 0),
+        time = timeFormatted or "0:00",
+    }
+
+    local message = self:ReplacePlaceholders(template, dungeon, keyLevel, extra)
+
+    self:DebugPrint("SendCompletionMessage:", message, "(onTime:", tostring(onTime),
+        "dungeon:", dungeon, "level:", tostring(keyLevel), "upgrade:", tostring(upgrade) .. ")")
+
+    -- Always party in M+ dungeon
+    local channel = "PARTY"
+
+    if self:IsTestMode() then
+        local channelColor = "|cFFAAAAFF"
+        print("|cFFFF9900[AutoSay TEST]|r Would send to " .. channelColor .. "[" .. channel .. "]|r: " .. message)
+        self:DebugPrint("Test mode - simulated completion message to", channel)
+    else
+        local ok, err = pcall(SendChatMessage, message, channel, nil, nil)
+        if ok then
+            self:DebugPrint("Completion message sent to", channel, ":", message)
+        else
+            self:DebugPrint("Failed to send completion message:", tostring(err))
         end
     end
 end
@@ -1416,13 +1520,15 @@ function Addon:TestMythicPlusFlow()
         return
     end
 
-    self:TestPrint("=== Simulating M+ Full Flow ===")
+    local isLeader = self.testState.mythicPlusRole == "leader"
+
+    self:TestPrint("=== Simulating M+ Full Flow (" .. (isLeader and "Leader" or "Joined") .. ") ===")
     self.state.mythicPlusFlowActive = true
 
-    -- Step 1: Reset and create party with LFG listing
+    -- Step 1: Reset and set up party
     self:TestReset()
     self.testState.simulatedGroupType = "PARTY"
-    self.testState.simulatedIsLeader = true
+    self.testState.simulatedIsLeader = isLeader
     self.state.currentGroupType = "PARTY"
     self.state.previousGroup = { [UnitName("player")] = true }
     self.testState.simulatedGroupMembers = { UnitName("player") }
@@ -1436,15 +1542,22 @@ function Addon:TestMythicPlusFlow()
     local dungeon = dungeons[math.random(#dungeons)]
     local keyLevel = math.random(4, 15)
 
-    self.state.cachedLFGListing = {
-        activityID = 0,
-        title = "+" .. keyLevel,
-        dungeonName = dungeon .. " (Mythic Keystone)",
-        isMythicPlus = true,
-    }
+    if isLeader then
+        -- Leader: has LFG listing cached
+        self.state.cachedLFGListing = {
+            activityID = 0,
+            title = "+" .. keyLevel,
+            dungeonName = dungeon .. " (Mythic Keystone)",
+            isMythicPlus = true,
+        }
+        self:TestPrint("Listed in Group Finder: " .. dungeon .. " +" .. keyLevel)
+    else
+        -- Joined: no listing data (cleared on GROUP_JOINED)
+        self.state.cachedLFGListing = nil
+        self:TestPrint("Joined a group for: " .. dungeon .. " +" .. keyLevel)
+    end
     self.state.keyAnnounced = false
 
-    self:TestPrint("Listed in Group Finder: " .. dungeon .. " +" .. keyLevel)
     self:TestPrint("Waiting for group to fill...")
 
     -- Step 2: Players join with delays
@@ -1455,7 +1568,7 @@ function Addon:TestMythicPlusFlow()
             local count = #self.testState.simulatedGroupMembers
             self:TestPrint(name .. " joined (" .. count .. "/5)")
 
-            -- Greet if enabled
+            -- Greet if enabled (only others_join when leader, self_join handled separately)
             if self.db.profile.enabled and self:ShouldGreetOnOthersJoin("PARTY") then
                 if not self.state.sentGreetings[name] then
                     self.state.sentGreetings[name] = true
@@ -1477,6 +1590,7 @@ function Addon:TestMythicPlusFlow()
                             self.state.mythicPlusFlowActive = false
                         end, 2)
                     else
+                        self:TestPrint("Group full 5/5 but no listing data (not the leader) — key announce skipped")
                         self.state.mythicPlusFlowActive = false
                     end
                 else
@@ -1488,6 +1602,55 @@ function Addon:TestMythicPlusFlow()
             end
         end, i * 2) -- 2 seconds between each join
     end
+end
+
+-- Simulate timed M+ completion
+function Addon:TestCompletionTimed()
+    if not self:IsTestMode() then
+        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
+        return
+    end
+
+    local dungeons = {
+        "The Dawnbreaker", "Cinderbrew Meadery", "Darkflame Cleft",
+        "The Rookery", "Priory of the Sacred Flame", "The Stonevault",
+        "City of Threads", "Ara-Kara, City of Echoes",
+    }
+    local dungeon = dungeons[math.random(#dungeons)]
+    local keyLevel = math.random(4, 15)
+    local upgrade = math.random(1, 3)
+    local minutes = math.random(15, 35)
+    local seconds = math.random(0, 59)
+    local timeFormatted = string.format("%d:%02d", minutes, seconds)
+
+    self:TestPrint("=== Simulating M+ Timed Completion ===")
+    self:TestPrint(dungeon .. " +" .. keyLevel .. " timed in " .. timeFormatted .. " (+" .. upgrade .. " upgrade)")
+
+    self:SendCompletionMessage(dungeon, keyLevel, true, upgrade, timeFormatted)
+end
+
+-- Simulate depleted M+ completion
+function Addon:TestCompletionDepleted()
+    if not self:IsTestMode() then
+        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
+        return
+    end
+
+    local dungeons = {
+        "The Dawnbreaker", "Cinderbrew Meadery", "Darkflame Cleft",
+        "The Rookery", "Priory of the Sacred Flame", "The Stonevault",
+        "City of Threads", "Ara-Kara, City of Echoes",
+    }
+    local dungeon = dungeons[math.random(#dungeons)]
+    local keyLevel = math.random(4, 15)
+    local minutes = math.random(35, 50)
+    local seconds = math.random(0, 59)
+    local timeFormatted = string.format("%d:%02d", minutes, seconds)
+
+    self:TestPrint("=== Simulating M+ Depleted Completion ===")
+    self:TestPrint(dungeon .. " +" .. keyLevel .. " depleted at " .. timeFormatted)
+
+    self:SendCompletionMessage(dungeon, keyLevel, false, 0, timeFormatted)
 end
 
 -- Show current test state

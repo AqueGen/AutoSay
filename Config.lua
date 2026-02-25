@@ -695,94 +695,204 @@ local options = {
             type = "group",
             name = "|cFFFF00FFMythic+|r",
             order = 35,
+            childGroups = "tab",
             hidden = function() return not Addon.db.profile.mythicplus.enabled end,
             args = {
-                settingsGroup = {
+                -- Tab 1: Group Ready (key announce when group fills 5/5)
+                groupReady = {
                     type = "group",
-                    name = L["Settings"],
-                    inline = true,
+                    name = L["Group Ready"],
                     order = 1,
                     args = {
-                        announceOnFull = {
-                            type = "toggle",
-                            name = L["Announce when group is full"],
-                            desc = L["Send a message when your M+ group reaches 5 players"],
+                        settingsGroup = {
+                            type = "group",
+                            name = L["Settings"],
+                            inline = true,
                             order = 1,
-                            width = "full",
-                            get = function() return Addon.db.profile.mythicplus.announceOnFull end,
-                            set = function(_, val) Addon.db.profile.mythicplus.announceOnFull = val end,
+                            args = {
+                                announceOnFull = {
+                                    type = "toggle",
+                                    name = L["Announce when group is full"],
+                                    desc = L["Send a message when your M+ group reaches 5 players"],
+                                    order = 1,
+                                    width = "full",
+                                    get = function() return Addon.db.profile.mythicplus.announceOnFull end,
+                                    set = function(_, val) Addon.db.profile.mythicplus.announceOnFull = val end,
+                                },
+                                howItWorks = {
+                                    type = "description",
+                                    name = "|cFF888888" .. L["M+ how it works"] .. "|r",
+                                    order = 2,
+                                    fontSize = "medium",
+                                },
+                                messageMode = {
+                                    type = "select",
+                                    name = L["Key level detection"],
+                                    desc = L["How to detect the keystone level for announcements"],
+                                    order = 3,
+                                    width = 1.5,
+                                    values = {
+                                        basic = L["Basic (dungeon name only)"],
+                                        withlevel = L["With key level (from title)"],
+                                        smart = L["Smart (auto-detect)"],
+                                    },
+                                    sorting = { "basic", "withlevel", "smart" },
+                                    get = function() return Addon.db.profile.mythicplus.messageMode end,
+                                    set = function(_, val) Addon.db.profile.mythicplus.messageMode = val end,
+                                },
+                            },
                         },
-                        howItWorks = {
+                        modeDescription = {
                             type = "description",
-                            name = "|cFF888888" .. L["M+ how it works"] .. "|r",
+                            name = function()
+                                local mode = Addon.db.profile.mythicplus.messageMode
+                                if mode == "basic" then
+                                    return "|cFF888888" .. L["Basic mode desc"] .. "|r"
+                                elseif mode == "withlevel" then
+                                    return "|cFF888888" .. L["With level mode desc"] .. "|r"
+                                elseif mode == "smart" then
+                                    return "|cFFFF8800" .. L["Smart mode desc"] .. "|r"
+                                end
+                                return ""
+                            end,
                             order = 2,
                             fontSize = "medium",
                         },
-                        messageMode = {
-                            type = "select",
-                            name = L["Key level detection"],
-                            desc = L["How to detect the keystone level for announcements"],
-                            order = 3,
-                            width = 1.5,
-                            values = {
-                                basic = L["Basic (dungeon name only)"],
-                                withlevel = L["With key level (from title)"],
-                                smart = L["Smart (auto-detect)"],
-                            },
-                            sorting = { "basic", "withlevel", "smart" },
-                            get = function() return Addon.db.profile.mythicplus.messageMode end,
-                            set = function(_, val) Addon.db.profile.mythicplus.messageMode = val end,
+                        messagesGroup = {
+                            type = "group",
+                            name = L["Messages"],
+                            inline = true,
+                            order = 10,
+                            args = (function()
+                                local args = {}
+                                for i, msg in ipairs(AutoSay.KeyAnnounce) do
+                                    args[msg.key] = {
+                                        type = "toggle",
+                                        name = msg.text,
+                                        order = i,
+                                        width = 1.5,
+                                        get = function() return Addon.db.profile.mythicplus.enabledKeyAnnounce[msg.key] end,
+                                        set = function(_, val) Addon.db.profile.mythicplus.enabledKeyAnnounce[msg.key] = val end,
+                                    }
+                                end
+                                return args
+                            end)(),
+                        },
+                        customGroup = {
+                            type = "group",
+                            name = L["Custom Messages"],
+                            inline = true,
+                            order = 12,
+                            args = BuildCustomMessageList("mythicplus", "customKeyAnnounce", "Custom Messages"),
+                        },
+                        placeholderNote = {
+                            type = "description",
+                            name = "|cFF888888" .. L["Placeholder hint"] .. "|r",
+                            order = 13,
+                            fontSize = "medium",
                         },
                     },
                 },
-                modeDescription = {
-                    type = "description",
-                    name = function()
-                        local mode = Addon.db.profile.mythicplus.messageMode
-                        if mode == "basic" then
-                            return "|cFF888888" .. L["Basic mode desc"] .. "|r"
-                        elseif mode == "withlevel" then
-                            return "|cFF888888" .. L["With level mode desc"] .. "|r"
-                        elseif mode == "smart" then
-                            return "|cFFFF8800" .. L["Smart mode desc"] .. "|r"
-                        end
-                        return ""
-                    end,
+                -- Tab 2: Completion (timed / depleted messages)
+                completion = {
+                    type = "group",
+                    name = L["Completion Messages"],
                     order = 2,
-                    fontSize = "medium",
-                },
-                messagesGroup = {
-                    type = "group",
-                    name = L["Messages"],
-                    inline = true,
-                    order = 10,
-                    args = (function()
-                        local args = {}
-                        for i, msg in ipairs(AutoSay.KeyAnnounce) do
-                            args[msg.key] = {
-                                type = "toggle",
-                                name = msg.text,
-                                order = i,
-                                width = 1.5,
-                                get = function() return Addon.db.profile.mythicplus.enabledKeyAnnounce[msg.key] end,
-                                set = function(_, val) Addon.db.profile.mythicplus.enabledKeyAnnounce[msg.key] = val end,
-                            }
-                        end
-                        return args
-                    end)(),
-                },
-                customGroup = {
-                    type = "group",
-                    name = L["Custom Messages"],
-                    inline = true,
-                    order = 12,
-                    args = BuildCustomMessageList("mythicplus", "customKeyAnnounce", "Custom Messages"),
-                },
-                placeholderNote = {
-                    type = "description",
-                    name = "|cFF888888" .. L["Placeholder hint"] .. "|r",
-                    order = 13,
-                    fontSize = "medium",
+                    args = {
+                        completionEnabled = {
+                            type = "toggle",
+                            name = L["Send message on completion"],
+                            desc = L["Send a message to party chat when a M+ dungeon is completed"],
+                            order = 1,
+                            width = "full",
+                            get = function() return Addon.db.profile.mythicplus.completionEnabled end,
+                            set = function(_, val) Addon.db.profile.mythicplus.completionEnabled = val end,
+                        },
+                        timedMessagesGroup = {
+                            type = "group",
+                            name = L["Timed Messages"],
+                            inline = true,
+                            order = 10,
+                            args = (function()
+                                local args = {}
+                                local popularCount = 4
+                                for i, msg in ipairs(AutoSay.CompletionTimed) do
+                                    args[msg.key] = {
+                                        type = "toggle",
+                                        name = msg.text,
+                                        order = i,
+                                        width = 1.5,
+                                        get = function() return Addon.db.profile.mythicplus.enabledCompletionTimed[msg.key] end,
+                                        set = function(_, val) Addon.db.profile.mythicplus.enabledCompletionTimed[msg.key] = val end,
+                                    }
+                                    if i == popularCount then
+                                        args["_moreHeader"] = {
+                                            type = "description",
+                                            name = "\n|cFF888888" .. L["More"] .. "|r",
+                                            order = i + 0.5,
+                                            width = "full",
+                                        }
+                                    end
+                                end
+                                return args
+                            end)(),
+                        },
+                        customTimedGroup = {
+                            type = "group",
+                            name = L["Custom timed messages"],
+                            inline = true,
+                            order = 11,
+                            args = BuildCustomMessageList("mythicplus", "customCompletionTimed", "Custom timed messages"),
+                        },
+                        timedPlaceholderNote = {
+                            type = "description",
+                            name = "\n|cFF888888" .. L["Completion placeholder hint"] .. "|r",
+                            order = 12,
+                            fontSize = "medium",
+                        },
+                        depletedMessagesGroup = {
+                            type = "group",
+                            name = L["Depleted Messages"],
+                            inline = true,
+                            order = 20,
+                            args = (function()
+                                local args = {}
+                                local popularCount = 4
+                                for i, msg in ipairs(AutoSay.CompletionDepleted) do
+                                    args[msg.key] = {
+                                        type = "toggle",
+                                        name = msg.text,
+                                        order = i,
+                                        width = 1.5,
+                                        get = function() return Addon.db.profile.mythicplus.enabledCompletionDepleted[msg.key] end,
+                                        set = function(_, val) Addon.db.profile.mythicplus.enabledCompletionDepleted[msg.key] = val end,
+                                    }
+                                    if i == popularCount then
+                                        args["_moreHeader"] = {
+                                            type = "description",
+                                            name = "\n|cFF888888" .. L["More"] .. "|r",
+                                            order = i + 0.5,
+                                            width = "full",
+                                        }
+                                    end
+                                end
+                                return args
+                            end)(),
+                        },
+                        customDepletedGroup = {
+                            type = "group",
+                            name = L["Custom depleted messages"],
+                            inline = true,
+                            order = 21,
+                            args = BuildCustomMessageList("mythicplus", "customCompletionDepleted", "Custom depleted messages"),
+                        },
+                        depletedPlaceholderNote = {
+                            type = "description",
+                            name = "\n|cFF888888" .. L["Completion placeholder hint"] .. "|r",
+                            order = 22,
+                            fontSize = "medium",
+                        },
+                    },
                 },
             },
         },
@@ -800,9 +910,9 @@ local options = {
                     order = 0,
                     fontSize = "medium",
                 },
-                simulateGroup = {
+                simulateGroupEvents = {
                     type = "group",
-                    name = L["Simulate Events"],
+                    name = L["Party"] .. " / " .. L["Raid"],
                     inline = true,
                     order = 10,
                     args = {
@@ -842,11 +952,28 @@ local options = {
                             func = function() Addon:TestReconnect() end,
                             disabled = function() return not Addon.db.profile.testMode or not Addon.testState.simulatedGroupType end,
                         },
+                        simulatePlayerJoin = {
+                            type = "execute",
+                            name = L["Random Player Joins"],
+                            desc = L["Simulate a random player joining your group"],
+                            order = 5,
+                            width = 1.0,
+                            func = function() Addon:TestPlayerJoins() end,
+                            disabled = function() return not Addon.db.profile.testMode or not Addon.testState.simulatedGroupType end,
+                        },
+                    },
+                },
+                simulateGuildEvents = {
+                    type = "group",
+                    name = L["Guild"],
+                    inline = true,
+                    order = 20,
+                    args = {
                         simulateGuild = {
                             type = "execute",
                             name = L["Guild Greeting"],
                             desc = L["Simulate guild login greeting"],
-                            order = 5,
+                            order = 1,
                             width = 0.8,
                             func = function() Addon:TestGuildGreeting() end,
                             disabled = function() return not Addon.db.profile.testMode end,
@@ -855,36 +982,60 @@ local options = {
                             type = "execute",
                             name = L["Guild Goodbye"],
                             desc = L["Simulate guild logout goodbye"],
-                            order = 6,
+                            order = 2,
                             width = 0.8,
                             func = function() Addon:TestGuildGoodbye() end,
+                            disabled = function() return not Addon.db.profile.testMode end,
+                        },
+                    },
+                },
+                simulateMythicPlus = {
+                    type = "group",
+                    name = L["Mythic+"],
+                    inline = true,
+                    order = 25,
+                    args = {
+                        simulateRole = {
+                            type = "select",
+                            name = L["Simulate role"],
+                            desc = L["Simulate role desc"],
+                            order = 1,
+                            width = 0.8,
+                            values = {
+                                leader = L["Leader"],
+                                joined = L["Joined"],
+                            },
+                            sorting = { "leader", "joined" },
+                            get = function() return Addon.testState.mythicPlusRole end,
+                            set = function(_, val) Addon.testState.mythicPlusRole = val end,
                             disabled = function() return not Addon.db.profile.testMode end,
                         },
                         simulateKeyAnnounce = {
                             type = "execute",
                             name = L["Simulate M+ Flow"],
                             desc = L["Simulate M+ flow desc"],
-                            order = 7,
+                            order = 2,
                             width = 1.2,
                             func = function() Addon:TestMythicPlusFlow() end,
                             disabled = function() return not Addon.db.profile.testMode end,
                         },
-                    },
-                },
-                playerJoinGroup = {
-                    type = "group",
-                    name = L["Simulate Player Join"],
-                    inline = true,
-                    order = 20,
-                    args = {
-                        simulatePlayerJoin = {
+                        simulateTimed = {
                             type = "execute",
-                            name = L["Random Player Joins"],
-                            desc = L["Simulate a random player joining your group"],
-                            order = 1,
-                            width = 1.2,
-                            func = function() Addon:TestPlayerJoins() end,
-                            disabled = function() return not Addon.db.profile.testMode or not Addon.testState.simulatedGroupType end,
+                            name = L["Simulate Timed"],
+                            desc = L["Simulate completing a timed M+ key"],
+                            order = 3,
+                            width = 1.0,
+                            func = function() Addon:TestCompletionTimed() end,
+                            disabled = function() return not Addon.db.profile.testMode end,
+                        },
+                        simulateDepleted = {
+                            type = "execute",
+                            name = L["Simulate Depleted"],
+                            desc = L["Simulate completing a depleted M+ key"],
+                            order = 4,
+                            width = 1.0,
+                            func = function() Addon:TestCompletionDepleted() end,
+                            disabled = function() return not Addon.db.profile.testMode end,
                         },
                     },
                 },

@@ -61,3 +61,33 @@ AutoSay.KeyAnnounce = {
     { key = "ready",    text = "Ready! {dungeon} {key}" },
     { key = "gogogo",   text = "{dungeon} {key}, let's do this!" },
 }
+
+-- M+ completion messages - timed (enabled by default first)
+AutoSay.CompletionTimed = {
+    { key = "gg", text = "gg" },
+    { key = "ggwp", text = "gg wp" },
+    { key = "gjteam", text = "gj team!" },
+    { key = "nicerun", text = "nice run!" },
+    -- Disabled by default
+    { key = "letsgo", text = "let's gooo!" },
+    { key = "cleanrun", text = "clean run!" },
+    { key = "greatteam", text = "great team!" },
+    { key = "wpall", text = "wp all" },
+    { key = "timed", text = "{dungeon} {key} timed, gg!" },
+    { key = "upgraded", text = "+{upgrade} upgrade, nice!" },
+}
+
+-- M+ completion messages - depleted (enabled by default first)
+AutoSay.CompletionDepleted = {
+    { key = "gg", text = "gg" },
+    { key = "ggwp", text = "gg wp" },
+    { key = "tyrun", text = "ty for the run" },
+    { key = "tyall", text = "ty all" },
+    -- Disabled by default
+    { key = "goodrun", text = "good run!" },
+    { key = "ggeveryone", text = "gg everyone" },
+    { key = "gjteam", text = "gj team" },
+    { key = "wpall", text = "wp all" },
+    { key = "done", text = "{dungeon} {key} done, gg" },
+    { key = "tyfun", text = "ty all, was fun" },
+}
