@@ -11,6 +11,13 @@ function Addon:RegisterEvents()
     -- Player login for guild greeting
     self:RegisterEvent("PLAYER_ENTERING_WORLD")
 
+    -- Guild member online detection (Club/Communities API)
+    -- Disabled until member login greeting feature is fully working
+    -- self:RegisterEvent("CLUB_MEMBER_PRESENCE_UPDATED")
+
+    -- Club system initialization (needed before Club API is reliable)
+    self:RegisterEvent("INITIAL_CLUBS_LOADED")
+
     -- Player logout for guild goodbye
     self:RegisterEvent("PLAYER_LOGOUT")
 
@@ -34,14 +41,6 @@ function Addon:GROUP_JOINED()
     -- (prevents announce from firing with old data when joining someone else's group)
     self.state.cachedLFGListing = nil
     self.state.keyAnnounced = false
-
-    -- Auto-disable simulation mode on real group events
-    if db.testMode and db.autoDisableTestMode then
-        db.testMode = false
-        db.debugMode = false
-        self:Print("|cFFFF9900Simulation auto-disabled|r (real group detected)")
-        LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
-    end
 
     if not db.enabled then return end
 
@@ -383,26 +382,29 @@ function Addon:PLAYER_ENTERING_WORLD(event, isInitialLogin, isReloadingUi)
     -- Update cached guild status
     self:UpdateGuildStatus()
 
-    -- Only send guild greeting on initial login, not on reload or zone change
-    if isInitialLogin then
-        self:DebugPrint("Initial login detected, scheduling guild greeting")
-        -- Delay guild greeting to allow guild roster to load
+    -- Reset guild presence tracking only on login/reload (not zone changes)
+    if isInitialLogin or isReloadingUi then
+        self.state.guildPresenceReady = false
+        self.state.guildMemberPresence = {}
+        self.state.pendingGuildGreeting = isInitialLogin -- Flag: send guild greeting after clubs load
+        self:DebugPrint("Guild presence reset, waiting for INITIAL_CLUBS_LOADED")
+
+        -- Fallback: if INITIAL_CLUBS_LOADED already fired or never fires, force init after 20s
         self:ScheduleTimer(function()
-            -- Update guild status after delay
-            self:UpdateGuildStatus()
-            self:DebugPrint("Attempting to send guild greeting, IsInGuild:", tostring(IsInGuild()))
-            if IsInGuild() then
-                self:SendGuildGreeting()
-            else
-                -- Retry once more after additional delay if guild not loaded yet
-                self:DebugPrint("Guild not loaded yet, retrying in 5 seconds")
-                self:ScheduleTimer(function()
-                    self:UpdateGuildStatus()
-                    self:DebugPrint("Retry: IsInGuild:", tostring(IsInGuild()))
+            -- Disabled until member login greeting feature is fully working
+            -- if not self.state.guildPresenceReady then
+            --     self:DebugPrint("INITIAL_CLUBS_LOADED fallback: forcing guild presence init")
+            --     self:SnapshotGuildPresence()
+            -- end
+            if self.state.pendingGuildGreeting then
+                self.state.pendingGuildGreeting = false
+                self:DebugPrint("Fallback: sending deferred guild greeting")
+                self:UpdateGuildStatus()
+                if IsInGuild() then
                     self:SendGuildGreeting()
-                end, 5)
+                end
             end
-        end, 5) -- 5 second delay for guild to load
+        end, 20)
     end
 
     -- Initialize group state if already in a group
@@ -490,6 +492,139 @@ function Addon:GetCurrentGroupMembers()
     end
 
     return members
+end
+
+-- Handle INITIAL_CLUBS_LOADED - Club API is now ready
+function Addon:INITIAL_CLUBS_LOADED()
+    self:DebugPrint("EVENT: INITIAL_CLUBS_LOADED - Club system initialized")
+
+    -- Update guild status now that Club API is reliable
+    self:UpdateGuildStatus()
+
+    -- Disabled until member login greeting feature is fully working
+    -- self:SnapshotGuildPresence()
+
+    -- Send guild greeting on login (deferred from PLAYER_ENTERING_WORLD)
+    if self.state.pendingGuildGreeting then
+        self.state.pendingGuildGreeting = false
+        self:DebugPrint("Clubs loaded, sending deferred guild greeting")
+        -- Small delay for chat system to be fully ready
+        self:ScheduleTimer(function()
+            self:UpdateGuildStatus()
+            self:DebugPrint("Attempting to send guild greeting, IsInGuild:", tostring(IsInGuild()))
+            if IsInGuild() then
+                self:SendGuildGreeting()
+            else
+                self:DebugPrint("Not in guild after INITIAL_CLUBS_LOADED, skipping greeting")
+            end
+        end, 2)
+    end
+end
+
+-- Snapshot all current guild members' presence so login detection has a baseline
+function Addon:SnapshotGuildPresence()
+    if not C_Club or not C_Club.GetGuildClubId or not C_Club.GetClubMembers then
+        self:DebugPrint("Club API not available for presence snapshot")
+        self.state.guildPresenceReady = true
+        return
+    end
+
+    local guildClubId = C_Club.GetGuildClubId()
+    if not guildClubId then
+        self:DebugPrint("No guild club ID, skipping presence snapshot")
+        self.state.guildPresenceReady = true
+        return
+    end
+
+    -- Focus members and subscribe to presence updates for the guild club
+    -- Without SetClubPresenceSubscription, CLUB_MEMBER_PRESENCE_UPDATED won't fire
+    if C_Club.FocusMembers then
+        C_Club.FocusMembers(guildClubId)
+    end
+    if C_Club.SetClubPresenceSubscription then
+        C_Club.SetClubPresenceSubscription(guildClubId)
+        self:DebugPrint("Subscribed to guild presence updates, clubId:", tostring(guildClubId))
+    end
+
+    local memberIds = C_Club.GetClubMembers(guildClubId)
+    if not memberIds then
+        self:DebugPrint("No guild members returned, skipping snapshot")
+        self.state.guildPresenceReady = true
+        return
+    end
+
+    local onlineCount = 0
+    for _, memberId in ipairs(memberIds) do
+        local info = C_Club.GetMemberInfo(guildClubId, memberId)
+        if info and info.presence then
+            self.state.guildMemberPresence[memberId] = info.presence
+            if info.presence == Enum.ClubMemberPresence.Online
+               or info.presence == Enum.ClubMemberPresence.OnlineMobile
+               or info.presence == Enum.ClubMemberPresence.Away
+               or info.presence == Enum.ClubMemberPresence.Busy then
+                onlineCount = onlineCount + 1
+            end
+        end
+    end
+
+    self.state.guildPresenceReady = true
+    self:DebugPrint("Guild presence snapshot complete:", #memberIds, "members,", onlineCount, "online")
+end
+
+-- Handle CLUB_MEMBER_PRESENCE_UPDATED - detect guild member login via Club API
+function Addon:CLUB_MEMBER_PRESENCE_UPDATED(event, clubId, memberId, presence)
+    -- Debug: log every presence update to verify the event fires
+    local info = C_Club and C_Club.GetMemberInfo and C_Club.GetMemberInfo(clubId, memberId)
+    local memberName = info and info.name or tostring(memberId)
+    self:DebugPrint("EVENT: CLUB_MEMBER_PRESENCE_UPDATED", memberName,
+        "presence:", tostring(presence), "ready:", tostring(self.state.guildPresenceReady))
+
+    if not self.db.profile.enabled then return end
+    if not self.db.profile.guild.enabled then return end
+    if not self.db.profile.guild.onMemberLogin then return end
+
+    -- Only handle guild club events
+    if not C_Club or not C_Club.GetGuildClubId then return end
+    local guildClubId = C_Club.GetGuildClubId()
+    if not guildClubId or clubId ~= guildClubId then
+        self:DebugPrint("  Not guild club, ignoring (got:", tostring(clubId), "guild:", tostring(guildClubId), ")")
+        return
+    end
+
+    -- Track previous presence and update
+    local prevPresence = self.state.guildMemberPresence[memberId]
+    self.state.guildMemberPresence[memberId] = presence
+
+    -- Don't process greetings during initialization (roster still loading)
+    if not self.state.guildPresenceReady then
+        self:DebugPrint("  Presence not ready yet, skipping")
+        return
+    end
+
+    -- Only greet on transition to Online (not OnlineMobile — that's the companion app, not in-game)
+    if presence ~= Enum.ClubMemberPresence.Online then
+        self:DebugPrint("  Not Online transition, skipping (presence:", tostring(presence), ")")
+        return
+    end
+
+    -- Only greet if previously Offline, Unknown, or never seen (not Away→Online or Busy→Online)
+    if prevPresence and prevPresence ~= Enum.ClubMemberPresence.Offline
+       and prevPresence ~= Enum.ClubMemberPresence.Unknown then
+        self:DebugPrint("  Was already online/away/busy, skipping (prev:", tostring(prevPresence), ")")
+        return
+    end
+
+    if not info or not info.name then
+        self:DebugPrint("  No member info/name available")
+        return
+    end
+
+    -- Don't greet yourself
+    if info.isSelf then return end
+
+    local name = info.name
+    self:DebugPrint("Guild member logged in (presence update):", name, "prev:", tostring(prevPresence))
+    self:HandleGuildMemberLogin(name)
 end
 
 -- Handle PLAYER_LOGOUT - for guild goodbye on logout (fallback if hooks didn't fire)

@@ -112,6 +112,19 @@ local defaultCompletionTimed = {
     upgraded = false,
 }
 
+-- Default enabled guild login greetings
+local defaultGuildLoginGreetings = {
+    wb = true,
+    hey = true,
+    hi = true,
+    -- Disabled by default
+    ohey = false,
+    greetings = false,
+    goodtosee = false,
+    wbplain = false,
+    heythere = false,
+}
+
 -- Default enabled completion depleted messages
 local defaultCompletionDepleted = {
     gg = true,
@@ -142,7 +155,11 @@ local defaults = {
         enabled = true,
         debugMode = false,
         testMode = false,
-        autoDisableTestMode = true, -- Auto-disable simulation when real group events fire
+
+        -- Minimap icon
+        minimap = {
+            hide = false,
+        },
 
         -- Timing (global)
         messageDelay = 1.0,
@@ -184,9 +201,9 @@ local defaults = {
             customReconnects = {},
         },
 
-        -- Mythic+ settings (disabled by default)
+        -- Mythic+ settings
         mythicplus = {
-            enabled = false,
+            enabled = true,
             announceOnFull = true,      -- Announce when group fills 5/5
             messageMode = "basic",      -- "basic" | "withlevel" | "smart"
             enabledKeyAnnounce = DeepCopy(defaultKeyAnnounce),
@@ -207,10 +224,14 @@ local defaults = {
             enabled = false,
             onSelfJoin = false,  -- Send greeting on login (disabled by default)
             sendGoodbye = false, -- Send goodbye on logout (disabled by default)
+            onMemberLogin = false, -- Greet guild members who log in
+            memberLoginCooldown = 30, -- Separate cooldown for member login greetings (seconds)
             enabledGreetings = DeepCopy(defaultGreetings),
             enabledGoodbyes = DeepCopy(defaultGoodbyes),
+            enabledLoginGreetings = DeepCopy(defaultGuildLoginGreetings),
             customGreetings = {},
             customGoodbyes = {},
+            customLoginGreetings = {},
         },
     },
 }
@@ -232,6 +253,12 @@ Addon.state = {
     lastGreetingText = {}, -- Cache greeting text per channel:reason for consistency
     cachedLFGListing = nil, -- Cached LFG listing data (before auto-delist)
     keyAnnounced = false, -- Prevent duplicate M+ key announcements per group
+    pendingGuildLogins = {}, -- Batch guild member login names
+    guildLoginTimer = nil, -- Timer for batched guild login greeting
+    lastGuildLoginGreetTime = 0, -- Separate cooldown for guild member login greetings
+    guildMemberPresence = {}, -- Track guild member presence states (memberId → presence)
+    guildPresenceReady = false, -- Flag: true after INITIAL_CLUBS_LOADED + snapshot (prevents mass greetings on login)
+    pendingGuildGreeting = false, -- Flag: send guild greeting after clubs load (deferred from PLAYER_ENTERING_WORLD)
 }
 
 -- Test mode simulation state
@@ -254,7 +281,48 @@ function Addon:OnInitialize()
     self:RegisterChatCommand("autosay", "SlashCommand")
     self:RegisterChatCommand("as", "SlashCommand")
 
+    -- Initialize minimap icon
+    self:InitMinimapIcon()
+
     self:DebugPrint("Addon initialized")
+end
+
+-- Initialize minimap icon using LibDBIcon
+function Addon:InitMinimapIcon()
+    local LDB = LibStub("LibDataBroker-1.1", true)
+    local LDBIcon = LibStub("LibDBIcon-1.0", true)
+    if not LDB or not LDBIcon then return end
+
+    local dataObj = LDB:NewDataObject("AutoSay", {
+        type = "launcher",
+        icon = "Interface\\Icons\\UI_Chat",
+        label = "AutoSay",
+        OnClick = function()
+            local AceConfigDialog = LibStub("AceConfigDialog-3.0")
+            if AceConfigDialog.OpenFrames["AutoSay"] then
+                AceConfigDialog:Close("AutoSay")
+            else
+                Addon:OpenConfig()
+            end
+        end,
+        OnTooltipShow = function(tip)
+            tip:AddLine("|cFF0099FFAuto|r|cFFFFD700Say|r")
+            tip:AddLine("|cFFCCCCCCClick|r to open settings", 0.8, 0.8, 0.8)
+        end,
+    })
+
+    LDBIcon:Register("AutoSay", dataObj, self.db.profile.minimap)
+    self.minimapIcon = LDBIcon
+end
+
+-- Update minimap icon visibility
+function Addon:UpdateMinimapIcon()
+    if not self.minimapIcon then return end
+    if self.db.profile.minimap.hide then
+        self.minimapIcon:Hide("AutoSay")
+    else
+        self.minimapIcon:Show("AutoSay")
+    end
 end
 
 -- Migrate old single custom message fields to the new array format
@@ -443,6 +511,9 @@ function Addon:SlashCommand(input)
             self:TestGuildGreeting()
         elseif subcmd == "guildbye" or subcmd == "gb" then
             self:TestGuildGoodbye()
+        elseif subcmd == "guildlogin" or subcmd == "gl" then
+            local _, _, playerName = self:GetArgs(input, 3)
+            self:TestGuildMemberLogin(playerName)
         elseif subcmd == "reconnect" or subcmd == "re" then
             self:TestReconnect()
         elseif subcmd == "player" or subcmd == "join" then
@@ -461,6 +532,7 @@ function Addon:SlashCommand(input)
             self:Print("  /as test leave - Simulate leaving group")
             self:Print("  /as test guild - Simulate guild login greeting")
             self:Print("  /as test guildbye - Simulate guild logout goodbye")
+            self:Print("  /as test guildlogin [name] - Simulate guild member logging in")
             self:Print("  /as test reconnect - Simulate reconnecting to group")
             self:Print("  /as test player [name] - Simulate player joining")
             self:Print("  /as test key - Simulate full M+ flow (listing → joins → announce)")
@@ -1081,6 +1153,108 @@ function Addon:SendGuildGoodbye()
     self:DoSendMessage(message, "GUILD")
 end
 
+-- Handle a guild member logging in (called from CLUB_MEMBER_PRESENCE_UPDATED)
+function Addon:HandleGuildMemberLogin(name)
+    -- Add to pending batch
+    self.state.pendingGuildLogins[name] = true
+
+    -- Reset batch timer on each new login (3 sec window to collect rapid logins)
+    if self.state.guildLoginTimer then
+        self:CancelTimer(self.state.guildLoginTimer)
+    end
+
+    self.state.guildLoginTimer = self:ScheduleTimer(function()
+        local names = {}
+        for n in pairs(self.state.pendingGuildLogins) do
+            table.insert(names, n)
+        end
+        self.state.pendingGuildLogins = {}
+        self.state.guildLoginTimer = nil
+
+        if #names > 0 then
+            self:DebugPrint("Sending batched guild login greeting for:", table.concat(names, ", "))
+            self:SendGuildLoginGreeting(names)
+        end
+    end, 3)
+end
+
+-- Send greeting when guild members log in
+function Addon:SendGuildLoginGreeting(names)
+    local db = self.db.profile
+
+    if not db.enabled then return end
+    if not db.guild.enabled then return end
+    if not db.guild.onMemberLogin then
+        self:DebugPrint("Guild member login greeting disabled")
+        return
+    end
+    if not self:IsInGuildOrTest() then return end
+
+    -- Check separate cooldown for member login greetings
+    local now = GetTime()
+    local cooldown = db.guild.memberLoginCooldown or 30
+    if (now - self.state.lastGuildLoginGreetTime) < cooldown then
+        local remaining = cooldown - (now - self.state.lastGuildLoginGreetTime)
+        self:DebugPrint("Guild login greeting on cooldown, skipping (" .. string.format("%.1f", remaining) .. "s remaining)")
+        if self:IsTestMode() then
+            self:TestPrint("Guild member greeting blocked by cooldown (" .. string.format("%.1f", remaining) .. "s remaining)")
+        end
+        return
+    end
+
+    -- Get random login greeting
+    local message = self:GetRandomGuildLoginGreeting()
+    if not message then
+        self:DebugPrint("No login greetings enabled for GUILD")
+        return
+    end
+
+    -- Replace {name} placeholder with member name(s)
+    local nameStr = table.concat(names, ", ")
+    message = message:gsub("{name}", nameStr)
+
+    self.state.lastGuildLoginGreetTime = now
+    -- Send directly, bypassing global cooldown (member login has its own cooldown above)
+    local delay = db.messageDelay
+    if delay and delay > 0 then
+        self:ScheduleTimer(function()
+            self:DoSendMessage(message, "GUILD")
+        end, delay)
+    else
+        self:DoSendMessage(message, "GUILD")
+    end
+end
+
+-- Get random guild login greeting from enabled pool
+function Addon:GetRandomGuildLoginGreeting()
+    local settings = self.db.profile.guild
+    local enabled = {}
+
+    -- Add enabled preset messages
+    if settings.enabledLoginGreetings then
+        for _, msg in ipairs(AutoSay.GuildLoginGreetings) do
+            if settings.enabledLoginGreetings[msg.key] then
+                table.insert(enabled, msg.text)
+            end
+        end
+    end
+
+    -- Add enabled custom messages
+    if settings.customLoginGreetings then
+        for _, entry in ipairs(settings.customLoginGreetings) do
+            if entry.enabled and entry.text and entry.text ~= "" then
+                table.insert(enabled, entry.text)
+            end
+        end
+    end
+
+    if #enabled == 0 then
+        return nil
+    end
+
+    return enabled[math.random(#enabled)]
+end
+
 -- Check if should greet on self join for channel
 function Addon:ShouldGreetOnSelfJoin(channel)
     local settings = self:GetChannelSettings(channel)
@@ -1347,7 +1521,13 @@ function Addon:TestReset()
     self.state.currentGroupType = nil
     self.state.lastGroupMessageTime = 0
     self.state.lastGuildMessageTime = 0
+    self.state.lastGuildLoginGreetTime = 0
     self.state.pendingNewMembers = {}
+    self.state.pendingGuildLogins = {}
+    if self.state.guildLoginTimer then
+        self:CancelTimer(self.state.guildLoginTimer)
+        self.state.guildLoginTimer = nil
+    end
     if self.state.pendingGreetTimer then
         self:CancelTimer(self.state.pendingGreetTimer)
         self.state.pendingGreetTimer = nil
@@ -1361,6 +1541,9 @@ function Addon:TestReset()
     self.state.cachedLFGListing = nil
     self.state.keyAnnounced = false
     self.state.mythicPlusFlowActive = false
+    self.state.goodbyeSent = false
+    self.state.guildMemberPresence = {}
+    self.state.guildPresenceReady = true -- In test mode, always ready
     self:TestPrint("Test state reset")
 end
 
@@ -1483,6 +1666,26 @@ function Addon:TestGuildGoodbye()
     self.testState.simulatedInGuild = true
     self:SendGuildGoodbye()
     self.testState.simulatedInGuild = false
+end
+
+-- Simulate guild member login
+function Addon:TestGuildMemberLogin(playerName)
+    if not self:IsTestMode() then
+        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
+        return
+    end
+
+    local testNames = { "Thrall", "Jaina", "Sylvanas", "Anduin", "Tyrande", "Velen", "Baine", "Lor'themar" }
+    local name = playerName or testNames[math.random(#testNames)]
+
+    self:TestPrint("=== Simulating GUILD MEMBER LOGIN: " .. name .. " ===")
+    self.testState.simulatedInGuild = true
+    self:HandleGuildMemberLogin(name)
+    -- Note: simulatedInGuild stays true until the batched timer fires
+    -- Schedule cleanup after the batch window
+    self:ScheduleTimer(function()
+        self.testState.simulatedInGuild = false
+    end, 4)
 end
 
 -- Simulate reconnecting to group

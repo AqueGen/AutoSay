@@ -43,6 +43,12 @@ externals:
   Libs/AceGUI-3.0:
     url: https://repos.wowace.com/wow/ace3/trunk/AceGUI-3.0
     tag: latest
+  Libs/LibDataBroker-1.1:
+    url: https://repos.wowace.com/wow/libdatabroker-1-1
+    tag: latest
+  Libs/LibDBIcon-1.0:
+    url: https://repos.wowace.com/wow/libdbicon-1-0/trunk/LibDBIcon-1.0
+    tag: latest
 
 ignore:
   - README.md

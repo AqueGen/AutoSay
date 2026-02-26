@@ -15,7 +15,6 @@ AutoSay.Greetings = {
     { key = "hiya", text = "Hiya!" },
     { key = "yoyo", text = "Yo yo!" },
     { key = "hellothere", text = "Hello there!" },
-    { key = "slavaukraini", text = "Slava Ukraini!" },
 }
 
 -- Goodbyes database (enabled by default first)
@@ -33,7 +32,6 @@ AutoSay.Goodbyes = {
     { key = "gn", text = "GN!" },
     { key = "bb", text = "BB!" },
     { key = "laterall", text = "Later all!" },
-    { key = "heroiamslava", text = "Heroiam Slava!" },
 }
 
 -- Reconnect messages database (enabled by default first)
@@ -75,6 +73,19 @@ AutoSay.CompletionTimed = {
     { key = "wpall", text = "wp all" },
     { key = "timed", text = "{dungeon} {key} timed, gg!" },
     { key = "upgraded", text = "+{upgrade} upgrade, nice!" },
+}
+
+-- Guild member login greetings (enabled by default first)
+AutoSay.GuildLoginGreetings = {
+    { key = "wb", text = "Welcome back, {name}!" },
+    { key = "hey", text = "Hey {name}!" },
+    { key = "hi", text = "Hi {name}!" },
+    -- Disabled by default
+    { key = "ohey", text = "o/ {name}" },
+    { key = "greetings", text = "Greetings, {name}!" },
+    { key = "goodtosee", text = "Good to see you, {name}!" },
+    { key = "wbplain", text = "Welcome back!" },
+    { key = "heythere", text = "Hey there, {name}!" },
 }
 
 -- M+ completion messages - depleted (enabled by default first)

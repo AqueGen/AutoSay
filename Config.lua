@@ -425,6 +425,109 @@ local function BuildGoodbyeToggles(channel)
     return args
 end
 
+-- Build guild member login greeting toggles
+local function BuildGuildLoginToggles()
+    local args = {}
+    local order = 1
+    local defaultCount = 3 -- First 3 are enabled by default
+
+    -- Triggers panel
+    args.triggersGroup = {
+        type = "group",
+        name = L["Triggers"],
+        inline = true,
+        order = order,
+        args = {
+            onMemberLogin = {
+                type = "toggle",
+                name = L["On member login"],
+                desc = L["Send greeting when a guild member logs in"],
+                order = 1,
+                width = "full",
+                get = function() return Addon.db.profile.guild.onMemberLogin end,
+                set = function(_, val) Addon.db.profile.guild.onMemberLogin = val end,
+            },
+            memberLoginCooldown = {
+                type = "range",
+                name = L["Member login cooldown"],
+                desc = L["Minimum time between guild member login greetings (seconds)"],
+                order = 3,
+                width = "full",
+                min = 0,
+                max = 60,
+                step = 1,
+                hidden = function() return not Addon.db.profile.guild.onMemberLogin end,
+                get = function() return Addon.db.profile.guild.memberLoginCooldown end,
+                set = function(_, val) Addon.db.profile.guild.memberLoginCooldown = val end,
+            },
+        },
+    }
+    order = order + 1
+
+    -- Popular panel
+    local popularArgs = {}
+    for i = 1, math.min(defaultCount, #AutoSay.GuildLoginGreetings) do
+        local msg = AutoSay.GuildLoginGreetings[i]
+        popularArgs[msg.key] = {
+            type = "toggle",
+            name = msg.text,
+            order = i,
+            width = 1.0,
+            get = function() return Addon.db.profile.guild.enabledLoginGreetings[msg.key] end,
+            set = function(_, val) Addon.db.profile.guild.enabledLoginGreetings[msg.key] = val end,
+        }
+    end
+    args.popularGroup = {
+        type = "group",
+        name = L["Popular"],
+        inline = true,
+        order = order,
+        args = popularArgs,
+    }
+    order = order + 1
+
+    -- More panel
+    local moreArgs = {}
+    for i = defaultCount + 1, #AutoSay.GuildLoginGreetings do
+        local msg = AutoSay.GuildLoginGreetings[i]
+        moreArgs[msg.key] = {
+            type = "toggle",
+            name = msg.text,
+            order = i - defaultCount,
+            width = 1.0,
+            get = function() return Addon.db.profile.guild.enabledLoginGreetings[msg.key] end,
+            set = function(_, val) Addon.db.profile.guild.enabledLoginGreetings[msg.key] = val end,
+        }
+    end
+    args.moreGroup = {
+        type = "group",
+        name = L["More"],
+        inline = true,
+        order = order,
+        args = moreArgs,
+    }
+    order = order + 1
+
+    -- Custom login greetings panel
+    args.customGroup = {
+        type = "group",
+        name = L["Custom login greetings"],
+        inline = true,
+        order = order,
+        args = BuildCustomMessageList("guild", "customLoginGreetings", "Custom login greetings"),
+    }
+    order = order + 1
+
+    args.placeholderNote = {
+        type = "description",
+        name = "|cFF888888" .. L["Guild login placeholder hint"] .. "|r",
+        order = order,
+        fontSize = "medium",
+    }
+
+    return args
+end
+
 -- Main options table
 local options = {
     type = "group",
@@ -445,6 +548,18 @@ local options = {
                     width = "full",
                     get = function() return Addon.db.profile.enabled end,
                     set = function(_, val) Addon.db.profile.enabled = val end,
+                },
+                minimapIcon = {
+                    type = "toggle",
+                    name = L["Show minimap icon"],
+                    desc = L["Show or hide the minimap button"],
+                    order = 2,
+                    width = "full",
+                    get = function() return not Addon.db.profile.minimap.hide end,
+                    set = function(_, val)
+                        Addon.db.profile.minimap.hide = not val
+                        Addon:UpdateMinimapIcon()
+                    end,
                 },
                 channelsGroup = {
                     type = "group",
@@ -559,15 +674,6 @@ local options = {
                                 LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
                             end,
                         },
-                        autoDisable = {
-                            type = "toggle",
-                            name = L["Auto-disable on real events"],
-                            desc = L["Auto-disable simulation when you join a real group"],
-                            order = 2,
-                            width = "full",
-                            get = function() return Addon.db.profile.autoDisableTestMode end,
-                            set = function(_, val) Addon.db.profile.autoDisableTestMode = val end,
-                        },
                     },
                 },
                 resetWindowSize = {
@@ -575,7 +681,7 @@ local options = {
                     name = L["Reset window size"],
                     desc = L["Reset settings window to default size and position"],
                     order = 19,
-                    width = 1.2,
+                    width = "full",
                     func = function()
                         Addon.db.profile.configWindowStatus = nil
                         local AceConfigDialog = LibStub("AceConfigDialog-3.0")
@@ -687,6 +793,13 @@ local options = {
                     order = 2,
                     args = BuildGoodbyeToggles("guild"),
                 },
+                -- Member Login tab hidden until feature is fully working
+                -- memberLogin = {
+                --     type = "group",
+                --     name = L["Member Login"],
+                --     order = 3,
+                --     args = BuildGuildLoginToggles(),
+                -- },
             },
         },
 
@@ -987,6 +1100,16 @@ local options = {
                             func = function() Addon:TestGuildGoodbye() end,
                             disabled = function() return not Addon.db.profile.testMode end,
                         },
+                        -- Guild Member Login simulation hidden until feature is fully working
+                        -- simulateGuildMemberLogin = {
+                        --     type = "execute",
+                        --     name = L["Guild Member Login"],
+                        --     desc = L["Simulate a guild member logging in"],
+                        --     order = 3,
+                        --     width = 1.0,
+                        --     func = function() Addon:TestGuildMemberLogin() end,
+                        --     disabled = function() return not Addon.db.profile.testMode end,
+                        -- },
                     },
                 },
                 simulateMythicPlus = {
