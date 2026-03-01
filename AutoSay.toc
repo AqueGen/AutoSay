@@ -11,6 +11,7 @@
 ## IconTexture: Interface\Icons\Spell_Holy_Devotion
 ## Category: Chat & Communication
 ## X-Curse-Project-ID: 1399061
+## X-Wago-ID: rN4kvMGD
 
 # Libraries
 Libs\LibStub\LibStub.lua

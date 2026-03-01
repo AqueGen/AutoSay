@@ -1,3 +1,9 @@
+## [1.3.1] - 2026-03-02
+
+### Added
+
+- Wago Addons distribution: releases now automatically publish to addons.wago.io
+
 ## [1.3.0] - 2026-02-26
 
 ### Added
