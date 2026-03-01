@@ -1,6 +1,7 @@
 # AutoSay
 
 [![CurseForge](https://img.shields.io/badge/CurseForge-AutoSay-orange)](https://www.curseforge.com/wow/addons/autosay)
+[![Wago Addons](https://img.shields.io/badge/Wago-AutoSay-teal)](https://addons.wago.io/addons/rN4kvMGD)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![WoW Version](https://img.shields.io/badge/WoW-12.0.1+-brightgreen)](https://worldofwarcraft.com)
 
@@ -42,13 +43,11 @@ Choose when messages are sent:
 
 ## Installation
 
-### CurseForge (Recommended)
-Install via [CurseForge](https://www.curseforge.com/wow/addons/autosay) app for automatic updates.
+Install via your preferred addon manager:
 
-### Manual Installation
-1. Download the latest release from [GitHub Releases](https://github.com/AqueGen/AutoSay/releases)
-2. Extract to `World of Warcraft/_retail_/Interface/AddOns/`
-3. Restart WoW or `/reload`
+- [CurseForge](https://www.curseforge.com/wow/addons/autosay)
+- [Wago Addons](https://addons.wago.io/addons/rN4kvMGD)
+- [GitHub Releases](https://github.com/AqueGen/AutoSay/releases)
 
 ## Usage
 
@@ -170,7 +169,6 @@ Contributions are welcome! Please feel free to submit issues or pull requests on
 ## Support
 
 - **Issues**: [GitHub Issues](https://github.com/AqueGen/AutoSay/issues)
-- **CurseForge**: [Project Page](https://www.curseforge.com/wow/addons/autosay)
 
 ## License
 
