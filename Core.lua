@@ -1391,7 +1391,7 @@ end
 -- Send key announce message to party chat
 function Addon:SendKeyAnnounce()
     local db = self.db.profile
-    if not db.enabled or not db.mythicplus.enabled then return end
+    if not db.enabled or not db.mythicplus or not db.mythicplus.enabled then return end
 
     local listing = self.state.cachedLFGListing
     if not listing or not listing.dungeonName then
@@ -1474,7 +1474,7 @@ end
 -- Send completion message to party chat
 function Addon:SendCompletionMessage(dungeon, keyLevel, onTime, upgrade, timeFormatted)
     local db = self.db.profile
-    if not db.enabled or not db.mythicplus.enabled or not db.mythicplus.completionEnabled then return end
+    if not db.enabled or not db.mythicplus or not db.mythicplus.enabled or not db.mythicplus.completionEnabled then return end
 
     local template = self:GetRandomCompletionMessage(onTime)
     if not template then
@@ -1906,24 +1906,30 @@ function Addon:TestStatus()
 
     -- Show channel status
     local db = self.db.profile
-    self:Print("Party:", db.party.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
-        "| Self:", db.party.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Others:", db.party.onOthersJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Names:", db.party.includeNames and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Bye:", db.party.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
-    self:Print("Raid:", db.raid.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
-        "| Self:", db.raid.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Others:", db.raid.onOthersJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Names:", db.raid.includeNames and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Bye:", db.raid.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
+    if db.party then
+        self:Print("Party:", db.party.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
+            "| Self:", db.party.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
+            "| Others:", db.party.onOthersJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
+            "| Names:", db.party.includeNames and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
+            "| Bye:", db.party.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
+    end
+    if db.raid then
+        self:Print("Raid:", db.raid.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
+            "| Self:", db.raid.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
+            "| Others:", db.raid.onOthersJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
+            "| Names:", db.raid.includeNames and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
+            "| Bye:", db.raid.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
+    end
     if db.guild then
         self:Print("Guild:", db.guild.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
             "| Login:", db.guild.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
             "| Logout:", db.guild.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
     end
-    self:Print("M+:", db.mythicplus.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
-        "| Mode:", db.mythicplus.messageMode,
-        "| Announced:", self.state.keyAnnounced and "|cFFFFFF00Yes|r" or "|cFF888888No|r")
+    if db.mythicplus then
+        self:Print("M+:", db.mythicplus.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
+            "| Mode:", db.mythicplus.messageMode,
+            "| Announced:", self.state.keyAnnounced and "|cFFFFFF00Yes|r" or "|cFF888888No|r")
+    end
     if self.state.cachedLFGListing then
         self:Print("  LFG cache:", self.state.cachedLFGListing.dungeonName or "unknown",
             "| Title:", self.state.cachedLFGListing.title or "none",
