@@ -1093,6 +1093,7 @@ function Addon:SendGuildGreeting()
     local db = self.db.profile
 
     if not db.enabled then return end
+    if not db.guild then return end
     if not db.guild.enabled then return end
     if not db.guild.onSelfJoin then
         self:DebugPrint("Guild greeting on login disabled")
@@ -1125,6 +1126,7 @@ function Addon:SendGuildGoodbye()
         self:DebugPrint("Addon disabled, skipping guild goodbye")
         return
     end
+    if not db.guild then return end
     if not db.guild.enabled then
         self:DebugPrint("Guild channel disabled, skipping goodbye")
         return
@@ -1183,6 +1185,7 @@ function Addon:SendGuildLoginGreeting(names)
     local db = self.db.profile
 
     if not db.enabled then return end
+    if not db.guild then return end
     if not db.guild.enabled then return end
     if not db.guild.onMemberLogin then
         self:DebugPrint("Guild member login greeting disabled")
@@ -1913,9 +1916,11 @@ function Addon:TestStatus()
         "| Others:", db.raid.onOthersJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
         "| Names:", db.raid.includeNames and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
         "| Bye:", db.raid.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
-    self:Print("Guild:", db.guild.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
-        "| Login:", db.guild.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Logout:", db.guild.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
+    if db.guild then
+        self:Print("Guild:", db.guild.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
+            "| Login:", db.guild.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
+            "| Logout:", db.guild.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
+    end
     self:Print("M+:", db.mythicplus.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
         "| Mode:", db.mythicplus.messageMode,
         "| Announced:", self.state.keyAnnounced and "|cFFFFFF00Yes|r" or "|cFF888888No|r")
