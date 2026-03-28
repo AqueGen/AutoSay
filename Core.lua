@@ -206,6 +206,7 @@ local defaults = {
             enabled = true,
             announceOnFull = true,      -- Announce when group fills 5/5
             messageMode = "basic",      -- "basic" | "withlevel" | "smart"
+            useClientLanguage = false,  -- false = English dungeon names, true = client locale
             enabledKeyAnnounce = DeepCopy(defaultKeyAnnounce),
             customKeyAnnounce = {},
             -- Completion messages
@@ -701,8 +702,12 @@ function Addon:GetChatChannel()
         return self.testState.simulatedGroupType
     end
 
-    if IsInRaid() then
+    if IsInRaid(LE_PARTY_CATEGORY_INSTANCE) then
+        return "INSTANCE_CHAT"
+    elseif IsInRaid() then
         return "RAID"
+    elseif IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
+        return "INSTANCE_CHAT"
     elseif IsInGroup() then
         return "PARTY"
     end
@@ -1093,7 +1098,6 @@ function Addon:SendGuildGreeting()
     local db = self.db.profile
 
     if not db.enabled then return end
-    if not db.guild then return end
     if not db.guild.enabled then return end
     if not db.guild.onSelfJoin then
         self:DebugPrint("Guild greeting on login disabled")
@@ -1126,7 +1130,6 @@ function Addon:SendGuildGoodbye()
         self:DebugPrint("Addon disabled, skipping guild goodbye")
         return
     end
-    if not db.guild then return end
     if not db.guild.enabled then
         self:DebugPrint("Guild channel disabled, skipping goodbye")
         return
@@ -1185,7 +1188,6 @@ function Addon:SendGuildLoginGreeting(names)
     local db = self.db.profile
 
     if not db.enabled then return end
-    if not db.guild then return end
     if not db.guild.enabled then return end
     if not db.guild.onMemberLogin then
         self:DebugPrint("Guild member login greeting disabled")
@@ -1287,6 +1289,25 @@ end
 --------------------------------------------------------------------------------
 -- MYTHIC+ KEY ANNOUNCE FUNCTIONS
 --------------------------------------------------------------------------------
+
+-- Resolve dungeon name: English by default, client locale if useClientLanguage is enabled.
+-- @param mapID number|nil - mapChallengeModeID
+-- @param fallbackName string|nil - localized name from API (used as fallback or when useClientLanguage is on)
+function Addon:GetDungeonName(mapID, fallbackName)
+    local useClient = self.db and self.db.profile.mythicplus.useClientLanguage
+    if useClient then
+        return fallbackName or AutoSay.DungeonNames[mapID] or "Unknown"
+    end
+    if mapID and AutoSay.DungeonNames[mapID] then
+        return AutoSay.DungeonNames[mapID]
+    end
+    return fallbackName or "Unknown"
+end
+
+-- Resolve mapChallengeModeID from an LFG activityID
+function Addon:GetMapIDFromActivity(activityID)
+    return activityID and AutoSay.ActivityToDungeon[activityID] or nil
+end
 
 -- Replace {dungeon} and {key} placeholders in a message
 function Addon:ReplacePlaceholders(message, dungeon, keyLevel, extraReplacements)
@@ -1391,7 +1412,7 @@ end
 -- Send key announce message to party chat
 function Addon:SendKeyAnnounce()
     local db = self.db.profile
-    if not db.enabled or not db.mythicplus or not db.mythicplus.enabled then return end
+    if not db.enabled or not db.mythicplus.enabled then return end
 
     local listing = self.state.cachedLFGListing
     if not listing or not listing.dungeonName then
@@ -1399,8 +1420,10 @@ function Addon:SendKeyAnnounce()
         return
     end
 
-    -- Clean dungeon name (remove " (Mythic Keystone)" suffix)
-    local dungeon = listing.dungeonName:gsub(" %(Mythic Keystone%)", "")
+    -- Resolve dungeon name (English by default, client locale if enabled)
+    local localizedName = listing.dungeonName and listing.dungeonName:gsub(" %(Mythic Keystone%)", "")
+    local mapID = self:GetMapIDFromActivity(listing.activityID)
+    local dungeon = self:GetDungeonName(mapID, localizedName)
 
     -- Get key level based on mode
     local keyLevel = self:GetKeyLevel()
@@ -1474,7 +1497,7 @@ end
 -- Send completion message to party chat
 function Addon:SendCompletionMessage(dungeon, keyLevel, onTime, upgrade, timeFormatted)
     local db = self.db.profile
-    if not db.enabled or not db.mythicplus or not db.mythicplus.enabled or not db.mythicplus.completionEnabled then return end
+    if not db.enabled or not db.mythicplus.enabled or not db.mythicplus.completionEnabled then return end
 
     local template = self:GetRandomCompletionMessage(onTime)
     if not template then
@@ -1739,21 +1762,27 @@ function Addon:TestMythicPlusFlow()
     self.state.previousGroup = { [UnitName("player")] = true }
     self.testState.simulatedGroupMembers = { UnitName("player") }
 
-    -- Randomize dungeon
+    -- Randomize dungeon (Midnight Season 1 pool with activityIDs)
     local dungeons = {
-        "The Dawnbreaker", "Cinderbrew Meadery", "Darkflame Cleft",
-        "The Rookery", "Priory of the Sacred Flame", "The Stonevault",
-        "City of Threads", "Ara-Kara, City of Echoes",
+        { name = "Magisters' Terrace",        activityID = 1760, mapID = 558 },
+        { name = "Maisara Caverns",           activityID = 1764, mapID = 560 },
+        { name = "Nexus-Point Xenas",         activityID = 1768, mapID = 559 },
+        { name = "Windrunner Spire",          activityID = 1542, mapID = 557 },
+        { name = "Algeth'ar Academy",         activityID = 1160, mapID = 402 },
+        { name = "Seat of the Triumvirate",   activityID = 486,  mapID = 583 },
+        { name = "Skyreach",                  activityID = 182,  mapID = 161 },
+        { name = "Pit of Saron",              activityID = 1770, mapID = 556 },
     }
-    local dungeon = dungeons[math.random(#dungeons)]
+    local picked = dungeons[math.random(#dungeons)]
     local keyLevel = math.random(4, 15)
+    local dungeon = self:GetDungeonName(picked.mapID, picked.name)
 
     if isLeader then
         -- Leader: has LFG listing cached
         self.state.cachedLFGListing = {
-            activityID = 0,
+            activityID = picked.activityID,
             title = "+" .. keyLevel,
-            dungeonName = dungeon .. " (Mythic Keystone)",
+            dungeonName = picked.name .. " (Mythic Keystone)",
             isMythicPlus = true,
         }
         self:TestPrint("Listed in Group Finder: " .. dungeon .. " +" .. keyLevel)
@@ -1818,11 +1847,17 @@ function Addon:TestCompletionTimed()
     end
 
     local dungeons = {
-        "The Dawnbreaker", "Cinderbrew Meadery", "Darkflame Cleft",
-        "The Rookery", "Priory of the Sacred Flame", "The Stonevault",
-        "City of Threads", "Ara-Kara, City of Echoes",
+        { name = "Magisters' Terrace",        mapID = 558 },
+        { name = "Maisara Caverns",           mapID = 560 },
+        { name = "Nexus-Point Xenas",         mapID = 559 },
+        { name = "Windrunner Spire",          mapID = 557 },
+        { name = "Algeth'ar Academy",         mapID = 402 },
+        { name = "Seat of the Triumvirate",   mapID = 583 },
+        { name = "Skyreach",                  mapID = 161 },
+        { name = "Pit of Saron",              mapID = 556 },
     }
-    local dungeon = dungeons[math.random(#dungeons)]
+    local picked = dungeons[math.random(#dungeons)]
+    local dungeon = self:GetDungeonName(picked.mapID, picked.name)
     local keyLevel = math.random(4, 15)
     local upgrade = math.random(1, 3)
     local minutes = math.random(15, 35)
@@ -1843,11 +1878,17 @@ function Addon:TestCompletionDepleted()
     end
 
     local dungeons = {
-        "The Dawnbreaker", "Cinderbrew Meadery", "Darkflame Cleft",
-        "The Rookery", "Priory of the Sacred Flame", "The Stonevault",
-        "City of Threads", "Ara-Kara, City of Echoes",
+        { name = "Magisters' Terrace",        mapID = 558 },
+        { name = "Maisara Caverns",           mapID = 560 },
+        { name = "Nexus-Point Xenas",         mapID = 559 },
+        { name = "Windrunner Spire",          mapID = 557 },
+        { name = "Algeth'ar Academy",         mapID = 402 },
+        { name = "Seat of the Triumvirate",   mapID = 583 },
+        { name = "Skyreach",                  mapID = 161 },
+        { name = "Pit of Saron",              mapID = 556 },
     }
-    local dungeon = dungeons[math.random(#dungeons)]
+    local picked = dungeons[math.random(#dungeons)]
+    local dungeon = self:GetDungeonName(picked.mapID, picked.name)
     local keyLevel = math.random(4, 15)
     local minutes = math.random(35, 50)
     local seconds = math.random(0, 59)
@@ -1906,30 +1947,22 @@ function Addon:TestStatus()
 
     -- Show channel status
     local db = self.db.profile
-    if db.party then
-        self:Print("Party:", db.party.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
-            "| Self:", db.party.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-            "| Others:", db.party.onOthersJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-            "| Names:", db.party.includeNames and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-            "| Bye:", db.party.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
-    end
-    if db.raid then
-        self:Print("Raid:", db.raid.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
-            "| Self:", db.raid.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-            "| Others:", db.raid.onOthersJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-            "| Names:", db.raid.includeNames and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-            "| Bye:", db.raid.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
-    end
-    if db.guild then
-        self:Print("Guild:", db.guild.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
-            "| Login:", db.guild.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-            "| Logout:", db.guild.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
-    end
-    if db.mythicplus then
-        self:Print("M+:", db.mythicplus.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
-            "| Mode:", db.mythicplus.messageMode,
-            "| Announced:", self.state.keyAnnounced and "|cFFFFFF00Yes|r" or "|cFF888888No|r")
-    end
+    self:Print("Party:", db.party.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
+        "| Self:", db.party.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
+        "| Others:", db.party.onOthersJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
+        "| Names:", db.party.includeNames and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
+        "| Bye:", db.party.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
+    self:Print("Raid:", db.raid.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
+        "| Self:", db.raid.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
+        "| Others:", db.raid.onOthersJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
+        "| Names:", db.raid.includeNames and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
+        "| Bye:", db.raid.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
+    self:Print("Guild:", db.guild.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
+        "| Login:", db.guild.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
+        "| Logout:", db.guild.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
+    self:Print("M+:", db.mythicplus.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
+        "| Mode:", db.mythicplus.messageMode,
+        "| Announced:", self.state.keyAnnounced and "|cFFFFFF00Yes|r" or "|cFF888888No|r")
     if self.state.cachedLFGListing then
         self:Print("  LFG cache:", self.state.cachedLFGListing.dungeonName or "unknown",
             "| Title:", self.state.cachedLFGListing.title or "none",

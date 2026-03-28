@@ -855,6 +855,56 @@ local options = {
                                 },
                             },
                         },
+                        dungeonNamesGroup = {
+                            type = "group",
+                            name = L["Dungeon Names"],
+                            inline = true,
+                            order = 3,
+                            args = {
+                                useClientLanguage = {
+                                    type = "toggle",
+                                    name = L["Use client language for dungeon names"],
+                                    desc = L["Use client language for dungeon names desc"],
+                                    order = 1,
+                                    width = "full",
+                                    get = function() return Addon.db.profile.mythicplus.useClientLanguage end,
+                                    set = function(_, val)
+                                        Addon.db.profile.mythicplus.useClientLanguage = val
+                                        LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+                                    end,
+                                },
+                                dungeonNamesPreview = {
+                                    type = "description",
+                                    name = function()
+                                        local useClient = Addon.db.profile.mythicplus.useClientLanguage
+                                        local names = {}
+                                        for id, enName in pairs(AutoSay.DungeonNames) do
+                                            if useClient then
+                                                local localName = select(1, C_ChallengeMode.GetMapUIInfo(id))
+                                                names[#names + 1] = localName or enName
+                                            else
+                                                names[#names + 1] = enName
+                                            end
+                                        end
+                                        -- Split into two rows of 4
+                                        local half = math.ceil(#names / 2)
+                                        local row1 = {}
+                                        local row2 = {}
+                                        for i, n in ipairs(names) do
+                                            if i <= half then
+                                                row1[#row1 + 1] = "|cFFFFFFFF" .. n .. "|r"
+                                            else
+                                                row2[#row2 + 1] = "|cFFFFFFFF" .. n .. "|r"
+                                            end
+                                        end
+                                        return table.concat(row1, ",  ") .. "\n" .. table.concat(row2, ",  ")
+                                    end,
+                                    order = 2,
+                                    width = "full",
+                                    fontSize = "medium",
+                                },
+                            },
+                        },
                         modeDescription = {
                             type = "description",
                             name = function()

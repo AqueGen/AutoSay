@@ -88,6 +88,33 @@ AutoSay.GuildLoginGreetings = {
     { key = "heythere", text = "Hey there, {name}!" },
 }
 
+-- Dungeon name lookup: mapChallengeModeID -> English name (Midnight Season 1)
+-- Used to always display dungeon names in English regardless of client locale.
+-- Update this table each season when the M+ pool rotates.
+AutoSay.DungeonNames = {
+    [558] = "Magisters' Terrace",
+    [560] = "Maisara Caverns",
+    [559] = "Nexus-Point Xenas",
+    [557] = "Windrunner Spire",
+    [402] = "Algeth'ar Academy",
+    [583] = "Seat of the Triumvirate",
+    [161] = "Skyreach",
+    [556] = "Pit of Saron",
+}
+
+-- LFG activityID -> mapChallengeModeID mapping (Midnight Season 1)
+-- Used to resolve dungeon names from Group Finder listings.
+AutoSay.ActivityToDungeon = {
+    [1760] = 558,
+    [1764] = 560,
+    [1768] = 559,
+    [1542] = 557,
+    [1160] = 402,
+    [486]  = 583,
+    [182]  = 161,
+    [1770] = 556,
+}
+
 -- M+ completion messages - depleted (enabled by default first)
 AutoSay.CompletionDepleted = {
     { key = "gg", text = "gg" },

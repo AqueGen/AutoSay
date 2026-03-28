@@ -349,12 +349,12 @@ function Addon:CHALLENGE_MODE_COMPLETED()
         return
     end
 
-    -- Get dungeon name
-    local dungeonName = "Unknown"
+    -- Get dungeon name (English by default, client locale if enabled)
+    local localizedName = nil
     if C_ChallengeMode.GetMapUIInfo then
-        local name = C_ChallengeMode.GetMapUIInfo(info.mapChallengeModeID)
-        if name then dungeonName = name end
+        localizedName = C_ChallengeMode.GetMapUIInfo(info.mapChallengeModeID)
     end
+    local dungeonName = self:GetDungeonName(info.mapChallengeModeID, localizedName)
 
     local keyLevel = info.level
     local onTime = info.onTime
@@ -580,7 +580,6 @@ function Addon:CLUB_MEMBER_PRESENCE_UPDATED(event, clubId, memberId, presence)
         "presence:", tostring(presence), "ready:", tostring(self.state.guildPresenceReady))
 
     if not self.db.profile.enabled then return end
-    if not self.db.profile.guild then return end
     if not self.db.profile.guild.enabled then return end
     if not self.db.profile.guild.onMemberLogin then return end
 
@@ -632,11 +631,7 @@ end
 function Addon:PLAYER_LOGOUT()
     self:DebugPrint("EVENT: PLAYER_LOGOUT - Player is logging out")
     self:DebugPrint("IsInGuild:", tostring(IsInGuild()))
-
-    local guildSettings = self.db.profile.guild
-    if not guildSettings then return end
-
-    self:DebugPrint("Guild settings - enabled:", tostring(guildSettings.enabled), "sendGoodbye:", tostring(guildSettings.sendGoodbye))
+    self:DebugPrint("Guild settings - enabled:", tostring(self.db.profile.guild.enabled), "sendGoodbye:", tostring(self.db.profile.guild.sendGoodbye))
 
     -- Send guild goodbye if enabled (uses SendGuildGoodbyeOnce to avoid duplicates with hooks)
     self:SendGuildGoodbyeOnce()
