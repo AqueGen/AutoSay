@@ -76,6 +76,11 @@ local function BuildCustomMessageList(channel, customsKey, labelKey)
         hidden = function()
             return #(Addon.db.profile[channel][customsKey] or {}) >= MAX_CUSTOM_MESSAGES
         end,
+        validate = function(_, val)
+            -- SendChatMessage errors out above 255 bytes
+            if val and #val > 255 then return L["Message is too long (max 255 characters)"] end
+            return true
+        end,
         get = function() return "" end,
         set = function(_, val)
             if val and val ~= "" then
@@ -709,6 +714,7 @@ local options = {
                     confirmText = L["Are you sure you want to reset all settings to defaults?"],
                     func = function()
                         Addon.db:ResetProfile()
+                        LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
                         Addon:Print(L["Settings reset to defaults"])
                     end,
                 },

@@ -740,6 +740,9 @@ function Addon:GetChannelSettings(channel)
         return db.party
     elseif channel == "RAID" then
         return db.raid
+    elseif channel == "INSTANCE_CHAT" then
+        -- Instance groups (LFG/LFR/battlegrounds) reuse party/raid settings
+        return IsInRaid() and db.raid or db.party
     elseif channel == "GUILD" then
         return db.guild
     end
@@ -1568,6 +1571,7 @@ function Addon:TestReset()
     self.state.keyAnnounced = false
     self.state.mythicPlusFlowActive = false
     self.state.goodbyeSent = false
+    self.state.groupGoodbyeSent = false
     self.state.guildMemberPresence = {}
     self.state.guildPresenceReady = true -- In test mode, always ready
     self:TestPrint("Test state reset")

@@ -1,14 +1,15 @@
-## [1.4.0] - 2026-03-28
+## [1.4.1] - 2026-08-05
 
 ### Added
 
-- English dungeon names by default for M+ announcements and completion messages. Non-English clients no longer send localized dungeon names that other players can't read.
-- "Use client language for dungeon names" toggle in M+ settings to switch back to client locale if preferred.
-- Dungeon Names preview section in M+ settings showing all current season dungeons. Updates dynamically when toggling the language setting.
-- Hardcoded Midnight Season 1 M+ dungeon pool (Magisters' Terrace, Maisara Caverns, Nexus-Point Xenas, Windrunner Spire, Algeth'ar Academy, Seat of the Triumvirate, Skyreach, Pit of Saron).
+- Support for WoW 12.1.0.
 
 ### Fixed
 
-- Party greetings and goodbyes now work in LFG/instance groups (dungeon finder, LFR, battlegrounds). Previously, messages sent to PARTY chat were silently dropped in instance groups.
-- Updated test simulation dungeons to Midnight Season 1 pool.
-- Removed redundant nil guards for channel settings (guaranteed by AceDB defaults).
+- Greetings, goodbyes, and reconnect messages were still skipped in instance
+  groups (dungeon finder, LFR, battlegrounds): the instance chat channel did
+  not pick up your party/raid settings. Instance groups now use party or raid
+  settings depending on the group type.
+- Custom messages longer than the 255-character chat limit are now rejected
+  when added instead of silently failing to send.
+- The settings window now refreshes immediately after "Reset to Defaults".
