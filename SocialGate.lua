@@ -71,5 +71,62 @@ function SocialGate:Prune()
   end
 end
 
+SocialGate.INTENTS = {
+  grats = { "gz", "gratz", "grats", "congrats", "congratulations", "grtz" },
+  welcome = { "welcome", "wb" },
+  greeting = { "hi", "hello", "hey", "yo", "o/", "morning", "evening", "sup", "hiya" },
+}
+
+function SocialGate:AddPending(intent, channel)
+  local id = self.nextPendingId
+  self.nextPendingId = id + 1
+  self.pending[id] = { intent = intent, channel = channel, cancelled = false }
+  return id
+end
+
+function SocialGate:OnChatMessage(channel, sender, text)
+  if not next(self.pending) then return end
+  local words = {}
+  for word in text:lower():gmatch("[%a/]+") do words[word] = true end
+  for _, slot in pairs(self.pending) do
+    if slot.channel == channel and not slot.cancelled then
+      for _, keyword in ipairs(SocialGate.INTENTS[slot.intent] or {}) do
+        if words[keyword] then
+          slot.cancelled = true
+          self.debug("blocked: someone-answered (" .. slot.intent .. ")")
+          break
+        end
+      end
+    end
+  end
+end
+
+function SocialGate:TakePending(id)
+  local slot = self.pending[id]
+  self.pending[id] = nil
+  return slot ~= nil and not slot.cancelled
+end
+
+function SocialGate:MayWelcome(name)
+  local now = self.now()
+  if self.state.welcomed[name] then
+    self.debug("blocked: already-welcomed (" .. name .. ")")
+    return false, "already-welcomed"
+  end
+  pruneWindow(self.state.welcomeSends, now - HOUR)
+  if #self.state.welcomeSends >= 2 then
+    self.debug("blocked: welcome-cap")
+    return false, "welcome-cap"
+  end
+  return true
+end
+
+function SocialGate:RecordWelcome(name)
+  local now = self.now()
+  self.state.welcomed[name] = now
+  local ws = self.state.welcomeSends
+  ws[#ws + 1] = now
+end
+
 if ns then ns.SocialGate = SocialGate end
 return SocialGate
