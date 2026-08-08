@@ -20,22 +20,34 @@ holidays) come in 1.6 on top of the proven core.
 
 ## Architecture
 
-Two new files, wired into AutoSay.toc after Core.lua. Core.lua is not grown
-further (it is already ~2000 lines); existing queue/cooldown logic is not
-modified, the new layer sits in front of it.
+Testable-core (hexagonal) layout: all decision logic lives in WoW-agnostic
+modules that run under plain Lua 5.1; game code is thin adapters that only
+translate real events into core calls.
 
 ```
-Event (Events.lua)
-  -> SocialGate:MaySend(trigger, targetName)   -- budget? per-person CD? already answered?
-  -> Humanizer:Pick(pool, opts)                -- anti-repeat + time-of-day
-  -> Humanizer:GetTypingDelay(message)         -- human typing latency
-  -> existing Core.lua queue / channel cooldowns (unchanged)
-  -> SocialGate:Record(trigger, targetName, phrase)
+Adapters (thin, in-game only)          Core (pure Lua, headless-testable)
+---------------------------------      -----------------------------------
+Events.lua  (event subscriptions)  ->  SocialGate:MaySend(trigger, target)
+Core.lua    (Ace glue, timers,     ->  Humanizer:Pick(pool, opts)
+             SendChatMessage)      ->  Humanizer:GetTypingDelay(message)
+                                   ->  SocialGate:Record(trigger, target, phrase)
 ```
 
 - `SocialGate.lua` - the single yes/no authority for every automatic message.
   All triggers, existing and future, must pass through it.
 - `Humanizer.lua` - how a message is produced: phrase selection and delay.
+- Core modules never touch frames, events, or WoW globals directly. External
+  dependencies are injected at init: `now()`, `random()`, a send sink, and a
+  state table (the adapter passes `db.char.social` / `db.profile.social`).
+  This is what makes them runnable outside the game.
+
+**Existing logic migration.** Core.lua (~2000 lines) mixes decisions with
+Ace glue. It is not rewritten in one go; decision logic is extracted into
+the testable core **on touch**: whatever 1.5.0 has to modify anyway
+(greeting/goodbye/reconnect decision paths, phrase selection replacing
+`lastGreetingText`) moves into SocialGate/Humanizer with tests. Untouched
+subsystems (M+ announcements, guild login greetings) migrate in later
+releases the same way. End state: adapters contain trigger wiring only.
 
 ## SocialGate
 
@@ -105,15 +117,32 @@ Anti-repeat has no toggle (always on, invisible improvement).
 
 ## Testing Plan
 
-- Test mode simulation for each trigger and each gate rejection path.
-- Manual QA: reload mid-budget (state survives), two grats events in a row
-  (second blocked by budget/person rules), guild chat "gz" from another
-  player cancels pending grats, welcome cap with 3+ simulated joins in an
-  hour (only 2 fire).
+Three layers; the headless layer is the primary safety net.
+
+1. **Headless tests (primary).** `tests/` folder in the repo, run with
+   busted under Lua 5.1, plus `tests/wow_stub.lua` with the minimal globals
+   the core touches. GitHub Actions workflow runs the suite on every push
+   and PR; same single command locally. Fake clock and captured send sink
+   make the spam scenarios deterministic:
+   - 100 guild joins in a minute -> exactly 2 welcomes sent
+   - "gz" from another player inside the pending window -> grats cancelled
+   - 12 sends in an hour -> 13th blocked; window slides correctly
+   - serialize state table + re-init core -> budget continues (/reload sim)
+   - per-person cooldown, anti-repeat rotation, time-of-day band selection
+2. **Adapters stay untested headless.** Events.lua wiring is argument
+   pass-through only; kept too thin to break.
+3. **In-game smoke (secondary).** `/as test ...` commands verify adapters
+   are actually wired to live events. One minute before release, not the
+   main loop. No automated in-game test tab: everything it could assert is
+   covered better by layer 1, and real events cannot be honestly simulated
+   from inside the game anyway.
 
 ## Phasing
 
-- 1.5.0 (this spec): SocialGate + Humanizer applied to existing greetings/
-  goodbyes/reconnect + guild grats + guild welcome.
+- 1.5.0 (this spec): testable core (SocialGate + Humanizer) with headless
+  test suite + CI, applied to existing greetings/goodbyes/reconnect (their
+  decision logic extracted on touch) + guild grats + guild welcome.
 - 1.6: combat-log thanks, dungeon flow, holiday pools - each new trigger is
-  only a `SocialGate:MaySend` client, the core does not change.
+  only a `SocialGate:MaySend` client plus tests, the core does not change.
+- Later: remaining Core.lua subsystems (M+, guild login) migrate into the
+  testable core the same extract-on-touch way.
