@@ -883,8 +883,6 @@ function Addon:SendGreeting(playerNames, reason)
             if self:IsTestMode() then self:TestPrint("Greeting blocked: " .. why) end
             return
         end
-        -- Reserve the slot now: queued/delayed sends must not re-pass the gate later
-        self.socialGate:Record("greeting", target)
     end
 
     self:DebugPrint("SendGreeting called - reason:", reason, "channel:", channel,
@@ -936,6 +934,12 @@ function Addon:BuildAndSendGreeting(channel, reason, playerNames)
     message = self:AddPlayersToMessage(message, playerNames, includeNames)
 
     self:DebugPrint("BuildAndSend -> final message:", message)
+
+    -- Reserve the budget slot here, where a message is certain to go out: covers both the
+    -- immediate path and the queue path (one merged queue message = one reservation)
+    if self.socialGate then
+        self.socialGate:Record("greeting", playerNames and playerNames[1] or nil)
+    end
 
     local sent = self:SendMessageToChat(message, channel)
     if sent then
@@ -1134,7 +1138,6 @@ function Addon:SendGoodbye(channel)
             if self:IsTestMode() then self:TestPrint("Goodbye blocked: " .. why) end
             return
         end
-        self.socialGate:Record("goodbye")
     end
 
     -- Get random goodbye for this channel
@@ -1142,6 +1145,11 @@ function Addon:SendGoodbye(channel)
     if not message then
         self:DebugPrint("No goodbyes enabled for", channel)
         return
+    end
+
+    -- Reserve the budget slot now that a message is certain to go out
+    if self.socialGate then
+        self.socialGate:Record("goodbye")
     end
 
     -- Send immediately (no delay for goodbyes since we're leaving)
@@ -1321,7 +1329,6 @@ function Addon:SendGuildLoginGreeting(names)
             if self:IsTestMode() then self:TestPrint("Guild login greeting blocked: " .. why) end
             return
         end
-        self.socialGate:Record("greeting", names and names[1] or nil)
     end
 
     -- Get random login greeting
@@ -1336,6 +1343,10 @@ function Addon:SendGuildLoginGreeting(names)
     message = message:gsub("{name}", nameStr)
 
     self.state.lastGuildLoginGreetTime = now
+    -- Reserve the budget slot before the delay timer, now that a message is certain to go out
+    if self.socialGate then
+        self.socialGate:Record("greeting", names and names[1] or nil)
+    end
     -- Send directly, bypassing global cooldown (member login has its own cooldown above)
     local delay = db.messageDelay
     if delay and delay > 0 then

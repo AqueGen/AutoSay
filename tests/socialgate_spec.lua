@@ -196,6 +196,43 @@ describe("SocialGate reservation ordering", function()
   end)
 end)
 
+-- Adapters check the gate early (at trigger time) but reserve late (once a message is
+-- resolved and certain to be sent). That is only safe if MaySend itself costs nothing.
+describe("SocialGate MaySend purity", function()
+  it("repeated MaySend without Record never consumes budget", function()
+    local gate, _, state = makeGate{ budgetPerHour = 2 }
+    for _ = 1, 50 do assert.is_true(gate:MaySend("greeting", "Bob")) end
+    assert.equal(0, #state.sends)
+    assert.is_nil(state.perPerson.Bob)
+    -- budget is still fully available: only Record spends it
+    gate:Record("greeting"); gate:Record("greeting")
+    assert.is_false(gate:MaySend("greeting"))
+  end)
+
+  it("MayWelcome is a pure query too - only RecordWelcome consumes the cap", function()
+    local gate, _, state = makeGate{}
+    for _ = 1, 10 do assert.is_true(gate:MayWelcome("Newbie")) end
+    assert.equal(0, #state.welcomeSends)
+    assert.is_nil(state.welcomed.Newbie)
+  end)
+
+  it("Record with a target stamps the per-person map in the same instant", function()
+    local gate, clock, state = makeGate{}
+    gate:Record("greeting", "Bob")
+    assert.equal(clock.t, state.perPerson.Bob)
+    local ok, reason = gate:MaySend("greeting", "Bob")
+    assert.is_false(ok)
+    assert.equal("person-cd", reason)
+  end)
+
+  it("Record without a target spends budget but stamps nobody", function()
+    local gate, _, state = makeGate{}
+    gate:Record("goodbye")
+    assert.equal(1, #state.sends)
+    assert.is_true(gate:MaySend("goodbye", "Bob"))
+  end)
+end)
+
 describe("grats flow (gate composition)", function()
   it("second grats to same player is person-blocked, other player passes", function()
     local gate = makeGate{}
