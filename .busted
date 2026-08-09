@@ -1,0 +1,4 @@
+return {
+  _all = { pattern = "_spec" },
+  default = { ROOT = { "tests" }, verbose = true },
+}

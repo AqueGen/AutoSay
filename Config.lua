@@ -721,6 +721,64 @@ local options = {
             },
         },
 
+        -- === SOCIAL ===
+        social = {
+            type = "group",
+            name = L["Social"],
+            order = 5,
+            args = {
+                budgetPerHour = {
+                    type = "range", order = 1, min = 4, max = 30, step = 1,
+                    name = L["Hourly message budget"],
+                    desc = L["Maximum automatic messages per hour, all triggers combined"],
+                    get = function() return Addon.db.profile.social.budgetPerHour end,
+                    set = function(_, v) Addon.db.profile.social.budgetPerHour = v end,
+                },
+                personCooldownHours = {
+                    type = "range", order = 2, min = 1, max = 24, step = 1,
+                    name = L["Per-person cooldown (hours)"],
+                    desc = L["Do not target the same player more often than this"],
+                    get = function() return Addon.db.profile.social.personCooldownHours end,
+                    set = function(_, v) Addon.db.profile.social.personCooldownHours = v end,
+                },
+                listen = {
+                    type = "toggle", order = 3, width = "full",
+                    name = L["Social listening"],
+                    desc = L["Skip a message if someone else already said it"],
+                    get = function() return Addon.db.profile.social.listen end,
+                    set = function(_, v) Addon.db.profile.social.listen = v end,
+                },
+                typingDelay = {
+                    type = "toggle", order = 4, width = "full",
+                    name = L["Human typing delay"],
+                    desc = L["Delay messages as if typed by hand"],
+                    get = function() return Addon.db.profile.social.typingDelay end,
+                    set = function(_, v) Addon.db.profile.social.typingDelay = v end,
+                },
+                timeOfDay = {
+                    type = "toggle", order = 5, width = "full",
+                    name = L["Time-of-day greetings"],
+                    desc = L["Mix in morning/evening phrases by local time"],
+                    get = function() return Addon.db.profile.social.timeOfDay end,
+                    set = function(_, v) Addon.db.profile.social.timeOfDay = v end,
+                },
+                guildGrats = {
+                    type = "toggle", order = 6, width = "full",
+                    name = L["Congratulate guild achievements"],
+                    desc = L["Send grats when a guild member earns an achievement"],
+                    get = function() return Addon.db.profile.social.guildGrats end,
+                    set = function(_, v) Addon.db.profile.social.guildGrats = v end,
+                },
+                guildWelcome = {
+                    type = "toggle", order = 7, width = "full",
+                    name = L["Welcome new guild members"],
+                    desc = L["Greet players who join the guild (max 2 per hour, once per player)"],
+                    get = function() return Addon.db.profile.social.guildWelcome end,
+                    set = function(_, v) Addon.db.profile.social.guildWelcome = v end,
+                },
+            },
+        },
+
         -- === PARTY ===
         party = {
             type = "group",

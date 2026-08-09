@@ -41,3 +41,12 @@ WoW addon: automatic greetings, goodbyes, and reconnect messages for party, raid
 - Before each release, **overwrite** `CHANGELOG.md` with the notes for the current version only (packager uses the entire file as the release body).
 - Do NOT accumulate old versions in the file — only the latest release notes.
 - **NEVER** delete, force-push, or recreate tags/releases. CurseForge picks up every tag push and creates duplicate entries that cannot be removed. Always bump the version and create a new tag instead.
+
+## Testing
+
+- Headless: `busted` from repo root (Lua 5.1). Core modules SocialGate.lua /
+  Humanizer.lua are WoW-free; specs in `tests/*_spec.lua`. CI runs on push.
+- On the Windows dev box busted lives in a WSL Lua 5.1 env (hererocks), so run:
+  `MSYS_NO_PATHCONV=1 wsl bash -lc 'cd "/mnt/g/Games/World of Warcraft/_retail_/Interface/AddOns/AutoSay" && ~/luaenv/bin/busted'`
+- In-game smoke: `/as testmode`, then `/as test`, `/as test grats`,
+  `/as test guildjoin`. Gate rejections print their reason.

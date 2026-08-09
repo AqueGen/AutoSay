@@ -28,7 +28,62 @@ function Addon:RegisterEvents()
     -- M+ dungeon completion
     self:RegisterEvent("CHALLENGE_MODE_COMPLETED")
 
+    -- Chat listening for social gate (pending-intent confirmation, welcome tracking).
+    -- Only guild triggers create pending slots, so guild chat is the only channel worth watching.
+    self:RegisterEvent("CHAT_MSG_GUILD", "OnSocialChat")
+    self:RegisterEvent("CHAT_MSG_GUILD_ACHIEVEMENT", "OnGuildAchievement")
+    self:RegisterEvent("CHAT_MSG_SYSTEM", "OnSystemMessage")
+
     self:DebugPrint("Events registered")
+end
+
+local CHAT_EVENT_CHANNEL = {
+    CHAT_MSG_GUILD = "GUILD",
+}
+
+-- Listen to guild chat for the social gate (welcome tracking, pending-intent confirmation)
+function Addon:OnSocialChat(event, text, sender)
+    if not self.socialGate then return end
+    if not self.db.profile.social.listen then return end
+    local me = UnitName("player")
+    local senderName = sender and sender:match("^([^%-]+)") or sender
+    if senderName == me then return end
+    self.socialGate:OnChatMessage(CHAT_EVENT_CHANNEL[event], senderName, text)
+end
+
+-- Handle CHAT_MSG_GUILD_ACHIEVEMENT - guildmate earned an achievement, offer congrats
+function Addon:OnGuildAchievement(event, message, sender)
+    if not self.db.profile.enabled then return end
+    if not self.db.profile.social.guildGrats then return end
+    local name = (sender and sender:match("^([^%-]+)")) or message:match("^([^%s]+)")
+    if not name or name == UnitName("player") then return end
+    self:SendGuildGrats(name)
+end
+
+-- ERR_GUILD_JOIN_S = "%s has joined the guild." - built lazily (not always available
+-- at file scope depending on client/load order) from the global so non-English clients work too.
+local guildJoinPattern
+local function GetGuildJoinPattern()
+    if guildJoinPattern == nil and ERR_GUILD_JOIN_S then
+        -- Escape every Lua pattern magic char first (this turns the "%s" placeholder into
+        -- an escaped literal "%%s"), then swap that placeholder for the name capture.
+        local escaped = ERR_GUILD_JOIN_S:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%1")
+        guildJoinPattern = "^" .. escaped:gsub("%%%%s", "(%%S+)") .. "$"
+    end
+    return guildJoinPattern
+end
+Addon.GetGuildJoinPattern = GetGuildJoinPattern -- exposed for /as selftest
+
+-- Handle CHAT_MSG_SYSTEM - detect new guild member joins to offer a welcome
+function Addon:OnSystemMessage(event, message)
+    if not self.db.profile.enabled then return end
+    if not self.db.profile.social.guildWelcome then return end
+    local pattern = GetGuildJoinPattern()
+    if not pattern then return end
+    local name = message:match(pattern)
+    name = name and name:match("^([^%-]+)") or name
+    if not name or name == UnitName("player") then return end
+    self:SendGuildWelcome(name)
 end
 
 -- Handle GROUP_JOINED - we joined a group
@@ -125,7 +180,6 @@ function Addon:GROUP_LEFT()
         self:CancelTimer(self.state.queueTimer)
         self.state.queueTimer = nil
     end
-    self.state.lastGreetingText = {}
     self.state.keyAnnounced = false
     self.state.cachedLFGListing = nil
 end
@@ -465,7 +519,8 @@ function Addon:HandleGroupReconnect()
         return
     end
 
-    -- Send greeting
+    -- Send greeting (SendGreeting is the single gate for this path - gating here too
+    -- would reserve two budget slots for one message)
     self:SendGreeting(nil, "reconnect")
 end
 

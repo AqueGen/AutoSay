@@ -234,6 +234,21 @@ local defaults = {
             customGoodbyes = {},
             customLoginGreetings = {},
         },
+
+        -- Social gate / humanizer settings
+        social = {
+            budgetPerHour = 12,
+            personCooldownHours = 4,
+            listen = true,
+            typingDelay = true,
+            timeOfDay = true,
+            guildGrats = false,
+            guildWelcome = false,
+        },
+    },
+
+    char = {
+        social = {},
     },
 }
 
@@ -251,7 +266,6 @@ Addon.state = {
     pendingGreetTimer = nil, -- Timer for batched greeting
     messageQueue = {}, -- Queue for cooldown-blocked messages
     queueTimer = nil, -- Timer for processing queued messages
-    lastGreetingText = {}, -- Cache greeting text per channel:reason for consistency
     cachedLFGListing = nil, -- Cached LFG listing data (before auto-delist)
     keyAnnounced = false, -- Prevent duplicate M+ key announcements per group
     pendingGuildLogins = {}, -- Batch guild member login names
@@ -277,6 +291,19 @@ function Addon:OnInitialize()
 
     -- Migrate old single custom message format to new array format
     self:MigrateCustomMessages()
+
+    -- Wire up social gate + humanizer core
+    self.socialGate = AutoSay.SocialGate.New{
+        now = time,
+        settings = function() return self.db.profile.social end,
+        state = self.db.char.social,
+        debug = function(msg) self:DebugPrint("SocialGate:", msg) end,
+    }
+    self.humanizer = AutoSay.Humanizer.New{
+        random = math.random,
+        hour = function() return tonumber(date("%H")) end,
+    }
+    self.socialGate:Prune()
 
     -- Register slash commands
     self:RegisterChatCommand("autosay", "SlashCommand")
@@ -515,6 +542,14 @@ function Addon:SlashCommand(input)
         elseif subcmd == "guildlogin" or subcmd == "gl" then
             local _, _, playerName = self:GetArgs(input, 3)
             self:TestGuildMemberLogin(playerName)
+        elseif subcmd == "grats" then
+            self:TestPrint("=== Simulating GUILD ACHIEVEMENT (TestGuildie) ===")
+            self:SendGuildGrats("TestGuildie")
+        elseif subcmd == "guildjoin" or subcmd == "gj" then
+            self.testGuildJoinCounter = (self.testGuildJoinCounter or 0) + 1
+            local name = "TestNewbie" .. self.testGuildJoinCounter
+            self:TestPrint("=== Simulating GUILD JOIN (" .. name .. ") ===")
+            self:SendGuildWelcome(name)
         elseif subcmd == "reconnect" or subcmd == "re" then
             self:TestReconnect()
         elseif subcmd == "player" or subcmd == "join" then
@@ -524,6 +559,17 @@ function Addon:SlashCommand(input)
             self:TestMythicPlusFlow()
         elseif subcmd == "reset" then
             self:TestReset()
+        elseif subcmd == "resetgate" or subcmd == "rg" then
+            local social = self.db.char.social
+            for _, key in ipairs({"sends", "perPerson", "welcomed", "welcomeSends"}) do
+                for k in pairs(social[key]) do
+                    social[key][k] = nil
+                end
+            end
+            if self.socialGate then
+                self.socialGate.pending = {}
+            end
+            self:Print("Social gate counters cleared (budget, cooldowns, welcomed list)")
         elseif subcmd == "status" or subcmd == "s" then
             self:TestStatus()
         else
@@ -534,12 +580,17 @@ function Addon:SlashCommand(input)
             self:Print("  /as test guild - Simulate guild login greeting")
             self:Print("  /as test guildbye - Simulate guild logout goodbye")
             self:Print("  /as test guildlogin [name] - Simulate guild member logging in")
+            self:Print("  /as test grats - Simulate guild achievement congrats")
+            self:Print("  /as test guildjoin - Simulate a new member joining the guild")
             self:Print("  /as test reconnect - Simulate reconnecting to group")
             self:Print("  /as test player [name] - Simulate player joining")
             self:Print("  /as test key - Simulate full M+ flow (listing → joins → announce)")
             self:Print("  /as test reset - Reset test state")
+            self:Print("  /as test resetgate - Clear social gate counters (budget, cooldowns, welcomed list)")
             self:Print("  /as test status - Show test status")
         end
+    elseif cmd == "selftest" or cmd == "st" then
+        self:RunSelfTest()
     elseif cmd == "status" then
         self:TestStatus()
     elseif cmd == "help" or cmd == "?" then
@@ -549,6 +600,7 @@ function Addon:SlashCommand(input)
         self:Print("  /as debug - Toggle debug mode")
         self:Print("  /as testmode - Toggle test mode")
         self:Print("  /as test [cmd] - Run test simulation")
+        self:Print("  /as selftest - Verify anti-spam and humanizer logic (no side effects)")
         self:Print("  /as status - Show current status")
         self:Print("  /as help - Show this help")
     else
@@ -637,6 +689,9 @@ function Addon:SendMessageToChat(message, channel, target)
     end
 
     local delay = self.db.profile.messageDelay
+    if self.db.profile.social.typingDelay and self.humanizer then
+        delay = math.max(delay or 0, self.humanizer:GetTypingDelay(message))
+    end
 
     if delay and delay > 0 then
         self:ScheduleTimer(function()
@@ -795,6 +850,14 @@ function Addon:GetRandomMessageForChannel(messageType, channel)
         return nil
     end
 
+    if messageType == "greetings" and self.db.profile.social.timeOfDay and self.humanizer then
+        return self.humanizer:PickTimed("greetings:" .. channel, enabled, AutoSay.GreetingsTimeOfDay)
+    end
+
+    if self.humanizer then
+        return self.humanizer:Pick(messageType .. ":" .. channel, enabled)
+    end
+
     return enabled[math.random(#enabled)]
 end
 
@@ -828,6 +891,16 @@ function Addon:SendGreeting(playerNames, reason)
         return
     end
 
+    if self.socialGate then
+        local target = playerNames and playerNames[1] or nil
+        local ok, why = self.socialGate:MaySend("greeting", target)
+        if not ok then
+            self:DebugPrint("SendGreeting gated:", why)
+            if self:IsTestMode() then self:TestPrint("Greeting blocked: " .. why) end
+            return
+        end
+    end
+
     self:DebugPrint("SendGreeting called - reason:", reason, "channel:", channel,
         "names:", playerNames and table.concat(playerNames, ", ") or "none")
 
@@ -848,38 +921,21 @@ function Addon:BuildAndSendGreeting(channel, reason, playerNames)
     local settings = self:GetChannelSettings(channel)
     if not settings or not settings.enabled then return end
 
-    local textKey = channel .. ":" .. reason
-    local cooldown = self.db.profile.cooldown
-    local now = GetTime()
-
-    -- Reuse same greeting text within cooldown window for consistency
-    -- (so queued messages use the same "Hey!" as the original send)
+    -- Pick a message based on reason (humanizer history avoids immediate repeats)
     local message
-    local cached = self.state.lastGreetingText[textKey]
-    if cached and (now - cached.time) < cooldown * 2 then
-        message = cached.text
-        self:DebugPrint("BuildAndSend -> reusing cached greeting for consistency:", message,
-            "(age:", string.format("%.1f", now - cached.time) .. "s, window:", cooldown * 2 .. "s)")
-    else
-        -- Pick new random message based on reason
-        if reason == "reconnect" then
-            message = self:GetRandomMessageForChannel("reconnects", channel)
-            if not message then
-                self:DebugPrint("No reconnects enabled for", channel, "- falling back to greetings")
-                message = self:GetRandomMessageForChannel("greetings", channel)
-            end
-        else
+    if reason == "reconnect" then
+        message = self:GetRandomMessageForChannel("reconnects", channel)
+        if not message then
+            self:DebugPrint("No reconnects enabled for", channel, "- falling back to greetings")
             message = self:GetRandomMessageForChannel("greetings", channel)
         end
+    else
+        message = self:GetRandomMessageForChannel("greetings", channel)
+    end
 
-        if not message then
-            self:DebugPrint("No greetings enabled for", channel)
-            return
-        end
-
-        -- Cache for consistency within cooldown window
-        self.state.lastGreetingText[textKey] = { text = message, time = now }
-        self:DebugPrint("BuildAndSend -> new random greeting picked and cached:", message, "key:", textKey)
+    if not message then
+        self:DebugPrint("No greetings enabled for", channel)
+        return
     end
 
     -- Add player names if enabled for this channel
@@ -894,6 +950,12 @@ function Addon:BuildAndSendGreeting(channel, reason, playerNames)
     message = self:AddPlayersToMessage(message, playerNames, includeNames)
 
     self:DebugPrint("BuildAndSend -> final message:", message)
+
+    -- Reserve the budget slot here, where a message is certain to go out: covers both the
+    -- immediate path and the queue path (one merged queue message = one reservation)
+    if self.socialGate then
+        self.socialGate:Record("greeting", playerNames and playerNames[1] or nil)
+    end
 
     local sent = self:SendMessageToChat(message, channel)
     if sent then
@@ -1085,6 +1147,15 @@ function Addon:SendGoodbye(channel)
         return
     end
 
+    if self.socialGate then
+        local ok, why = self.socialGate:MaySend("goodbye")
+        if not ok then
+            self:DebugPrint("SendGoodbye gated:", why)
+            if self:IsTestMode() then self:TestPrint("Goodbye blocked: " .. why) end
+            return
+        end
+    end
+
     -- Get random goodbye for this channel
     local message = self:GetRandomMessageForChannel("goodbyes", channel)
     if not message then
@@ -1092,8 +1163,65 @@ function Addon:SendGoodbye(channel)
         return
     end
 
+    -- Reserve the budget slot now that a message is certain to go out
+    if self.socialGate then
+        self.socialGate:Record("goodbye")
+    end
+
     -- Send immediately (no delay for goodbyes since we're leaving)
     self:DoSendMessage(message, channel)
+end
+
+-- Send congrats when a guildmate earns an achievement
+function Addon:SendGuildGrats(name)
+    if not self.socialGate or not self.humanizer then return end
+    local ok, why = self.socialGate:MaySend("grats", name)
+    if not ok then
+        if self:IsTestMode() then self:TestPrint("Grats blocked: " .. why) end
+        return
+    end
+    -- Reserve the slot before the listening window, so an achievement wave cannot
+    -- schedule N grats against the same stale counters
+    self.socialGate:Record("grats", name)
+    local text = self.humanizer:Pick("guildgrats", AutoSay.GuildGrats):gsub("{name}", name)
+    local pendingId = self.socialGate:AddPending("grats", "GUILD")
+    local delay = 4 + math.random() * 6 -- 4-10s listening window per spec
+    self:ScheduleTimer(function()
+        if not self.socialGate:TakePending(pendingId) then
+            if self:IsTestMode() then self:TestPrint("Grats blocked: someone-answered") end
+            return
+        end
+        self:SendMessageToChat(text, "GUILD")
+    end, delay)
+end
+
+-- Send welcome when a new member joins the guild
+function Addon:SendGuildWelcome(name)
+    if not self.socialGate or not self.humanizer then return end
+    local okW, whyW = self.socialGate:MayWelcome(name)
+    if not okW then
+        if self:IsTestMode() then self:TestPrint("Welcome blocked: " .. whyW) end
+        return
+    end
+    local ok, why = self.socialGate:MaySend("welcome", name)
+    if not ok then
+        if self:IsTestMode() then self:TestPrint("Welcome blocked: " .. why) end
+        return
+    end
+    -- Reserve both the welcome cap slot and the budget slot before scheduling:
+    -- a burst of joins must see the updated counters, not the pre-timer ones
+    self.socialGate:RecordWelcome(name)
+    self.socialGate:Record("welcome", name)
+    local text = self.humanizer:Pick("guildwelcome", AutoSay.GuildWelcome):gsub("{name}", name)
+    local pendingId = self.socialGate:AddPending("welcome", "GUILD")
+    local delay = 5 + math.random() * 10 -- 5-15s per spec
+    self:ScheduleTimer(function()
+        if not self.socialGate:TakePending(pendingId) then
+            if self:IsTestMode() then self:TestPrint("Welcome blocked: someone-answered") end
+            return
+        end
+        self:SendMessageToChat(text, "GUILD")
+    end, delay)
 end
 
 -- Send guild greeting on login
@@ -1119,6 +1247,16 @@ function Addon:SendGuildGreeting()
     if not message then
         self:DebugPrint("No greetings enabled for GUILD")
         return
+    end
+
+    if self.socialGate then
+        local ok, why = self.socialGate:MaySend("greeting")
+        if not ok then
+            self:DebugPrint("Guild login greeting gated:", why)
+            if self:IsTestMode() then self:TestPrint("Guild greeting blocked: " .. why) end
+            return
+        end
+        self.socialGate:Record("greeting")
     end
 
     self:SendMessageToChat(message, "GUILD")
@@ -1154,6 +1292,16 @@ function Addon:SendGuildGoodbye()
     if not message then
         self:DebugPrint("No goodbyes enabled for GUILD")
         return
+    end
+
+    if self.socialGate then
+        local ok, why = self.socialGate:MaySend("goodbye")
+        if not ok then
+            self:DebugPrint("Guild goodbye gated:", why)
+            if self:IsTestMode() then self:TestPrint("Guild goodbye blocked: " .. why) end
+            return
+        end
+        self.socialGate:Record("goodbye")
     end
 
     self:DebugPrint("Sending guild goodbye:", message)
@@ -1210,6 +1358,15 @@ function Addon:SendGuildLoginGreeting(names)
         return
     end
 
+    if self.socialGate then
+        local ok, why = self.socialGate:MaySend("greeting", names and names[1] or nil)
+        if not ok then
+            self:DebugPrint("Guild login greeting gated:", why)
+            if self:IsTestMode() then self:TestPrint("Guild login greeting blocked: " .. why) end
+            return
+        end
+    end
+
     -- Get random login greeting
     local message = self:GetRandomGuildLoginGreeting()
     if not message then
@@ -1222,6 +1379,10 @@ function Addon:SendGuildLoginGreeting(names)
     message = message:gsub("{name}", nameStr)
 
     self.state.lastGuildLoginGreetTime = now
+    -- Reserve the budget slot before the delay timer, now that a message is certain to go out
+    if self.socialGate then
+        self.socialGate:Record("greeting", names and names[1] or nil)
+    end
     -- Send directly, bypassing global cooldown (member login has its own cooldown above)
     local delay = db.messageDelay
     if delay and delay > 0 then
@@ -1566,7 +1727,6 @@ function Addon:TestReset()
         self:CancelTimer(self.state.queueTimer)
         self.state.queueTimer = nil
     end
-    self.state.lastGreetingText = {}
     self.state.cachedLFGListing = nil
     self.state.keyAnnounced = false
     self.state.mythicPlusFlowActive = false
@@ -1574,6 +1734,13 @@ function Addon:TestReset()
     self.state.groupGoodbyeSent = false
     self.state.guildMemberPresence = {}
     self.state.guildPresenceReady = true -- In test mode, always ready
+    -- Clear session-only social state (persistent budget/person state intentionally kept, matches live behavior)
+    if self.socialGate then
+        self.socialGate.pending = {}
+    end
+    if self.humanizer then
+        self.humanizer.history = {}
+    end
     self:TestPrint("Test state reset")
 end
 
@@ -1933,20 +2100,11 @@ function Addon:TestStatus()
         self:Print("Queued messages:", "|cFF00FF000|r")
     end
 
-    -- Greeting text cache status
-    local cacheCount = 0
-    local now = GetTime()
-    local cooldown = self.db.profile.cooldown
-    for key, cached in pairs(self.state.lastGreetingText) do
-        local age = now - cached.time
-        if age < cooldown * 2 then
-            cacheCount = cacheCount + 1
-            self:Print("Cached greeting:", "|cFFFFFF00" .. key .. "|r", "=", "|cFF00FF00" .. cached.text .. "|r",
-                "(age:", string.format("%.1fs", age) .. ")")
-        end
-    end
-    if cacheCount == 0 then
-        self:Print("Cached greetings:", "|cFF888888none|r")
+    -- Humanizer pick history status
+    if self.humanizer and self.humanizer.history then
+        local poolCount = 0
+        for _ in pairs(self.humanizer.history) do poolCount = poolCount + 1 end
+        self:Print("Humanizer history pools:", "|cFFFFFF00" .. poolCount .. "|r")
     end
 
     -- Show channel status
@@ -1971,5 +2129,45 @@ function Addon:TestStatus()
         self:Print("  LFG cache:", self.state.cachedLFGListing.dungeonName or "unknown",
             "| Title:", self.state.cachedLFGListing.title or "none",
             "| M+:", self.state.cachedLFGListing.isMythicPlus and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
+    end
+
+    -- Social gate status (read-only; never mutates gate state)
+    if self.socialGate then
+        local now = time()
+        local social = self.db.char.social or {}
+        local settings = self.db.profile.social or {}
+        local hourAgo = now - 3600
+
+        local sends = social.sends or {}
+        local budgetUsed = 0
+        for _, ts in ipairs(sends) do
+            if ts > hourAgo then budgetUsed = budgetUsed + 1 end
+        end
+        self:Print("Social gate:")
+        self:Print("  Budget:", "|cFFFFFF00" .. budgetUsed .. "/" .. (settings.budgetPerHour or 0) .. "|r", "used this hour")
+
+        local welcomeSends = social.welcomeSends or {}
+        local welcomeUsed = 0
+        for _, ts in ipairs(welcomeSends) do
+            if ts > hourAgo then welcomeUsed = welcomeUsed + 1 end
+        end
+        self:Print("  Welcomes:", "|cFFFFFF00" .. welcomeUsed .. "/2|r", "used this hour")
+
+        local personCooldown = (settings.personCooldownHours or 0) * 3600
+        local perPerson = social.perPerson or {}
+        local onCooldown = 0
+        for _, ts in pairs(perPerson) do
+            if now - ts < personCooldown then onCooldown = onCooldown + 1 end
+        end
+        self:Print("  Per-person cooldown:", "|cFFFFFF00" .. onCooldown .. "|r", "player(s)")
+
+        local welcomed = social.welcomed or {}
+        local welcomedCount = 0
+        for _ in pairs(welcomed) do welcomedCount = welcomedCount + 1 end
+        self:Print("  Welcomed (ever):", "|cFFFFFF00" .. welcomedCount .. "|r", "player(s)")
+
+        local pendingCount = 0
+        for _ in pairs(self.socialGate.pending or {}) do pendingCount = pendingCount + 1 end
+        self:Print("  Pending replies:", "|cFFFFFF00" .. pendingCount .. "|r")
     end
 end
