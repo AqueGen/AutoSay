@@ -37,6 +37,7 @@ function Addon:RegisterEvents()
     self:RegisterEvent("CHAT_MSG_INSTANCE_CHAT_LEADER", "OnSocialChat")
     self:RegisterEvent("CHAT_MSG_GUILD", "OnSocialChat")
     self:RegisterEvent("CHAT_MSG_GUILD_ACHIEVEMENT", "OnGuildAchievement")
+    self:RegisterEvent("CHAT_MSG_SYSTEM", "OnSystemMessage")
 
     self:DebugPrint("Events registered")
 end
@@ -65,6 +66,28 @@ function Addon:OnGuildAchievement(event, message, sender)
     local name = (sender and sender:match("^([^%-]+)")) or message:match("^([^%s]+)")
     if not name or name == UnitName("player") then return end
     self:SendGuildGrats(name)
+end
+
+-- ERR_GUILD_JOIN_S = "%s has joined the guild." - built lazily (not always available
+-- at file scope depending on client/load order) from the global so non-English clients work too.
+local guildJoinPattern
+local function GetGuildJoinPattern()
+    if guildJoinPattern == nil and ERR_GUILD_JOIN_S then
+        guildJoinPattern = "^" .. ERR_GUILD_JOIN_S:gsub("%%s", "(%%S+)"):gsub("%.", "%%.") .. "$"
+    end
+    return guildJoinPattern
+end
+
+-- Handle CHAT_MSG_SYSTEM - detect new guild member joins to offer a welcome
+function Addon:OnSystemMessage(event, message)
+    if not self.db.profile.enabled then return end
+    if not self.db.profile.social.guildWelcome then return end
+    local pattern = GetGuildJoinPattern()
+    if not pattern then return end
+    local name = message:match(pattern)
+    if name then
+        self:SendGuildWelcome(name)
+    end
 end
 
 -- Handle GROUP_JOINED - we joined a group

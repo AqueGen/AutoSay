@@ -545,6 +545,11 @@ function Addon:SlashCommand(input)
         elseif subcmd == "grats" then
             self:TestPrint("=== Simulating GUILD ACHIEVEMENT (TestGuildie) ===")
             self:SendGuildGrats("TestGuildie")
+        elseif subcmd == "guildjoin" or subcmd == "gj" then
+            self.testGuildJoinCounter = (self.testGuildJoinCounter or 0) + 1
+            local name = "TestNewbie" .. self.testGuildJoinCounter
+            self:TestPrint("=== Simulating GUILD JOIN (" .. name .. ") ===")
+            self:SendGuildWelcome(name)
         elseif subcmd == "reconnect" or subcmd == "re" then
             self:TestReconnect()
         elseif subcmd == "player" or subcmd == "join" then
@@ -1159,6 +1164,33 @@ function Addon:SendGuildGrats(name)
             return
         end
         self.socialGate:Record("grats", name)
+        self:SendMessageToChat(text, "GUILD")
+    end, delay)
+end
+
+-- Send welcome when a new member joins the guild
+function Addon:SendGuildWelcome(name)
+    if not self.socialGate or not self.humanizer then return end
+    local okW, whyW = self.socialGate:MayWelcome(name)
+    if not okW then
+        if self:IsTestMode() then self:TestPrint("Welcome blocked: " .. whyW) end
+        return
+    end
+    local ok, why = self.socialGate:MaySend("welcome", name)
+    if not ok then
+        if self:IsTestMode() then self:TestPrint("Welcome blocked: " .. why) end
+        return
+    end
+    local text = self.humanizer:Pick("guildwelcome", AutoSay.GuildWelcome):gsub("{name}", name)
+    local pendingId = self.socialGate:AddPending("welcome", "GUILD")
+    local delay = 5 + math.random() * 10 -- 5-15s per spec
+    self:ScheduleTimer(function()
+        if not self.socialGate:TakePending(pendingId) then
+            if self:IsTestMode() then self:TestPrint("Welcome blocked: someone-answered") end
+            return
+        end
+        self.socialGate:RecordWelcome(name)
+        self.socialGate:Record("welcome", name)
         self:SendMessageToChat(text, "GUILD")
     end, delay)
 end

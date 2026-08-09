@@ -5,6 +5,11 @@ AutoSay.GuildGrats = {
     "gz", "grats!", "gratz {name}", "grats {name}!", "nice one {name}!", "congrats {name}!",
 }
 
+-- New guild member welcomes
+AutoSay.GuildWelcome = {
+    "welcome!", "welcome {name}!", "welcome to the guild, {name}!", "o/ welcome {name}",
+}
+
 -- Greetings database (enabled by default first)
 AutoSay.Greetings = {
     { key = "hi", text = "Hi!" },
