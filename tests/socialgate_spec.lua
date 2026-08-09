@@ -149,6 +149,53 @@ describe("SocialGate welcome rules", function()
   end)
 end)
 
+describe("SocialGate reservation ordering", function()
+  -- The gate has no memory of an un-recorded "yes": callers must reserve the slot
+  -- at schedule time, or a burst that all checks before anyone records slips through.
+  it("check-then-record blocks the next welcome in the same instant", function()
+    local gate = makeGate{ budgetPerHour = 30 }
+    assert.is_true(gate:MayWelcome("A"))
+    gate:RecordWelcome("A")
+    assert.is_true(gate:MayWelcome("B"))
+    gate:RecordWelcome("B")
+    local ok, reason = gate:MayWelcome("C")
+    assert.is_false(ok)
+    assert.equal("welcome-cap", reason)
+  end)
+
+  it("checking all three before recording lets all three pass (why callers must reserve)", function()
+    local gate = makeGate{ budgetPerHour = 30 }
+    assert.is_true(gate:MayWelcome("A"))
+    assert.is_true(gate:MayWelcome("B"))
+    assert.is_true(gate:MayWelcome("C"))
+  end)
+
+  it("burst of welcome sends exhausts the budget with no clock advance", function()
+    local gate = makeGate{ budgetPerHour = 3 }
+    local allowed = 0
+    for i = 1, 20 do
+      if gate:MaySend("welcome", "Player" .. i) then
+        gate:Record("welcome", "Player" .. i)
+        allowed = allowed + 1
+      end
+    end
+    assert.equal(3, allowed)
+    local ok, reason = gate:MaySend("greeting")
+    assert.is_false(ok)
+    assert.equal("budget", reason)
+  end)
+
+  it("a cancelled message keeps its reserved slot (errs toward silence)", function()
+    local gate = makeGate{ budgetPerHour = 2 }
+    assert.is_true(gate:MaySend("grats", "Bob"))
+    gate:Record("grats", "Bob")
+    local id = gate:AddPending("grats", "GUILD")
+    gate:OnChatMessage("GUILD", "Alice", "gz Bob")
+    assert.is_false(gate:TakePending(id)) -- never sent, but the slot stays spent
+    assert.equal(1, #gate.state.sends)
+  end)
+end)
+
 describe("grats flow (gate composition)", function()
   it("second grats to same player is person-blocked, other player passes", function()
     local gate = makeGate{}

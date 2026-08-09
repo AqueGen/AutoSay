@@ -716,7 +716,6 @@ function Addon:DoSendMessage(message, channel, target)
 
         print("|cFFFF9900[AutoSay TEST]|r Would send to " .. channelColor .. "[" .. channel .. "]|r: " .. message)
         updateCooldown()
-        if self.socialGate then self.socialGate:Record("auto") end
         self:DebugPrint("Test mode - simulated send to", channel, ":", message)
         return
     end
@@ -726,7 +725,6 @@ function Addon:DoSendMessage(message, channel, target)
     local ok, err = pcall(SendChatMessage, message, channel, nil, target)
     if ok then
         updateCooldown()
-        if self.socialGate then self.socialGate:Record("auto") end
         self:DebugPrint("Sent to", channel, ":", message)
     else
         self:DebugPrint("Failed to send to", channel, ":", tostring(err))
@@ -885,6 +883,8 @@ function Addon:SendGreeting(playerNames, reason)
             if self:IsTestMode() then self:TestPrint("Greeting blocked: " .. why) end
             return
         end
+        -- Reserve the slot now: queued/delayed sends must not re-pass the gate later
+        self.socialGate:Record("greeting", target)
     end
 
     self:DebugPrint("SendGreeting called - reason:", reason, "channel:", channel,
@@ -1134,6 +1134,7 @@ function Addon:SendGoodbye(channel)
             if self:IsTestMode() then self:TestPrint("Goodbye blocked: " .. why) end
             return
         end
+        self.socialGate:Record("goodbye")
     end
 
     -- Get random goodbye for this channel
@@ -1155,6 +1156,9 @@ function Addon:SendGuildGrats(name)
         if self:IsTestMode() then self:TestPrint("Grats blocked: " .. why) end
         return
     end
+    -- Reserve the slot before the listening window, so an achievement wave cannot
+    -- schedule N grats against the same stale counters
+    self.socialGate:Record("grats", name)
     local text = self.humanizer:Pick("guildgrats", AutoSay.GuildGrats):gsub("{name}", name)
     local pendingId = self.socialGate:AddPending("grats", "GUILD")
     local delay = 4 + math.random() * 6 -- 4-10s listening window per spec
@@ -1163,7 +1167,6 @@ function Addon:SendGuildGrats(name)
             if self:IsTestMode() then self:TestPrint("Grats blocked: someone-answered") end
             return
         end
-        self.socialGate:Record("grats", name)
         self:SendMessageToChat(text, "GUILD")
     end, delay)
 end
@@ -1181,6 +1184,10 @@ function Addon:SendGuildWelcome(name)
         if self:IsTestMode() then self:TestPrint("Welcome blocked: " .. why) end
         return
     end
+    -- Reserve both the welcome cap slot and the budget slot before scheduling:
+    -- a burst of joins must see the updated counters, not the pre-timer ones
+    self.socialGate:RecordWelcome(name)
+    self.socialGate:Record("welcome", name)
     local text = self.humanizer:Pick("guildwelcome", AutoSay.GuildWelcome):gsub("{name}", name)
     local pendingId = self.socialGate:AddPending("welcome", "GUILD")
     local delay = 5 + math.random() * 10 -- 5-15s per spec
@@ -1189,8 +1196,6 @@ function Addon:SendGuildWelcome(name)
             if self:IsTestMode() then self:TestPrint("Welcome blocked: someone-answered") end
             return
         end
-        self.socialGate:RecordWelcome(name)
-        self.socialGate:Record("welcome", name)
         self:SendMessageToChat(text, "GUILD")
     end, delay)
 end
@@ -1316,6 +1321,7 @@ function Addon:SendGuildLoginGreeting(names)
             if self:IsTestMode() then self:TestPrint("Guild login greeting blocked: " .. why) end
             return
         end
+        self.socialGate:Record("greeting", names and names[1] or nil)
     end
 
     -- Get random login greeting

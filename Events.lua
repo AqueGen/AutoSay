@@ -85,9 +85,9 @@ function Addon:OnSystemMessage(event, message)
     local pattern = GetGuildJoinPattern()
     if not pattern then return end
     local name = message:match(pattern)
-    if name then
-        self:SendGuildWelcome(name)
-    end
+    name = name and name:match("^([^%-]+)") or name
+    if not name or name == UnitName("player") then return end
+    self:SendGuildWelcome(name)
 end
 
 -- Handle GROUP_JOINED - we joined a group
@@ -523,16 +523,8 @@ function Addon:HandleGroupReconnect()
         return
     end
 
-    if self.socialGate then
-        local ok, why = self.socialGate:MaySend("reconnect")
-        if not ok then
-            self:DebugPrint("HandleGroupReconnect gated:", why)
-            if self:IsTestMode() then self:TestPrint("Reconnect blocked: " .. why) end
-            return
-        end
-    end
-
-    -- Send greeting
+    -- Send greeting (SendGreeting is the single gate for this path - gating here too
+    -- would reserve two budget slots for one message)
     self:SendGreeting(nil, "reconnect")
 end
 
