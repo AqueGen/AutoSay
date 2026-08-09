@@ -542,6 +542,9 @@ function Addon:SlashCommand(input)
         elseif subcmd == "guildlogin" or subcmd == "gl" then
             local _, _, playerName = self:GetArgs(input, 3)
             self:TestGuildMemberLogin(playerName)
+        elseif subcmd == "grats" then
+            self:TestPrint("=== Simulating GUILD ACHIEVEMENT (TestGuildie) ===")
+            self:SendGuildGrats("TestGuildie")
         elseif subcmd == "reconnect" or subcmd == "re" then
             self:TestReconnect()
         elseif subcmd == "player" or subcmd == "join" then
@@ -561,6 +564,7 @@ function Addon:SlashCommand(input)
             self:Print("  /as test guild - Simulate guild login greeting")
             self:Print("  /as test guildbye - Simulate guild logout goodbye")
             self:Print("  /as test guildlogin [name] - Simulate guild member logging in")
+            self:Print("  /as test grats - Simulate guild achievement congrats")
             self:Print("  /as test reconnect - Simulate reconnecting to group")
             self:Print("  /as test player [name] - Simulate player joining")
             self:Print("  /as test key - Simulate full M+ flow (listing → joins → announce)")
@@ -1136,6 +1140,27 @@ function Addon:SendGoodbye(channel)
 
     -- Send immediately (no delay for goodbyes since we're leaving)
     self:DoSendMessage(message, channel)
+end
+
+-- Send congrats when a guildmate earns an achievement
+function Addon:SendGuildGrats(name)
+    if not self.socialGate or not self.humanizer then return end
+    local ok, why = self.socialGate:MaySend("grats", name)
+    if not ok then
+        if self:IsTestMode() then self:TestPrint("Grats blocked: " .. why) end
+        return
+    end
+    local text = self.humanizer:Pick("guildgrats", AutoSay.GuildGrats):gsub("{name}", name)
+    local pendingId = self.socialGate:AddPending("grats", "GUILD")
+    local delay = 4 + math.random() * 6 -- 4-10s listening window per spec
+    self:ScheduleTimer(function()
+        if not self.socialGate:TakePending(pendingId) then
+            if self:IsTestMode() then self:TestPrint("Grats blocked: someone-answered") end
+            return
+        end
+        self.socialGate:Record("grats", name)
+        self:SendMessageToChat(text, "GUILD")
+    end, delay)
 end
 
 -- Send guild greeting on login

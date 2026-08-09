@@ -36,6 +36,7 @@ function Addon:RegisterEvents()
     self:RegisterEvent("CHAT_MSG_INSTANCE_CHAT", "OnSocialChat")
     self:RegisterEvent("CHAT_MSG_INSTANCE_CHAT_LEADER", "OnSocialChat")
     self:RegisterEvent("CHAT_MSG_GUILD", "OnSocialChat")
+    self:RegisterEvent("CHAT_MSG_GUILD_ACHIEVEMENT", "OnGuildAchievement")
 
     self:DebugPrint("Events registered")
 end
@@ -55,6 +56,15 @@ function Addon:OnSocialChat(event, text, sender)
     local senderName = sender and sender:match("^([^%-]+)") or sender
     if senderName == me then return end
     self.socialGate:OnChatMessage(CHAT_EVENT_CHANNEL[event], senderName, text)
+end
+
+-- Handle CHAT_MSG_GUILD_ACHIEVEMENT - guildmate earned an achievement, offer congrats
+function Addon:OnGuildAchievement(event, message, sender)
+    if not self.db.profile.enabled then return end
+    if not self.db.profile.social.guildGrats then return end
+    local name = (sender and sender:match("^([^%-]+)")) or message:match("^([^%s]+)")
+    if not name or name == UnitName("player") then return end
+    self:SendGuildGrats(name)
 end
 
 -- Handle GROUP_JOINED - we joined a group

@@ -1,5 +1,10 @@
 local ADDON_NAME, AutoSay = ...
 
+-- Guild achievement congratulations
+AutoSay.GuildGrats = {
+    "gz", "grats!", "gratz {name}", "grats {name}!", "nice one {name}!", "congrats {name}!",
+}
+
 -- Greetings database (enabled by default first)
 AutoSay.Greetings = {
     { key = "hi", text = "Hi!" },
