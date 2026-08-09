@@ -151,7 +151,6 @@ function Addon:GROUP_LEFT()
         self:CancelTimer(self.state.queueTimer)
         self.state.queueTimer = nil
     end
-    self.state.lastGreetingText = {}
     self.state.keyAnnounced = false
     self.state.cachedLFGListing = nil
 end

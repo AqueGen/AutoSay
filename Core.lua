@@ -1252,6 +1252,15 @@ function Addon:SendGuildLoginGreeting(names)
         return
     end
 
+    if self.socialGate then
+        local ok, why = self.socialGate:MaySend("greeting", names and names[1] or nil)
+        if not ok then
+            self:DebugPrint("Guild login greeting gated:", why)
+            if self:IsTestMode() then self:TestPrint("Guild login greeting blocked: " .. why) end
+            return
+        end
+    end
+
     -- Get random login greeting
     local message = self:GetRandomGuildLoginGreeting()
     if not message then
