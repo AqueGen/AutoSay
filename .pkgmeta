@@ -54,3 +54,9 @@ ignore:
   - README.md
   - .gitignore
   - .github
+  - tests
+  - .busted
+  - docs
+  - CLAUDE.md
+  - CURSEFORGE.md
+  - FEATURES_BACKLOG.md

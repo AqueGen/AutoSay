@@ -835,7 +835,7 @@ function Addon:GetRandomMessageForChannel(messageType, channel)
     end
 
     if messageType == "greetings" and self.db.profile.social.timeOfDay and self.humanizer then
-        return self.humanizer:PickTimed("greet:" .. channel, enabled, AutoSay.GreetingsTimeOfDay)
+        return self.humanizer:PickTimed("greetings:" .. channel, enabled, AutoSay.GreetingsTimeOfDay)
     end
 
     if self.humanizer then
@@ -1233,6 +1233,16 @@ function Addon:SendGuildGreeting()
         return
     end
 
+    if self.socialGate then
+        local ok, why = self.socialGate:MaySend("greeting")
+        if not ok then
+            self:DebugPrint("Guild login greeting gated:", why)
+            if self:IsTestMode() then self:TestPrint("Guild greeting blocked: " .. why) end
+            return
+        end
+        self.socialGate:Record("greeting")
+    end
+
     self:SendMessageToChat(message, "GUILD")
 end
 
@@ -1266,6 +1276,16 @@ function Addon:SendGuildGoodbye()
     if not message then
         self:DebugPrint("No goodbyes enabled for GUILD")
         return
+    end
+
+    if self.socialGate then
+        local ok, why = self.socialGate:MaySend("goodbye")
+        if not ok then
+            self:DebugPrint("Guild goodbye gated:", why)
+            if self:IsTestMode() then self:TestPrint("Guild goodbye blocked: " .. why) end
+            return
+        end
+        self.socialGate:Record("goodbye")
     end
 
     self:DebugPrint("Sending guild goodbye:", message)

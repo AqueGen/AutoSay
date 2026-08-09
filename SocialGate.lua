@@ -74,7 +74,6 @@ end
 SocialGate.INTENTS = {
   grats = { "gz", "gratz", "grats", "congrats", "congratulations", "grtz" },
   welcome = { "welcome", "wb" },
-  greeting = { "hi", "hello", "hey", "yo", "o/", "morning", "evening", "sup", "hiya" },
 }
 
 function SocialGate:AddPending(intent, channel)

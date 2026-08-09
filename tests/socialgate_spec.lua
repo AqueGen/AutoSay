@@ -90,10 +90,10 @@ describe("SocialGate social listening", function()
     assert.is_true(gate:TakePending(id))
   end)
 
-  it("matches whole words only - 'this' must not match greeting 'hi'", function()
+  it("matches whole words only - 'gzip' must not match grats 'gz'", function()
     local gate = makeGate{}
-    local id = gate:AddPending("greeting", "PARTY")
-    gate:OnChatMessage("PARTY", "Bob", "this pull was rough")
+    local id = gate:AddPending("grats", "GUILD")
+    gate:OnChatMessage("GUILD", "Bob", "gzip that log")
     assert.is_true(gate:TakePending(id))
   end)
 

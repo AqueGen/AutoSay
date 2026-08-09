@@ -28,13 +28,8 @@ function Addon:RegisterEvents()
     -- M+ dungeon completion
     self:RegisterEvent("CHALLENGE_MODE_COMPLETED")
 
-    -- Chat listening for social gate (pending-intent confirmation, welcome tracking)
-    self:RegisterEvent("CHAT_MSG_PARTY", "OnSocialChat")
-    self:RegisterEvent("CHAT_MSG_PARTY_LEADER", "OnSocialChat")
-    self:RegisterEvent("CHAT_MSG_RAID", "OnSocialChat")
-    self:RegisterEvent("CHAT_MSG_RAID_LEADER", "OnSocialChat")
-    self:RegisterEvent("CHAT_MSG_INSTANCE_CHAT", "OnSocialChat")
-    self:RegisterEvent("CHAT_MSG_INSTANCE_CHAT_LEADER", "OnSocialChat")
+    -- Chat listening for social gate (pending-intent confirmation, welcome tracking).
+    -- Only guild triggers create pending slots, so guild chat is the only channel worth watching.
     self:RegisterEvent("CHAT_MSG_GUILD", "OnSocialChat")
     self:RegisterEvent("CHAT_MSG_GUILD_ACHIEVEMENT", "OnGuildAchievement")
     self:RegisterEvent("CHAT_MSG_SYSTEM", "OnSystemMessage")
@@ -43,13 +38,10 @@ function Addon:RegisterEvents()
 end
 
 local CHAT_EVENT_CHANNEL = {
-    CHAT_MSG_PARTY = "PARTY", CHAT_MSG_PARTY_LEADER = "PARTY",
-    CHAT_MSG_RAID = "RAID", CHAT_MSG_RAID_LEADER = "RAID",
-    CHAT_MSG_INSTANCE_CHAT = "INSTANCE_CHAT", CHAT_MSG_INSTANCE_CHAT_LEADER = "INSTANCE_CHAT",
     CHAT_MSG_GUILD = "GUILD",
 }
 
--- Listen to group/guild chat for the social gate (welcome tracking, pending-intent confirmation)
+-- Listen to guild chat for the social gate (welcome tracking, pending-intent confirmation)
 function Addon:OnSocialChat(event, text, sender)
     if not self.socialGate then return end
     if not self.db.profile.social.listen then return end
@@ -73,7 +65,10 @@ end
 local guildJoinPattern
 local function GetGuildJoinPattern()
     if guildJoinPattern == nil and ERR_GUILD_JOIN_S then
-        guildJoinPattern = "^" .. ERR_GUILD_JOIN_S:gsub("%%s", "(%%S+)"):gsub("%.", "%%.") .. "$"
+        -- Escape every Lua pattern magic char first (this turns the "%s" placeholder into
+        -- an escaped literal "%%s"), then swap that placeholder for the name capture.
+        local escaped = ERR_GUILD_JOIN_S:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%1")
+        guildJoinPattern = "^" .. escaped:gsub("%%%%s", "(%%S+)") .. "$"
     end
     return guildJoinPattern
 end

@@ -1,10 +1,11 @@
-## [1.5.0] - unreleased
+## [1.5.0] - 2026-08-10
 
 ### Added
 
-- Social foundation: a global anti-spam gate for every automatic message -
-  hourly budget (default 12/hour), per-person cooldown (default 4h), and
-  social listening (your message is skipped if someone already said it).
+- Social foundation: an anti-spam gate for every automatic greeting, goodbye
+  and guild message - hourly budget (default 12/hour), per-person cooldown
+  (default 4h), and social listening in guild chat (your message is skipped
+  if a guildmate already said it).
 - Human typing delay: messages go out after a short, length-based delay
   instead of instantly.
 - Smarter phrase rotation: recently used phrases are not repeated.
