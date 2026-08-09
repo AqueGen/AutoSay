@@ -3,8 +3,10 @@
 ## Title: |cFF0099FFAuto|r |cFFFFD700Say|r
 ## Notes: Automatically sends greetings, farewells, and reconnect messages in party, raid, and guild chat
 ## Author: AqueGen
-## Version: v1.5.0
-## X-Curse-Version: v1.5.0
+# x-release-please-start-version
+## Version: 1.5.0
+## X-Curse-Version: 1.5.0
+# x-release-please-end
 ## X-License: MIT
 ## X-Website: https://github.com/AqueGen/AutoSay
 ## SavedVariables: AutoSayDB

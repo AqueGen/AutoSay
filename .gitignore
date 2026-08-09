@@ -21,6 +21,7 @@ desktop.ini
 # Packager output
 .release/
 *.zip
+RELEASE_NOTES.md
 
 # Local testing
 test.lua

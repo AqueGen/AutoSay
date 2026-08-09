@@ -3,7 +3,7 @@ package-as: AutoSay
 enable-nolib-creation: no
 
 manual-changelog:
-  filename: CHANGELOG.md
+  filename: RELEASE_NOTES.md
   markup-type: markdown
 
 externals:
@@ -52,6 +52,7 @@ externals:
 
 ignore:
   - README.md
+  - RELEASE_NOTES.md
   - .gitignore
   - .github
   - tests
@@ -60,3 +61,5 @@ ignore:
   - CLAUDE.md
   - CURSEFORGE.md
   - FEATURES_BACKLOG.md
+  - release-please-config.json
+  - .release-please-manifest.json
