@@ -570,6 +570,7 @@ function Addon:SlashCommand(input)
             self:Print("  /as test guildbye - Simulate guild logout goodbye")
             self:Print("  /as test guildlogin [name] - Simulate guild member logging in")
             self:Print("  /as test grats - Simulate guild achievement congrats")
+            self:Print("  /as test guildjoin - Simulate a new member joining the guild")
             self:Print("  /as test reconnect - Simulate reconnecting to group")
             self:Print("  /as test player [name] - Simulate player joining")
             self:Print("  /as test key - Simulate full M+ flow (listing → joins → announce)")
@@ -2113,5 +2114,45 @@ function Addon:TestStatus()
         self:Print("  LFG cache:", self.state.cachedLFGListing.dungeonName or "unknown",
             "| Title:", self.state.cachedLFGListing.title or "none",
             "| M+:", self.state.cachedLFGListing.isMythicPlus and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
+    end
+
+    -- Social gate status (read-only; never mutates gate state)
+    if self.socialGate then
+        local now = time()
+        local social = self.db.char.social or {}
+        local settings = self.db.profile.social or {}
+        local hourAgo = now - 3600
+
+        local sends = social.sends or {}
+        local budgetUsed = 0
+        for _, ts in ipairs(sends) do
+            if ts > hourAgo then budgetUsed = budgetUsed + 1 end
+        end
+        self:Print("Social gate:")
+        self:Print("  Budget:", "|cFFFFFF00" .. budgetUsed .. "/" .. (settings.budgetPerHour or 0) .. "|r", "used this hour")
+
+        local welcomeSends = social.welcomeSends or {}
+        local welcomeUsed = 0
+        for _, ts in ipairs(welcomeSends) do
+            if ts > hourAgo then welcomeUsed = welcomeUsed + 1 end
+        end
+        self:Print("  Welcomes:", "|cFFFFFF00" .. welcomeUsed .. "/2|r", "used this hour")
+
+        local personCooldown = (settings.personCooldownHours or 0) * 3600
+        local perPerson = social.perPerson or {}
+        local onCooldown = 0
+        for _, ts in pairs(perPerson) do
+            if now - ts < personCooldown then onCooldown = onCooldown + 1 end
+        end
+        self:Print("  Per-person cooldown:", "|cFFFFFF00" .. onCooldown .. "|r", "player(s)")
+
+        local welcomed = social.welcomed or {}
+        local welcomedCount = 0
+        for _ in pairs(welcomed) do welcomedCount = welcomedCount + 1 end
+        self:Print("  Welcomed (ever):", "|cFFFFFF00" .. welcomedCount .. "|r", "player(s)")
+
+        local pendingCount = 0
+        for _ in pairs(self.socialGate.pending or {}) do pendingCount = pendingCount + 1 end
+        self:Print("  Pending replies:", "|cFFFFFF00" .. pendingCount .. "|r")
     end
 end
