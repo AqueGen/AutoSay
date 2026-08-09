@@ -37,5 +37,6 @@ Messages.lua
 SocialGate.lua
 Humanizer.lua
 Core.lua
+SelfTest.lua
 Events.lua
 Config.lua

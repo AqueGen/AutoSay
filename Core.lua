@@ -589,6 +589,8 @@ function Addon:SlashCommand(input)
             self:Print("  /as test resetgate - Clear social gate counters (budget, cooldowns, welcomed list)")
             self:Print("  /as test status - Show test status")
         end
+    elseif cmd == "selftest" or cmd == "st" then
+        self:RunSelfTest()
     elseif cmd == "status" then
         self:TestStatus()
     elseif cmd == "help" or cmd == "?" then
@@ -598,6 +600,7 @@ function Addon:SlashCommand(input)
         self:Print("  /as debug - Toggle debug mode")
         self:Print("  /as testmode - Toggle test mode")
         self:Print("  /as test [cmd] - Run test simulation")
+        self:Print("  /as selftest - Verify anti-spam and humanizer logic (no side effects)")
         self:Print("  /as status - Show current status")
         self:Print("  /as help - Show this help")
     else

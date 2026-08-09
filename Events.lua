@@ -72,6 +72,7 @@ local function GetGuildJoinPattern()
     end
     return guildJoinPattern
 end
+Addon.GetGuildJoinPattern = GetGuildJoinPattern -- exposed for /as selftest
 
 -- Handle CHAT_MSG_SYSTEM - detect new guild member joins to offer a welcome
 function Addon:OnSystemMessage(event, message)
