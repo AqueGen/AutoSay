@@ -1,0 +1,63 @@
+name: Version Check
+
+on:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  version-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compare TOC version with tag
+        run: |
+          set -uo pipefail
+
+          TOC=$(ls -1 ./*.toc 2>/dev/null | head -n1)
+          if [ -z "$TOC" ]; then
+            echo "::error::No .toc file found in the repository root"
+            exit 1
+          fi
+
+          # Only "## Version:" — anchored so "## X-Curse-Version:" cannot match.
+          # tr strips CR from CRLF working copies, sed strips trailing whitespace.
+          TOC_VERSION=$(sed -n 's/^##[[:space:]]*Version:[[:space:]]*//p' "$TOC" \
+            | head -n1 | tr -d '\r' | sed 's/[[:space:]]*$//')
+          if [ -z "$TOC_VERSION" ]; then
+            echo "::error::No '## Version:' line found in $TOC"
+            exit 1
+          fi
+          echo "$TOC -> ## Version: $TOC_VERSION"
+
+          # A leading "v" is optional on both sides; compare the bare versions.
+          TOC_NUM=${TOC_VERSION#v}
+
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            TAG="$GITHUB_REF_NAME"
+            if [ "${TAG#v}" != "$TOC_NUM" ]; then
+              echo "::error::Version mismatch: tag '$TAG' but $TOC says '## Version: $TOC_VERSION'. Bump the TOC version to match the tag before pushing it."
+              exit 1
+            fi
+            echo "Tag '$TAG' matches the TOC version."
+            exit 0
+          fi
+
+          LATEST_TAG=$(git tag --list 'v*' --sort=-v:refname | head -n1)
+          if [ -z "$LATEST_TAG" ]; then
+            echo "No existing tags to compare against."
+            exit 0
+          fi
+          LATEST_NUM=${LATEST_TAG#v}
+
+          HIGHEST=$(printf '%s\n%s\n' "$LATEST_NUM" "$TOC_NUM" | sort -V | tail -n1)
+          if [ "$TOC_NUM" = "$LATEST_NUM" ] || [ "$HIGHEST" != "$TOC_NUM" ]; then
+            echo "::warning::TOC version '$TOC_VERSION' is not ahead of the latest tag '$LATEST_TAG'. Bump it before tagging a release."
+          else
+            echo "TOC version '$TOC_VERSION' is ahead of the latest tag '$LATEST_TAG'."
+          fi
