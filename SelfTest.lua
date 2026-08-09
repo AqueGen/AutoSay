@@ -4,6 +4,23 @@ local Addon = LibStub("AceAddon-3.0"):GetAddon(ADDON_NAME)
 local format = string.format
 local HOUR = 3600
 
+-- Live M+ season pool, or nil when the client has no data (outside a season, or not loaded yet).
+local function SeasonMaps()
+    if not (C_ChallengeMode and C_ChallengeMode.GetMapTable) then return nil end
+    local maps = C_ChallengeMode.GetMapTable()
+    if type(maps) ~= "table" or #maps == 0 then return nil end
+    return maps
+end
+
+-- Dungeon name for a challenge map ID, in the client's language.
+local function MapName(mapID)
+    local name
+    if C_ChallengeMode and C_ChallengeMode.GetMapUIInfo then
+        name = C_ChallengeMode.GetMapUIInfo(mapID)
+    end
+    return name or "?"
+end
+
 -- In-game counterpart to the headless busted suite: busted proves the core logic,
 -- this proves the core is correctly wired into the addon and behaves in the real client.
 -- Everything behavioural runs against throwaway SocialGate/Humanizer instances built on
@@ -142,5 +159,75 @@ function Addon:RunSelfTest()
         format("pattern=%s sample=%s captured=%s",
             tostring(pattern), tostring(sample), tostring(captured)))
 
+    -- Group D: live season pool coverage (read-only)
+    local seasonMaps = SeasonMaps()
+    if seasonMaps then
+        local missing = {}
+        for _, mapID in ipairs(seasonMaps) do
+            if not AutoSay.DungeonNames[mapID] then
+                missing[#missing + 1] = format("%d (%s)", mapID, MapName(mapID))
+            end
+        end
+        check("AutoSay.DungeonNames covers the live M+ season pool", #missing == 0,
+            "missing " .. table.concat(missing, ", ") .. " - run /as dumpdungeons")
+    else
+        self:Print("|cFFFFCC00SKIP|r season pool coverage - no M+ map data on this client right now")
+    end
+
     self:Print(format("Self-test: %d/%d passed", passed, total))
+end
+
+-- Maintenance: harvest the current season's M+ pool as paste-ready Lua for Messages.lua.
+-- Uses print() rather than self:Print() so the lines carry no addon prefix and paste cleanly.
+function Addon:DumpDungeons()
+    local maps = SeasonMaps()
+    if not maps then
+        self:Print("|cFFFF0000No M+ map data|r - C_ChallengeMode.GetMapTable() is empty. " ..
+            "Try again once fully logged in, and only while a Mythic+ season is active.")
+        return
+    end
+
+    print("|cFFFFCC00-- AutoSay.DungeonNames (Messages.lua) - names come from C_ChallengeMode.GetMapUIInfo|r")
+    print("|cFFFFCC00-- and are in THIS CLIENT's language: run this on an enUS client for the English table.|r")
+    local nameToMap = {}
+    for _, mapID in ipairs(maps) do
+        local name = MapName(mapID)
+        -- false marks a duplicate name, which we refuse to match an activity against
+        if nameToMap[name] ~= nil then nameToMap[name] = false else nameToMap[name] = mapID end
+        print(format('    [%d] = "%s", -- %s', mapID, name, AutoSay.DungeonNames[mapID] and "known" or "NEW"))
+    end
+
+    -- LFG gives no direct activityID -> mapChallengeModeID link, so match on the dungeon name both
+    -- APIs return in the client's language, and emit only unambiguous matches.
+    local lines, unmatched = {}, 0
+    local filters = 0
+    if Enum and Enum.LFGListFilter and bit then
+        filters = bit.bor(Enum.LFGListFilter.CurrentSeason, Enum.LFGListFilter.PvE)
+    end
+    local activities = C_LFGList and C_LFGList.GetAvailableActivities
+        and C_LFGList.GetAvailableActivities(GROUP_FINDER_CATEGORY_ID_DUNGEONS or 2, 0, filters)
+    if type(activities) == "table" then
+        for _, activityID in ipairs(activities) do
+            local info = C_LFGList.GetActivityInfoTable and C_LFGList.GetActivityInfoTable(activityID)
+            if info and info.isMythicPlusActivity then
+                local mapID = nameToMap[info.shortName] or nameToMap[info.fullName]
+                if mapID then
+                    lines[#lines + 1] = format("    [%d] = %d, -- %s", activityID, mapID, info.shortName)
+                else
+                    unmatched = unmatched + 1
+                end
+            end
+        end
+    end
+
+    if #lines > 0 then
+        print("|cFFFFCC00-- AutoSay.ActivityToDungeon (Messages.lua) - matched by dungeon name, check the comments|r")
+        for _, line in ipairs(lines) do print(line) end
+        if unmatched > 0 then
+            print(format("|cFFFF0000-- %d Mythic+ activity(s) had no unambiguous map match - add those by hand|r", unmatched))
+        end
+    else
+        print("|cFFFF0000-- Could not resolve LFG activity IDs automatically. Leave AutoSay.ActivityToDungeon|r")
+        print("|cFFFF0000-- as it is and update it by hand rather than guessing.|r")
+    end
 end

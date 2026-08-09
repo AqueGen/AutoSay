@@ -591,6 +591,8 @@ function Addon:SlashCommand(input)
         end
     elseif cmd == "selftest" or cmd == "st" then
         self:RunSelfTest()
+    elseif cmd == "dumpdungeons" or cmd == "dd" then
+        self:DumpDungeons()
     elseif cmd == "status" then
         self:TestStatus()
     elseif cmd == "help" or cmd == "?" then
@@ -601,6 +603,7 @@ function Addon:SlashCommand(input)
         self:Print("  /as testmode - Toggle test mode")
         self:Print("  /as test [cmd] - Run test simulation")
         self:Print("  /as selftest - Verify anti-spam and humanizer logic (no side effects)")
+        self:Print("  /as dumpdungeons - Print the live M+ pool as paste-ready Lua for Messages.lua")
         self:Print("  /as status - Show current status")
         self:Print("  /as help - Show this help")
     else
