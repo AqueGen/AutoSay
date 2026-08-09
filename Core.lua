@@ -559,6 +559,17 @@ function Addon:SlashCommand(input)
             self:TestMythicPlusFlow()
         elseif subcmd == "reset" then
             self:TestReset()
+        elseif subcmd == "resetgate" or subcmd == "rg" then
+            local social = self.db.char.social
+            for _, key in ipairs({"sends", "perPerson", "welcomed", "welcomeSends"}) do
+                for k in pairs(social[key]) do
+                    social[key][k] = nil
+                end
+            end
+            if self.socialGate then
+                self.socialGate.pending = {}
+            end
+            self:Print("Social gate counters cleared (budget, cooldowns, welcomed list)")
         elseif subcmd == "status" or subcmd == "s" then
             self:TestStatus()
         else
@@ -575,6 +586,7 @@ function Addon:SlashCommand(input)
             self:Print("  /as test player [name] - Simulate player joining")
             self:Print("  /as test key - Simulate full M+ flow (listing → joins → announce)")
             self:Print("  /as test reset - Reset test state")
+            self:Print("  /as test resetgate - Clear social gate counters (budget, cooldowns, welcomed list)")
             self:Print("  /as test status - Show test status")
         end
     elseif cmd == "status" then
