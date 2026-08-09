@@ -234,6 +234,21 @@ local defaults = {
             customGoodbyes = {},
             customLoginGreetings = {},
         },
+
+        -- Social gate / humanizer settings
+        social = {
+            budgetPerHour = 12,
+            personCooldownHours = 4,
+            listen = true,
+            typingDelay = true,
+            timeOfDay = true,
+            guildGrats = false,
+            guildWelcome = false,
+        },
+    },
+
+    char = {
+        social = {},
     },
 }
 
@@ -251,7 +266,6 @@ Addon.state = {
     pendingGreetTimer = nil, -- Timer for batched greeting
     messageQueue = {}, -- Queue for cooldown-blocked messages
     queueTimer = nil, -- Timer for processing queued messages
-    lastGreetingText = {}, -- Cache greeting text per channel:reason for consistency
     cachedLFGListing = nil, -- Cached LFG listing data (before auto-delist)
     keyAnnounced = false, -- Prevent duplicate M+ key announcements per group
     pendingGuildLogins = {}, -- Batch guild member login names
@@ -277,6 +291,19 @@ function Addon:OnInitialize()
 
     -- Migrate old single custom message format to new array format
     self:MigrateCustomMessages()
+
+    -- Wire up social gate + humanizer core
+    self.socialGate = AutoSay.SocialGate.New{
+        now = time,
+        settings = function() return self.db.profile.social end,
+        state = self.db.char.social,
+        debug = function(msg) self:DebugPrint("SocialGate:", msg) end,
+    }
+    self.humanizer = AutoSay.Humanizer.New{
+        random = math.random,
+        hour = function() return tonumber(date("%H")) end,
+    }
+    self.socialGate:Prune()
 
     -- Register slash commands
     self:RegisterChatCommand("autosay", "SlashCommand")
@@ -637,6 +664,9 @@ function Addon:SendMessageToChat(message, channel, target)
     end
 
     local delay = self.db.profile.messageDelay
+    if self.db.profile.social.typingDelay and self.humanizer then
+        delay = math.max(delay or 0, self.humanizer:GetTypingDelay(message))
+    end
 
     if delay and delay > 0 then
         self:ScheduleTimer(function()
@@ -677,6 +707,7 @@ function Addon:DoSendMessage(message, channel, target)
 
         print("|cFFFF9900[AutoSay TEST]|r Would send to " .. channelColor .. "[" .. channel .. "]|r: " .. message)
         updateCooldown()
+        if self.socialGate then self.socialGate:Record("auto") end
         self:DebugPrint("Test mode - simulated send to", channel, ":", message)
         return
     end
@@ -686,6 +717,7 @@ function Addon:DoSendMessage(message, channel, target)
     local ok, err = pcall(SendChatMessage, message, channel, nil, target)
     if ok then
         updateCooldown()
+        if self.socialGate then self.socialGate:Record("auto") end
         self:DebugPrint("Sent to", channel, ":", message)
     else
         self:DebugPrint("Failed to send to", channel, ":", tostring(err))
@@ -795,6 +827,14 @@ function Addon:GetRandomMessageForChannel(messageType, channel)
         return nil
     end
 
+    if messageType == "greetings" and self.db.profile.social.timeOfDay and self.humanizer then
+        return self.humanizer:PickTimed("greet:" .. channel, enabled, AutoSay.GreetingsTimeOfDay)
+    end
+
+    if self.humanizer then
+        return self.humanizer:Pick(messageType .. ":" .. channel, enabled)
+    end
+
     return enabled[math.random(#enabled)]
 end
 
@@ -828,6 +868,16 @@ function Addon:SendGreeting(playerNames, reason)
         return
     end
 
+    if self.socialGate then
+        local target = playerNames and playerNames[1] or nil
+        local ok, why = self.socialGate:MaySend("greeting", target)
+        if not ok then
+            self:DebugPrint("SendGreeting gated:", why)
+            if self:IsTestMode() then self:TestPrint("Greeting blocked: " .. why) end
+            return
+        end
+    end
+
     self:DebugPrint("SendGreeting called - reason:", reason, "channel:", channel,
         "names:", playerNames and table.concat(playerNames, ", ") or "none")
 
@@ -848,38 +898,21 @@ function Addon:BuildAndSendGreeting(channel, reason, playerNames)
     local settings = self:GetChannelSettings(channel)
     if not settings or not settings.enabled then return end
 
-    local textKey = channel .. ":" .. reason
-    local cooldown = self.db.profile.cooldown
-    local now = GetTime()
-
-    -- Reuse same greeting text within cooldown window for consistency
-    -- (so queued messages use the same "Hey!" as the original send)
+    -- Pick a message based on reason (humanizer history avoids immediate repeats)
     local message
-    local cached = self.state.lastGreetingText[textKey]
-    if cached and (now - cached.time) < cooldown * 2 then
-        message = cached.text
-        self:DebugPrint("BuildAndSend -> reusing cached greeting for consistency:", message,
-            "(age:", string.format("%.1f", now - cached.time) .. "s, window:", cooldown * 2 .. "s)")
-    else
-        -- Pick new random message based on reason
-        if reason == "reconnect" then
-            message = self:GetRandomMessageForChannel("reconnects", channel)
-            if not message then
-                self:DebugPrint("No reconnects enabled for", channel, "- falling back to greetings")
-                message = self:GetRandomMessageForChannel("greetings", channel)
-            end
-        else
+    if reason == "reconnect" then
+        message = self:GetRandomMessageForChannel("reconnects", channel)
+        if not message then
+            self:DebugPrint("No reconnects enabled for", channel, "- falling back to greetings")
             message = self:GetRandomMessageForChannel("greetings", channel)
         end
+    else
+        message = self:GetRandomMessageForChannel("greetings", channel)
+    end
 
-        if not message then
-            self:DebugPrint("No greetings enabled for", channel)
-            return
-        end
-
-        -- Cache for consistency within cooldown window
-        self.state.lastGreetingText[textKey] = { text = message, time = now }
-        self:DebugPrint("BuildAndSend -> new random greeting picked and cached:", message, "key:", textKey)
+    if not message then
+        self:DebugPrint("No greetings enabled for", channel)
+        return
     end
 
     -- Add player names if enabled for this channel
@@ -1083,6 +1116,15 @@ function Addon:SendGoodbye(channel)
     if not settings.sendGoodbye then
         self:DebugPrint(channel, "goodbyes disabled")
         return
+    end
+
+    if self.socialGate then
+        local ok, why = self.socialGate:MaySend("goodbye")
+        if not ok then
+            self:DebugPrint("SendGoodbye gated:", why)
+            if self:IsTestMode() then self:TestPrint("Goodbye blocked: " .. why) end
+            return
+        end
     end
 
     -- Get random goodbye for this channel
@@ -1566,7 +1608,6 @@ function Addon:TestReset()
         self:CancelTimer(self.state.queueTimer)
         self.state.queueTimer = nil
     end
-    self.state.lastGreetingText = {}
     self.state.cachedLFGListing = nil
     self.state.keyAnnounced = false
     self.state.mythicPlusFlowActive = false
@@ -1574,6 +1615,13 @@ function Addon:TestReset()
     self.state.groupGoodbyeSent = false
     self.state.guildMemberPresence = {}
     self.state.guildPresenceReady = true -- In test mode, always ready
+    -- Clear session-only social state (persistent budget/person state intentionally kept, matches live behavior)
+    if self.socialGate then
+        self.socialGate.pending = {}
+    end
+    if self.humanizer then
+        self.humanizer.history = {}
+    end
     self:TestPrint("Test state reset")
 end
 
@@ -1933,20 +1981,11 @@ function Addon:TestStatus()
         self:Print("Queued messages:", "|cFF00FF000|r")
     end
 
-    -- Greeting text cache status
-    local cacheCount = 0
-    local now = GetTime()
-    local cooldown = self.db.profile.cooldown
-    for key, cached in pairs(self.state.lastGreetingText) do
-        local age = now - cached.time
-        if age < cooldown * 2 then
-            cacheCount = cacheCount + 1
-            self:Print("Cached greeting:", "|cFFFFFF00" .. key .. "|r", "=", "|cFF00FF00" .. cached.text .. "|r",
-                "(age:", string.format("%.1fs", age) .. ")")
-        end
-    end
-    if cacheCount == 0 then
-        self:Print("Cached greetings:", "|cFF888888none|r")
+    -- Humanizer pick history status
+    if self.humanizer and self.humanizer.history then
+        local poolCount = 0
+        for _ in pairs(self.humanizer.history) do poolCount = poolCount + 1 end
+        self:Print("Humanizer history pools:", "|cFFFFFF00" .. poolCount .. "|r")
     end
 
     -- Show channel status

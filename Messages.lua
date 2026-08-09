@@ -129,3 +129,10 @@ AutoSay.CompletionDepleted = {
     { key = "done", text = "{dungeon} {key} done, gg" },
     { key = "tyfun", text = "ty all, was fun" },
 }
+
+-- Time-of-day greeting extras, mixed into the universal pool by local hour
+AutoSay.GreetingsTimeOfDay = {
+    morning = { "morning!", "good morning all", "morning o/" },
+    evening = { "evening!", "good evening", "evening all o/" },
+    night = { "up late too? hi", "night owls unite o/" },
+}

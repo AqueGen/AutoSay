@@ -28,7 +28,33 @@ function Addon:RegisterEvents()
     -- M+ dungeon completion
     self:RegisterEvent("CHALLENGE_MODE_COMPLETED")
 
+    -- Chat listening for social gate (pending-intent confirmation, welcome tracking)
+    self:RegisterEvent("CHAT_MSG_PARTY", "OnSocialChat")
+    self:RegisterEvent("CHAT_MSG_PARTY_LEADER", "OnSocialChat")
+    self:RegisterEvent("CHAT_MSG_RAID", "OnSocialChat")
+    self:RegisterEvent("CHAT_MSG_RAID_LEADER", "OnSocialChat")
+    self:RegisterEvent("CHAT_MSG_INSTANCE_CHAT", "OnSocialChat")
+    self:RegisterEvent("CHAT_MSG_INSTANCE_CHAT_LEADER", "OnSocialChat")
+    self:RegisterEvent("CHAT_MSG_GUILD", "OnSocialChat")
+
     self:DebugPrint("Events registered")
+end
+
+local CHAT_EVENT_CHANNEL = {
+    CHAT_MSG_PARTY = "PARTY", CHAT_MSG_PARTY_LEADER = "PARTY",
+    CHAT_MSG_RAID = "RAID", CHAT_MSG_RAID_LEADER = "RAID",
+    CHAT_MSG_INSTANCE_CHAT = "INSTANCE_CHAT", CHAT_MSG_INSTANCE_CHAT_LEADER = "INSTANCE_CHAT",
+    CHAT_MSG_GUILD = "GUILD",
+}
+
+-- Listen to group/guild chat for the social gate (welcome tracking, pending-intent confirmation)
+function Addon:OnSocialChat(event, text, sender)
+    if not self.socialGate then return end
+    if not self.db.profile.social.listen then return end
+    local me = UnitName("player")
+    local senderName = sender and sender:match("^([^%-]+)") or sender
+    if senderName == me then return end
+    self.socialGate:OnChatMessage(CHAT_EVENT_CHANNEL[event], senderName, text)
 end
 
 -- Handle GROUP_JOINED - we joined a group
@@ -463,6 +489,15 @@ function Addon:HandleGroupReconnect()
     if not self:ShouldGreetOnReconnect(channel) then
         self:DebugPrint("Reconnect greeting disabled for", channel)
         return
+    end
+
+    if self.socialGate then
+        local ok, why = self.socialGate:MaySend("reconnect")
+        if not ok then
+            self:DebugPrint("HandleGroupReconnect gated:", why)
+            if self:IsTestMode() then self:TestPrint("Reconnect blocked: " .. why) end
+            return
+        end
     end
 
     -- Send greeting
