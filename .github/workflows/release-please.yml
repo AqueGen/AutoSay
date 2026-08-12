@@ -44,3 +44,9 @@ jobs:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
           GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+          # The workflow runs on a branch push, so GITHUB_REF is refs/heads/main.
+          # The packager then sees a tag on HEAD and skips with "Found future tag",
+          # expecting a tag-push run that never comes (GITHUB_TOKEN pushes do not
+          # trigger workflows). Override the ref so it packages as a tag build.
+          GITHUB_REF: refs/tags/${{ needs.release-please.outputs.tag_name }}
+          GITHUB_REF_NAME: ${{ needs.release-please.outputs.tag_name }}
