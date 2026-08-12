@@ -280,6 +280,7 @@ local defaults = {
             listen = true,
             typingDelay = true,
             timeOfDay = true,
+            rolePhrases = true, -- Master switch for role-tagged and {role} phrases
             lowercaseFirst = false,
             guildGrats = false,
             guildWelcome = false,
@@ -958,7 +959,9 @@ function Addon:GetChannelSettings(channel)
 end
 
 -- Preset phrases can be tagged with a role/faction/time-of-day band/trigger - skip the ones that do not fit right now
-local function FitsContext(msg, role, faction, band, reason)
+local function FitsContext(msg, role, faction, band, reason, rolePhrases)
+    -- Master switch: every tag has its filter, and this one gates the role tag and {role}
+    if not rolePhrases and (msg.role or msg.text:find("{role}", 1, true)) then return false end
     if msg.role and msg.role ~= role then return false end
     -- No assigned role: a {role} phrase would confidently announce "dps" for an unassigned tank
     if role == "NONE" and msg.text:find("{role}", 1, true) then return false end
@@ -1031,8 +1034,9 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
             and self.humanizer.hour() or tonumber(date("%H"))
         local band = self.db.profile.social.timeOfDay
             and AutoSay.Humanizer.BandForHour(hour) or nil
+        local rolePhrases = self.db.profile.social.rolePhrases
         for _, msg in ipairs(messages) do
-            if settings[enabledKey][msg.key] and FitsContext(msg, role, faction, band, reason) then
+            if settings[enabledKey][msg.key] and FitsContext(msg, role, faction, band, reason, rolePhrases) then
                 AddCandidate({ text = msg.text, mode = NameMode(msg), keepCase = msg.keepCase })
             end
         end

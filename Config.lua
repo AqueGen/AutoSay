@@ -43,12 +43,37 @@ local function PresetLabel(msg, ownStyleGroup)
     return msg.text .. " |cFF888888[" .. table.concat(tags, ", ") .. "]|r"
 end
 
+-- Roles this class can ever queue as - a mage will never see [tank] phrases in the picker
+local ClassRoles = {
+    WARRIOR = { TANK = true, DAMAGER = true },
+    PALADIN = { TANK = true, HEALER = true, DAMAGER = true },
+    HUNTER = { DAMAGER = true },
+    ROGUE = { DAMAGER = true },
+    PRIEST = { HEALER = true, DAMAGER = true },
+    DEATHKNIGHT = { TANK = true, DAMAGER = true },
+    SHAMAN = { HEALER = true, DAMAGER = true },
+    MAGE = { DAMAGER = true },
+    WARLOCK = { DAMAGER = true },
+    MONK = { TANK = true, HEALER = true, DAMAGER = true },
+    DRUID = { TANK = true, HEALER = true, DAMAGER = true },
+    DEMONHUNTER = { TANK = true, DAMAGER = true },
+    EVOKER = { HEALER = true, DAMAGER = true },
+}
+
 -- A phrase is listed only while every trigger it depends on is switched on above
 -- (AND semantics): [newcomers] needs On others join, [self] needs On self join,
--- a {names} slot needs the names option. Flipping a trigger immediately grows or
--- shrinks the visible lists, so the tags explain themselves without tooltip-hunting.
+-- a {names} slot needs the names option, a role tag needs a class that can play it.
+-- Flipping a trigger immediately grows or shrinks the visible lists, so the tags
+-- explain themselves without tooltip-hunting.
 -- settingsFn is nil for pools without trigger context (goodbyes/reconnects/guild login).
 local function PhraseVisible(msg, settingsFn)
+    local roleDependent = msg.role or msg.text:find("{role}", 1, true)
+    if roleDependent and not Addon.db.profile.social.rolePhrases then return false end
+    if msg.role then
+        local _, class = UnitClass("player")
+        local roles = class and ClassRoles[class]
+        if roles and not roles[msg.role] then return false end
+    end
     if not settingsFn then return true end
     local settings = settingsFn()
     if msg.trigger == "others" and not settings.onOthersJoin then return false end
@@ -102,16 +127,19 @@ local function BuildMessagePicker(poolId, pool, tableFn, settingsFn)
                 dialogControl = "AutoSayCollapse",
                 -- The leading "-"/"+" is the fold-state contract: AutoSayCollapse
                 -- strips it and renders it as the [-]/[+] expand icon.
-                -- Counts are absolute (whole category, enabled per the profile), not filtered
-                -- by the trigger visibility - the header tells what the category holds in total
+                -- Count = "active right now / whole category": active means enabled AND
+                -- currently eligible by the tag filters; the total ignores the filters,
+                -- telling what the category could hold with every tag switched on
                 name = function()
-                    local enabled, total = 0, #entries
+                    local active, total = 0, #entries
                     local flags = tableFn()
                     for _, msg in ipairs(entries) do
-                        if flags[msg.key] then enabled = enabled + 1 end
+                        if flags[msg.key] and PhraseVisible(msg, settingsFn) then
+                            active = active + 1
+                        end
                     end
                     return string.format("%s %s  |cFF888888(%d/%d)|r",
-                        open[style] and "-" or "+", label, enabled, total)
+                        open[style] and "-" or "+", label, active, total)
                 end,
                 -- A section whose every phrase is trigger-hidden disappears entirely
                 hidden = function()
@@ -860,6 +888,16 @@ local options = {
                         end
                         return args
                     end)(),
+                },
+                rolePhrases = {
+                    type = "toggle", order = 1.5, width = "full",
+                    name = NewTag(L["Role-based phrases"], "1.6"),
+                    desc = L["Role-based phrases desc"],
+                    get = function() return Addon.db.profile.social.rolePhrases end,
+                    set = function(_, v)
+                        Addon.db.profile.social.rolePhrases = v
+                        LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
+                    end,
                 },
                 timeOfDay = {
                     type = "toggle", order = 2, width = "full",

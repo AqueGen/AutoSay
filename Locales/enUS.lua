@@ -279,6 +279,8 @@ L["Disable this bundle on all channels?"] = "Disable this bundle on all channels
 L["Bundle button hint"] = "|cFF00FF00Green|r = bundle fully enabled. Click to enable it everywhere; click again to disable."
 L["Style bundle applied"] = "Style bundle applied"
 L["Style bundle removed"] = "Style bundle removed"
+L["Role-based phrases"] = "Role-based phrases"
+L["Role-based phrases desc"] = "Allow phrases tied to your current role (tank/healer/dps), including the {role} placeholder. Off hides and disables all of them."
 L["Lowercase first letter"] = "Lowercase first letter"
 L["Lowercase first letter desc"] = "Send \"hi!\" instead of \"Hi!\" - lowercase openings read less bot-like. Off keeps the current look."
 L["Tone"] = "Tone"
