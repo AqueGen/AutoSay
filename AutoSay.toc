@@ -41,4 +41,5 @@ Humanizer.lua
 Core.lua
 SelfTest.lua
 Events.lua
+Widgets.lua
 Config.lua

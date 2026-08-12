@@ -72,6 +72,9 @@ local function BuildMessagePicker(poolId, pool, tableFn)
         if #styles > 1 then
             args["head_" .. style] = {
                 type = "execute", order = order, width = "full",
+                dialogControl = "AutoSayCollapse",
+                -- The leading "-"/"+" is the fold-state contract: AutoSayCollapse
+                -- strips it and renders it as the [-]/[+] expand icon.
                 name = function()
                     local enabled, total = 0, #entries
                     local flags = tableFn()
