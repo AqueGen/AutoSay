@@ -96,6 +96,11 @@ function Addon:GROUP_JOINED()
     -- (prevents announce from firing with old data when joining someone else's group)
     self.state.cachedLFGListing = nil
     self.state.keyAnnounced = false
+    self.state.keyAnnounceRetried = false
+    -- Join time is where the once-per-group guards reset: GROUP_LEFT fires milliseconds
+    -- after the leave hook, which would make the goodbye guard useless
+    self.state.groupGoodbyeSent = false
+    self:SetInstanceGreeted(false)
 
     if not db.enabled then return end
 
@@ -165,24 +170,18 @@ function Addon:GROUP_LEFT()
     self.state.previousGroup = nil
     self.state.sentGreetings = {}
     self.state.currentGroupType = nil
-    self.state.groupGoodbyeSent = false
+    -- groupGoodbyeSent is deliberately NOT cleared here: this event fires right after the
+    -- leave hook sent the goodbye, so clearing it would re-arm the guard for a double leave.
+    -- GROUP_JOINED (and the login group init) owns the reset.
     self.state.pendingNewMembers = {}
     if self.state.pendingGreetTimer then
         self:CancelTimer(self.state.pendingGreetTimer)
         self.state.pendingGreetTimer = nil
     end
-    if #self.state.messageQueue > 0 then
-        self:DebugPrint("GROUP_LEFT -> clearing", #self.state.messageQueue, "queued message(s)")
-    end
-    self.state.messageQueue = {}
-    if self.state.queueTimer then
-        self:DebugPrint("GROUP_LEFT -> cancelling queue timer")
-        self:CancelTimer(self.state.queueTimer)
-        self.state.queueTimer = nil
-    end
     self.state.keyAnnounced = false
+    self.state.keyAnnounceRetried = false
     self.state.cachedLFGListing = nil
-    self.state.instanceGreeted = false
+    self:SetInstanceGreeted(false)
 end
 
 -- Handle GROUP_ROSTER_UPDATE - group composition changed
@@ -209,8 +208,8 @@ function Addon:GROUP_ROSTER_UPDATE()
         self:DebugPrint("  Unit:", unitID, "Name:", tostring(name), "Exists:", tostring(exists), "Connected:", tostring(connected))
     end
 
-    -- Get current group members
-    local currentGroup = self:GetCurrentGroupMembers()
+    -- Get current group members (presence-based; disconnected members still count as present)
+    local currentGroup, connected = self:GetCurrentGroupMembers()
     local playerName = UnitName("player")
 
     self:DebugPrint("Current connected members:", self:TableKeysToString(currentGroup))
@@ -232,10 +231,19 @@ function Addon:GROUP_ROSTER_UPDATE()
         end
     end
 
-    -- Find newly joined members
+    -- Find newly joined members (only once they are connected - someone still on a load
+    -- screen is not a joiner yet, and stays out of previousGroup so a later roster update
+    -- with them connected can still greet them once)
     local newMembers = {}
+    local newPrevious = {}
     for name in pairs(currentGroup) do
-        if not self.state.previousGroup[name] and name ~= playerName then
+        local known = self.state.previousGroup[name] or name == playerName
+        if known then
+            newPrevious[name] = true
+        elseif not connected[name] then
+            self:DebugPrint("New member seen but not connected yet, deferring:", name)
+        else
+            newPrevious[name] = true
             self:DebugPrint("Detected new member:", name, "Already greeted:", tostring(self.state.sentGreetings[name]))
             -- Check if we already greeted this player
             if not self.state.sentGreetings[name] then
@@ -247,7 +255,7 @@ function Addon:GROUP_ROSTER_UPDATE()
     end
 
     -- Update state
-    self.state.previousGroup = currentGroup
+    self.state.previousGroup = newPrevious
 
     -- If others joined, batch them before sending greeting
     -- (GROUP_ROSTER_UPDATE fires multiple times when a group of players joins)
@@ -435,7 +443,14 @@ function Addon:PLAYER_ENTERING_WORLD(event, isInitialLogin, isReloadingUi)
     if isInitialLogin or isReloadingUi then
         self.state.guildPresenceReady = false
         self.state.guildMemberPresence = {}
-        self.state.pendingGuildGreeting = isInitialLogin -- Flag: send guild greeting after clubs load
+        -- A login within 5 minutes of the last logout is a reconnect, not an arrival:
+        -- guildmates saw us a moment ago, so skip the hello
+        local sinceLogout = time() - (self.db.char.lastLogoutTime or 0)
+        local isReconnect = isInitialLogin and sinceLogout < 300
+        if isReconnect then
+            self:DebugPrint("Login", sinceLogout, "s after logout - treating as reconnect, no guild greeting")
+        end
+        self.state.pendingGuildGreeting = isInitialLogin and not isReconnect -- Flag: send guild greeting after clubs load
         self:DebugPrint("Guild presence reset, waiting for INITIAL_CLUBS_LOADED")
 
         -- Fallback: if INITIAL_CLUBS_LOADED already fired or never fires, force init after 20s
@@ -456,6 +471,18 @@ function Addon:PLAYER_ENTERING_WORLD(event, isInitialLogin, isReloadingUi)
         end, 20)
     end
 
+    -- Restore / clear the persisted instance-greet flag before the zone-in check below:
+    -- a /reload (or a relog into the same group) must not greet the same group a second time,
+    -- and leaving the group behind must not carry the flag into the next one
+    if isInitialLogin or isReloadingUi then
+        if IsInGroup() then
+            self.state.instanceGreeted = self.db.char.instanceGreeted.done or false
+            self:DebugPrint("Restored instance greeted flag:", tostring(self.state.instanceGreeted))
+        else
+            self:SetInstanceGreeted(false)
+        end
+    end
+
     -- Greet the instance group once after zoning in (covers reconnects too, since a login
     -- inside an instance fires this event as well)
     if self.db.profile.enabled and IsInInstance() and not self.state.instanceGreeted then
@@ -468,6 +495,7 @@ function Addon:PLAYER_ENTERING_WORLD(event, isInitialLogin, isReloadingUi)
     if IsInGroup() then
         self.state.previousGroup = self:GetCurrentGroupMembers()
         self.state.currentGroupType = self:GetChatChannel()
+        self.state.groupGoodbyeSent = false -- fresh session in this group: re-arm the goodbye guard
 
         -- Handle reconnect to existing group (login while already in a group)
         -- This is different from GROUP_JOINED which fires when joining a NEW group
@@ -523,7 +551,7 @@ function Addon:HandleInstanceEnter()
         self:DebugPrint("Including group member names:", table.concat(memberNames, ", "))
     end
 
-    self.state.instanceGreeted = true
+    self:SetInstanceGreeted(true)
     self:SendGreeting(memberNames, "self_join")
 end
 
@@ -558,9 +586,12 @@ function Addon:HandleGroupReconnect()
     self:SendGreeting(nil, "reconnect")
 end
 
--- Get current group members as a table (only connected members)
+-- Get current group members. Membership is presence (the unit exists and has a name), not
+-- connectivity: a load screen or a DC must not shrink the roster and turn everyone still
+-- in the group into a "newcomer" when they come back.
+-- Returns the member set plus a set of the members who are currently connected.
 function Addon:GetCurrentGroupMembers()
-    local members = {}
+    local members, connected = {}, {}
     local isRaid = IsInRaid()
     local groupSize = GetNumGroupMembers()
 
@@ -568,9 +599,11 @@ function Addon:GetCurrentGroupMembers()
         local unitID = isRaid and ("raid" .. i) or ("party" .. i)
         local name = UnitName(unitID)
 
-        -- Only include members who are actually connected (not pending invites)
-        if name and name ~= "" and name ~= "Unknown" and UnitIsConnected(unitID) then
+        if UnitExists(unitID) and name and name ~= "" and name ~= "Unknown" then
             members[name] = true
+            if UnitIsConnected(unitID) then
+                connected[name] = true
+            end
         end
     end
 
@@ -578,9 +611,10 @@ function Addon:GetCurrentGroupMembers()
     local playerName = UnitName("player")
     if playerName and playerName ~= "Unknown" then
         members[playerName] = true
+        connected[playerName] = true
     end
 
-    return members
+    return members, connected
 end
 
 -- Handle INITIAL_CLUBS_LOADED - Club API is now ready
@@ -719,6 +753,7 @@ end
 -- Handle PLAYER_LOGOUT - for guild goodbye on logout (fallback if hooks didn't fire)
 function Addon:PLAYER_LOGOUT()
     self:DebugPrint("EVENT: PLAYER_LOGOUT - Player is logging out")
+    self.db.char.lastLogoutTime = time()
     self:DebugPrint("IsInGuild:", tostring(IsInGuild()))
     self:DebugPrint("Guild settings - enabled:", tostring(self.db.profile.guild.enabled), "sendGoodbye:", tostring(self.db.profile.guild.sendGoodbye))
 

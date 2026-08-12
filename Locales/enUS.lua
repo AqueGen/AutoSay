@@ -239,6 +239,7 @@ L["Reset all settings to default values"] = "Reset all settings to default value
 L["Are you sure you want to reset all settings to defaults?"] = "Are you sure you want to reset all settings to defaults?"
 L["Settings reset to defaults"] = "Settings reset to defaults"
 L["Message is too long (max 255 characters)"] = "Message is too long (max 255 characters)"
+L["{dungeon} and {key} only work in Mythic+ messages - they are removed from other messages."] = "{dungeon} and {key} only work in Mythic+ messages - they are removed from other messages."
 
 -- Social
 L["Social"] = "Social"

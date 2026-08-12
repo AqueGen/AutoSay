@@ -199,6 +199,14 @@ local function BuildCustomMessageList(channel, customsKey, labelKey)
         get = function() return "" end,
         set = function(_, val)
             if val and val ~= "" then
+                -- {dungeon}/{key} only resolve on the M+ path; elsewhere they are stripped
+                -- on send. Accept the text, but say so once per session.
+                if channel ~= "mythicplus" and not Addon.mplusTokenHintShown
+                   and (val:find("{dungeon}", 1, true) or val:find("{key}", 1, true)) then
+                    Addon.mplusTokenHintShown = true
+                    Addon:Print(L["{dungeon} and {key} only work in Mythic+ messages - they are removed from other messages."])
+                end
+
                 local list = Addon.db.profile[channel][customsKey]
                 if not list then
                     list = {}

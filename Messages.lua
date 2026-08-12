@@ -8,6 +8,8 @@ local ADDON_NAME, AutoSay = ...
 --   role        only picked while the player has that assigned role (TANK/HEALER/DAMAGER)
 --   faction     only picked for that faction (Horde/Alliance)
 --   band        time-of-day band (morning/evening/night); only picked inside that band
+--   keepCase    the phrase starts with a proper noun or an acronym ("Lok'tar", "GTG"),
+--               so the "lowercase first letter" option must leave it alone
 --   trigger     "self"   - only for our own join (and reconnect fallback)
 --               "others" - only when someone else joins
 --               absent   - fits both
@@ -85,7 +87,7 @@ AutoSay.Greetings = {
     { key = "pirate_aboard", text = "all aboard!", style = "pirate", trigger = "others" },
     { key = "pirate_finecrew", text = "a fine crew we have here", style = "pirate", trigger = "self" },
     { key = "pirate_aboardnames", text = "welcome aboard, {names}", style = "pirate", trigger = "others" },
-    { key = "faction_loktar", text = "Lok'tar ogar!", style = "faction", faction = "Horde" },
+    { key = "faction_loktar", text = "Lok'tar ogar!", style = "faction", faction = "Horde", keepCase = true },
     { key = "faction_forthehorde", text = "for the Horde o/", style = "faction", faction = "Horde" },
     { key = "faction_bloodthunder", text = "blood and thunder!", style = "faction", faction = "Horde" },
     { key = "faction_forthealliance", text = "for the Alliance o/", style = "faction", faction = "Alliance" },
@@ -104,7 +106,7 @@ AutoSay.Greetings = {
 AutoSay.Goodbyes = {
     { key = "bye", text = "Bye!" },
     { key = "goodbye", text = "Goodbye!" },
-    { key = "gtg", text = "GTG, bye!" },
+    { key = "gtg", text = "GTG, bye!", keepCase = true },
     { key = "takecare", text = "Take care!" },
     { key = "peace", text = "Peace!" },
     -- Disabled by default
@@ -112,8 +114,8 @@ AutoSay.Goodbyes = {
     { key = "later", text = "Later!" },
     { key = "cya", text = "Cya!" },
     { key = "cheers", text = "Cheers!" },
-    { key = "gn", text = "GN!" },
-    { key = "bb", text = "BB!" },
+    { key = "gn", text = "GN!", keepCase = true },
+    { key = "bb", text = "BB!", keepCase = true },
     { key = "laterall", text = "Later all!" },
     -- Time-of-day phrases: only picked while the local hour is in their band
     { key = "eveningbye", text = "have a good evening", band = "evening" },
@@ -128,7 +130,7 @@ AutoSay.Goodbyes = {
     { key = "fantasy_safetravels", text = "safe travels", style = "fantasy" },
     { key = "fantasy_meetagain", text = "until we meet again", style = "fantasy" },
     { key = "fantasy_wind", text = "may the wind guide you", style = "fantasy" },
-    { key = "dark_shadows", text = "I return to the shadows", style = "dark" },
+    { key = "dark_shadows", text = "I return to the shadows", style = "dark", keepCase = true },
     { key = "dark_calls", text = "the darkness calls me home", style = "dark" },
     { key = "dark_mist", text = "fading into the mist o/", style = "dark" },
     { key = "light_takecare", text = "bye all, take care <3", style = "light" },
@@ -138,21 +140,21 @@ AutoSay.Goodbyes = {
     { key = "pirate_calmerseas", text = "off to calmer seas o/", style = "pirate" },
     { key = "faction_strength", text = "strength and honor, bye", style = "faction", faction = "Horde" },
     { key = "faction_axes", text = "may your axes stay sharp", style = "faction", faction = "Horde" },
-    { key = "faction_lightbe", text = "Light be with you", style = "faction", faction = "Alliance" },
+    { key = "faction_lightbe", text = "Light be with you", style = "faction", faction = "Alliance", keepCase = true },
     { key = "faction_honorguide", text = "honor guide you, bye", style = "faction", faction = "Alliance" },
     { key = "zoomer_ggnext", text = "gg go next", style = "zoomer" },
     { key = "zoomer_dipping", text = "aight, dipping o/", style = "zoomer" },
     { key = "zoomer_beenreal", text = "it's been real", style = "zoomer" },
     { key = "butler_honour", text = "it has been an honour", style = "butler" },
     { key = "butler_takecare", text = "do take care, everyone", style = "butler" },
-    { key = "butler_farewell", text = "I bid you farewell", style = "butler" },
+    { key = "butler_farewell", text = "I bid you farewell", style = "butler", keepCase = true },
 }
 
 -- Reconnect messages database (enabled by default first)
 AutoSay.Reconnects = {
     { key = "back", text = "Back!" },
     { key = "reconnected", text = "Reconnected!" },
-    { key = "imback", text = "I'm back!" },
+    { key = "imback", text = "I'm back!", keepCase = true },
     -- Disabled by default
     { key = "rehi", text = "Re!" },
     { key = "backagain", text = "Back again!" },
@@ -161,7 +163,7 @@ AutoSay.Reconnects = {
     { key = "backinthegame", text = "Back in the game!" },
     { key = "srydc", text = "Sorry for DC!" },
     { key = "sorrydisconnect", text = "Sorry, got disconnected!" },
-    { key = "dcsorry", text = "DC, sorry about that!" },
+    { key = "dcsorry", text = "DC, sorry about that!", keepCase = true },
     { key = "mybad", text = "My bad, DC!" },
     { key = "internetissues", text = "Internet issues, back now!" },
     { key = "laggedout", text = "Lagged out, I'm back!" },
