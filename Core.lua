@@ -950,18 +950,39 @@ local stylePools = {
     { messages = "Reconnects", enabledKey = "enabledReconnects" },
 }
 
--- Enable every preset phrase of a style on all channels.
+local styleChannels = { "party", "raid", "instance", "guild" }
+
+-- True when every phrase of the style is enabled on every channel that has its pool
+function Addon:IsStyleBundleEnabled(style)
+    for _, channel in ipairs(styleChannels) do
+        local settings = self.db.profile[channel]
+        for _, pool in ipairs(stylePools) do
+            local enabled = settings and settings[pool.enabledKey]
+            if enabled then
+                for _, msg in ipairs(AutoSay[pool.messages]) do
+                    if msg.style == style and not enabled[msg.key] then
+                        return false
+                    end
+                end
+            end
+        end
+    end
+    return true
+end
+
+-- Set every preset phrase of a style on all channels (state = true/false).
 -- replace = true also turns off everything that is not part of the style (custom messages are untouched).
-function Addon:ApplyStyleBundle(style, replace)
-    for _, channel in ipairs({ "party", "raid", "instance", "guild" }) do
+function Addon:ApplyStyleBundle(style, replace, state)
+    if state == nil then state = true end
+    for _, channel in ipairs(styleChannels) do
         local settings = self.db.profile[channel]
         for _, pool in ipairs(stylePools) do
             local enabled = settings and settings[pool.enabledKey]
             if enabled then
                 for _, msg in ipairs(AutoSay[pool.messages]) do
                     if msg.style == style then
-                        enabled[msg.key] = true
-                    elseif replace then
+                        enabled[msg.key] = state
+                    elseif replace and state then
                         enabled[msg.key] = false
                     end
                 end
@@ -970,7 +991,8 @@ function Addon:ApplyStyleBundle(style, replace)
     end
 
     LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
-    self:Print(L["Style bundle applied"] .. ": |cFFFFFF00" .. L["Style " .. style] .. "|r")
+    local doneKey = state and "Style bundle applied" or "Style bundle removed"
+    self:Print(L[doneKey] .. ": |cFFFFFF00" .. L["Style " .. style] .. "|r")
 end
 
 -- Add player names to message

@@ -772,13 +772,26 @@ local options = {
                                     lines[#lines + 1] = "|cFFFFD100" .. L[pool.header] .. ":|r " .. table.concat(texts, "  |cFF555555/|r  ")
                                 end
                             end
+                            local phrasesDesc = table.concat(lines, "\n")
                             args["bundle_" .. style] = {
                                 type = "execute", order = 10 + i, width = 0.9,
-                                name = L["Style " .. style],
-                                desc = table.concat(lines, "\n"),
-                                confirm = true,
-                                confirmText = L["Apply this bundle to all channels?"],
-                                func = function() Addon:ApplyStyleBundle(style, replaceOnApply) end,
+                                -- Green name = bundle fully enabled; clicking then disables it
+                                name = function()
+                                    if Addon:IsStyleBundleEnabled(style) then
+                                        return "|cFF00FF00" .. L["Style " .. style] .. "|r"
+                                    end
+                                    return L["Style " .. style]
+                                end,
+                                desc = phrasesDesc .. "\n\n" .. L["Bundle button hint"],
+                                confirm = function()
+                                    return Addon:IsStyleBundleEnabled(style)
+                                        and L["Disable this bundle on all channels?"]
+                                        or L["Apply this bundle to all channels?"]
+                                end,
+                                func = function()
+                                    local state = not Addon:IsStyleBundleEnabled(style)
+                                    Addon:ApplyStyleBundle(style, replaceOnApply, state)
+                                end,
                             }
                         end
                         return args
