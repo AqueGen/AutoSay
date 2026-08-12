@@ -98,18 +98,18 @@ AutoSay.GuildLoginGreetings = {
     { key = "heythere", text = "Hey there, {name}!" },
 }
 
--- Dungeon name lookup: mapChallengeModeID -> English name (Midnight Season 1)
+-- Dungeon name lookup: mapChallengeModeID -> English name (Midnight Season 2)
 -- Used to always display dungeon names in English regardless of client locale.
 -- Update this table each season when the M+ pool rotates.
 AutoSay.DungeonNames = {
-    [558] = "Magisters' Terrace",
-    [560] = "Maisara Caverns",
-    [559] = "Nexus-Point Xenas",
-    [557] = "Windrunner Spire",
-    [402] = "Algeth'ar Academy",
-    [583] = "Seat of the Triumvirate",
-    [161] = "Skyreach",
-    [556] = "Pit of Saron",
+    [588] = "Altar of Fangs",
+    [399] = "Ruby Life Pools",
+    [249] = "Kings' Rest",
+    [585] = "Voidscar Arena",
+    [586] = "Den of Nalorakk",
+    [587] = "Murder Row",
+    [250] = "Temple of Sethraliss",
+    [584] = "The Blinding Vale",
 }
 
 -- LFG activityID -> mapChallengeModeID mapping (Midnight Season 1)
