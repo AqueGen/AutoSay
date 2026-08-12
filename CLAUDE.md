@@ -29,6 +29,12 @@ WoW addon: automatic greetings, goodbyes, and reconnect messages for party, raid
 ## References
 - **WoW UI Source / API**: `G:\Games\wow-ui-source-live`
 
+## UI Conventions
+
+- Every new user-facing option in `Config.lua` gets its name wrapped in `NewTag(name, "<minor>")`, where `<minor>` is the minor release it ships in (e.g. `NewTag(L["Style"], "1.6")` for anything landing in 1.6.x). It appends a green "New!" to the label.
+- Tags expire on their own: `NewTag` only matches while the TOC version is still in that minor, so 1.7.0 silently drops every `"1.6"` badge. Nothing to clean up on release.
+- When you touch an option whose tag no longer matches the current version, delete the stale `NewTag` call and leave the plain name.
+
 ## WoW Addon Rules
 
 ### Lua Compatibility

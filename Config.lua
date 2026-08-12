@@ -6,20 +6,89 @@ local AceConfigDialog = LibStub("AceConfigDialog-3.0")
 
 local MAX_CUSTOM_MESSAGES = 10
 
+local ADDON_VERSION = (C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata)(ADDON_NAME, "Version") or ""
+-- Append a green "New!" while the addon version still matches the minor release the option shipped in.
+-- Auto-expires on the next minor: NewTag("Style", "1.6") stops matching once 1.7.0 ships.
+local function NewTag(name, ver)
+    if ADDON_VERSION:sub(1, #ver + 1) == ver .. "." or ADDON_VERSION == ver then
+        return name .. " |cFF00FF00New!|r"
+    end
+    return name
+end
+
 -- Style bundle picker state (UI only, deliberately not saved to the profile)
 local selectedStyle = AutoSay.MessageStyles[1]
 local replaceOnApply = false
 
--- Checkbox label for a preset message: style bundle phrases carry a grey [style] / [style, tag] suffix
-local function PresetLabel(msg)
+-- Which style bundle each message pool currently shows (UI only, not saved)
+local shownStyle = {}
+
+-- Checkbox label for a preset message: style bundle phrases carry a grey [style] / [style, tag] suffix.
+-- Inside its own style group the style word is redundant, so only the secondary tag is shown.
+local function PresetLabel(msg, ownStyleGroup)
     if not msg.style then return msg.text end
-    local tag = msg.style
+    local tag = ownStyleGroup and "" or msg.style
+    local extra
     if msg.role then
-        tag = tag .. ", " .. (AutoSay.RoleWords[msg.role] or msg.role)
+        extra = AutoSay.RoleWords[msg.role] or msg.role
     elseif msg.faction then
-        tag = tag .. ", " .. msg.faction:lower()
+        extra = msg.faction:lower()
     end
+    if extra then
+        tag = tag == "" and extra or (tag .. ", " .. extra)
+    end
+    if tag == "" then return msg.text end
     return msg.text .. " |cFF888888[" .. tag .. "]|r"
+end
+
+-- Style-grouped preset picker for one message pool: a style dropdown plus the
+-- checkboxes of the selected style. "Classic" holds every untagged phrase.
+-- poolId keys the dropdown state, tableFn returns the profile table of enabled keys.
+local function BuildMessagePicker(poolId, pool, tableFn)
+    local args = {}
+
+    local present = {}
+    for _, msg in ipairs(pool) do
+        if msg.style then present[msg.style] = true end
+    end
+
+    local values, sorting = { classic = L["Classic"] }, { "classic" }
+    for _, style in ipairs(AutoSay.MessageStyles) do
+        if present[style] then
+            values[style] = NewTag(L["Style " .. style], "1.6")
+            sorting[#sorting + 1] = style
+        end
+    end
+
+    -- Pools without style phrases (guild login greetings) get no pointless one-entry dropdown
+    if #sorting > 1 then
+        args.style = {
+            type = "select", order = 1, width = 1.5,
+            name = L["Style"],
+            values = values,
+            sorting = sorting,
+            get = function() return shownStyle[poolId] or "classic" end,
+            set = function(_, v)
+                shownStyle[poolId] = v
+                LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+            end,
+        }
+    end
+
+    for i, msg in ipairs(pool) do
+        local style = msg.style or "classic"
+        args["m_" .. msg.key] = {
+            type = "toggle",
+            name = PresetLabel(msg, msg.style ~= nil),
+            order = 10 + i,
+            width = 1.0,
+            hidden = function() return (shownStyle[poolId] or "classic") ~= style end,
+            get = function() return tableFn()[msg.key] end,
+            set = function(_, val) tableFn()[msg.key] = val end,
+        }
+    end
+
+    return args
 end
 
 -- Build a custom message list UI group for any message type
@@ -120,7 +189,6 @@ end
 local function BuildGreetingToggles(channel)
     local args = {}
     local order = 1
-    local defaultCount = 5 -- First 5 are enabled by default
 
     -- Triggers panels
     if channel == "guild" then
@@ -239,47 +307,14 @@ local function BuildGreetingToggles(channel)
         order = order + 1
     end
 
-    -- Popular panel
-    local popularArgs = {}
-    for i = 1, math.min(defaultCount, #AutoSay.Greetings) do
-        local msg = AutoSay.Greetings[i]
-        popularArgs[msg.key] = {
-            type = "toggle",
-            name = PresetLabel(msg),
-            order = i,
-            width = 1.0,
-            get = function() return Addon.db.profile[channel].enabledGreetings[msg.key] end,
-            set = function(_, val) Addon.db.profile[channel].enabledGreetings[msg.key] = val end,
-        }
-    end
-    args.popularGroup = {
+    -- Messages panel (style dropdown + the selected style's phrases)
+    args.messagesGroup = {
         type = "group",
-        name = L["Popular"],
+        name = L["Messages"],
         inline = true,
         order = order,
-        args = popularArgs,
-    }
-    order = order + 1
-
-    -- More panel
-    local moreArgs = {}
-    for i = defaultCount + 1, #AutoSay.Greetings do
-        local msg = AutoSay.Greetings[i]
-        moreArgs[msg.key] = {
-            type = "toggle",
-            name = PresetLabel(msg),
-            order = i - defaultCount,
-            width = 1.0,
-            get = function() return Addon.db.profile[channel].enabledGreetings[msg.key] end,
-            set = function(_, val) Addon.db.profile[channel].enabledGreetings[msg.key] = val end,
-        }
-    end
-    args.moreGroup = {
-        type = "group",
-        name = L["More"],
-        inline = true,
-        order = order,
-        args = moreArgs,
+        args = BuildMessagePicker(channel .. "Greetings", AutoSay.Greetings,
+            function() return Addon.db.profile[channel].enabledGreetings end),
     }
     order = order + 1
 
@@ -299,7 +334,6 @@ end
 local function BuildReconnectToggles(channel)
     local args = {}
     local order = 1
-    local defaultCount = 3 -- First 3 are enabled by default
 
     -- Triggers panel
     args.triggersGroup = {
@@ -321,47 +355,14 @@ local function BuildReconnectToggles(channel)
     }
     order = order + 1
 
-    -- Popular panel
-    local popularArgs = {}
-    for i = 1, math.min(defaultCount, #AutoSay.Reconnects) do
-        local msg = AutoSay.Reconnects[i]
-        popularArgs[msg.key] = {
-            type = "toggle",
-            name = PresetLabel(msg),
-            order = i,
-            width = 1.0,
-            get = function() return Addon.db.profile[channel].enabledReconnects[msg.key] end,
-            set = function(_, val) Addon.db.profile[channel].enabledReconnects[msg.key] = val end,
-        }
-    end
-    args.popularGroup = {
+    -- Messages panel (style dropdown + the selected style's phrases)
+    args.messagesGroup = {
         type = "group",
-        name = L["Popular"],
+        name = L["Messages"],
         inline = true,
         order = order,
-        args = popularArgs,
-    }
-    order = order + 1
-
-    -- More panel
-    local moreArgs = {}
-    for i = defaultCount + 1, #AutoSay.Reconnects do
-        local msg = AutoSay.Reconnects[i]
-        moreArgs[msg.key] = {
-            type = "toggle",
-            name = PresetLabel(msg),
-            order = i - defaultCount,
-            width = 1.0,
-            get = function() return Addon.db.profile[channel].enabledReconnects[msg.key] end,
-            set = function(_, val) Addon.db.profile[channel].enabledReconnects[msg.key] = val end,
-        }
-    end
-    args.moreGroup = {
-        type = "group",
-        name = L["More"],
-        inline = true,
-        order = order,
-        args = moreArgs,
+        args = BuildMessagePicker(channel .. "Reconnects", AutoSay.Reconnects,
+            function() return Addon.db.profile[channel].enabledReconnects end),
     }
     order = order + 1
 
@@ -381,7 +382,6 @@ end
 local function BuildGoodbyeToggles(channel)
     local args = {}
     local order = 1
-    local defaultCount = 5 -- First 5 are enabled by default
 
     -- Triggers panel
     local triggersArgs = {}
@@ -423,47 +423,14 @@ local function BuildGoodbyeToggles(channel)
     }
     order = order + 1
 
-    -- Popular panel
-    local popularArgs = {}
-    for i = 1, math.min(defaultCount, #AutoSay.Goodbyes) do
-        local msg = AutoSay.Goodbyes[i]
-        popularArgs[msg.key] = {
-            type = "toggle",
-            name = PresetLabel(msg),
-            order = i,
-            width = 1.0,
-            get = function() return Addon.db.profile[channel].enabledGoodbyes[msg.key] end,
-            set = function(_, val) Addon.db.profile[channel].enabledGoodbyes[msg.key] = val end,
-        }
-    end
-    args.popularGroup = {
+    -- Messages panel (style dropdown + the selected style's phrases)
+    args.messagesGroup = {
         type = "group",
-        name = L["Popular"],
+        name = L["Messages"],
         inline = true,
         order = order,
-        args = popularArgs,
-    }
-    order = order + 1
-
-    -- More panel
-    local moreArgs = {}
-    for i = defaultCount + 1, #AutoSay.Goodbyes do
-        local msg = AutoSay.Goodbyes[i]
-        moreArgs[msg.key] = {
-            type = "toggle",
-            name = PresetLabel(msg),
-            order = i - defaultCount,
-            width = 1.0,
-            get = function() return Addon.db.profile[channel].enabledGoodbyes[msg.key] end,
-            set = function(_, val) Addon.db.profile[channel].enabledGoodbyes[msg.key] = val end,
-        }
-    end
-    args.moreGroup = {
-        type = "group",
-        name = L["More"],
-        inline = true,
-        order = order,
-        args = moreArgs,
+        args = BuildMessagePicker(channel .. "Goodbyes", AutoSay.Goodbyes,
+            function() return Addon.db.profile[channel].enabledGoodbyes end),
     }
     order = order + 1
 
@@ -483,7 +450,6 @@ end
 local function BuildGuildLoginToggles()
     local args = {}
     local order = 1
-    local defaultCount = 3 -- First 3 are enabled by default
 
     -- Triggers panel
     args.triggersGroup = {
@@ -518,47 +484,14 @@ local function BuildGuildLoginToggles()
     }
     order = order + 1
 
-    -- Popular panel
-    local popularArgs = {}
-    for i = 1, math.min(defaultCount, #AutoSay.GuildLoginGreetings) do
-        local msg = AutoSay.GuildLoginGreetings[i]
-        popularArgs[msg.key] = {
-            type = "toggle",
-            name = PresetLabel(msg),
-            order = i,
-            width = 1.0,
-            get = function() return Addon.db.profile.guild.enabledLoginGreetings[msg.key] end,
-            set = function(_, val) Addon.db.profile.guild.enabledLoginGreetings[msg.key] = val end,
-        }
-    end
-    args.popularGroup = {
+    -- Messages panel (style dropdown + the selected style's phrases)
+    args.messagesGroup = {
         type = "group",
-        name = L["Popular"],
+        name = L["Messages"],
         inline = true,
         order = order,
-        args = popularArgs,
-    }
-    order = order + 1
-
-    -- More panel
-    local moreArgs = {}
-    for i = defaultCount + 1, #AutoSay.GuildLoginGreetings do
-        local msg = AutoSay.GuildLoginGreetings[i]
-        moreArgs[msg.key] = {
-            type = "toggle",
-            name = PresetLabel(msg),
-            order = i - defaultCount,
-            width = 1.0,
-            get = function() return Addon.db.profile.guild.enabledLoginGreetings[msg.key] end,
-            set = function(_, val) Addon.db.profile.guild.enabledLoginGreetings[msg.key] = val end,
-        }
-    end
-    args.moreGroup = {
-        type = "group",
-        name = L["More"],
-        inline = true,
-        order = order,
-        args = moreArgs,
+        args = BuildMessagePicker("guildLoginGreetings", AutoSay.GuildLoginGreetings,
+            function() return Addon.db.profile.guild.enabledLoginGreetings end),
     }
     order = order + 1
 
@@ -779,6 +712,114 @@ local options = {
                         Addon:Print(L["Settings reset to defaults"])
                     end,
                 },
+                madeInUkraine = {
+                    type = "description",
+                    name = L["Made in Ukraine"],
+                    order = 99,
+                    fontSize = "small",
+                },
+            },
+        },
+
+        -- === STYLE ===
+        style = {
+            type = "group",
+            name = NewTag(L["Style"], "1.6"),
+            order = 3,
+            args = {
+                styleBundles = {
+                    type = "group", order = 1, inline = true,
+                    name = NewTag(L["Message style bundles"], "1.6"),
+                    args = {
+                        desc = {
+                            type = "description", order = 1,
+                            name = L["Style bundle desc"],
+                        },
+                        style = {
+                            type = "select", order = 2, width = 1.5,
+                            name = L["Style"],
+                            values = (function()
+                                local values = {}
+                                for _, style in ipairs(AutoSay.MessageStyles) do
+                                    values[style] = L["Style " .. style]
+                                end
+                                return values
+                            end)(),
+                            sorting = AutoSay.MessageStyles,
+                            get = function() return selectedStyle end,
+                            set = function(_, v) selectedStyle = v end,
+                        },
+                        replace = {
+                            type = "toggle", order = 3, width = 1.5,
+                            name = L["Replace current selection"],
+                            desc = L["Replace current selection desc"],
+                            get = function() return replaceOnApply end,
+                            set = function(_, v) replaceOnApply = v end,
+                        },
+                        apply = {
+                            type = "execute", order = 4, width = 1.0,
+                            name = L["Apply bundle"],
+                            confirm = true,
+                            confirmText = L["Apply this bundle to all channels?"],
+                            func = function() Addon:ApplyStyleBundle(selectedStyle, replaceOnApply) end,
+                        },
+                    },
+                },
+                timeOfDay = {
+                    type = "toggle", order = 2, width = "full",
+                    name = L["Time-of-day greetings"],
+                    desc = L["Mix in morning/evening phrases by local time"],
+                    get = function() return Addon.db.profile.social.timeOfDay end,
+                    set = function(_, v)
+                        Addon.db.profile.social.timeOfDay = v
+                        LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+                    end,
+                },
+                timeOfDayPhrases = {
+                    type = "group", order = 3, inline = true,
+                    name = NewTag(L["Time-of-day phrases"], "1.6"),
+                    hidden = function() return not Addon.db.profile.social.timeOfDay end,
+                    args = (function()
+                        local args = {}
+                        local order = 1
+                        for _, band in ipairs({
+                            { key = "morning", label = L["Morning (05-11)"] },
+                            { key = "evening", label = L["Evening (17-23)"] },
+                            { key = "night",   label = L["Night (23-05)"] },
+                        }) do
+                            args[band.key .. "Header"] = {
+                                type = "description", order = order,
+                                name = "|cFFFFD100" .. band.label .. "|r",
+                                fontSize = "medium",
+                            }
+                            order = order + 1
+                            for _, entry in ipairs(AutoSay.GreetingsTimeOfDay[band.key] or {}) do
+                                local key = entry.key
+                                args[band.key .. "_" .. key] = {
+                                    type = "toggle", order = order, width = 1.2,
+                                    name = '"' .. entry.text .. '"',
+                                    get = function() return Addon.db.profile.social.enabledTimeOfDay[key] end,
+                                    set = function(_, v) Addon.db.profile.social.enabledTimeOfDay[key] = v end,
+                                }
+                                order = order + 1
+                            end
+                        end
+                        return args
+                    end)(),
+                },
+                tone = {
+                    type = "group", order = 4, inline = true,
+                    name = L["Tone"],
+                    args = {
+                        lowercaseFirst = {
+                            type = "toggle", order = 1, width = "full",
+                            name = NewTag(L["Lowercase first letter"], "1.6"),
+                            desc = L["Lowercase first letter desc"],
+                            get = function() return Addon.db.profile.social.lowercaseFirst end,
+                            set = function(_, v) Addon.db.profile.social.lowercaseFirst = v end,
+                        },
+                    },
+                },
             },
         },
 
@@ -817,93 +858,6 @@ local options = {
                         .. L["Human typing delay example"],
                     get = function() return Addon.db.profile.social.typingDelay end,
                     set = function(_, v) Addon.db.profile.social.typingDelay = v end,
-                },
-                timeOfDay = {
-                    type = "toggle", order = 5, width = "full",
-                    name = L["Time-of-day greetings"],
-                    desc = L["Mix in morning/evening phrases by local time"],
-                    get = function() return Addon.db.profile.social.timeOfDay end,
-                    set = function(_, v)
-                        Addon.db.profile.social.timeOfDay = v
-                        LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
-                    end,
-                },
-                timeOfDayPhrases = {
-                    type = "group", order = 5.5, inline = true,
-                    name = L["Time-of-day phrases"],
-                    hidden = function() return not Addon.db.profile.social.timeOfDay end,
-                    args = (function()
-                        local args = {}
-                        local order = 1
-                        for _, band in ipairs({
-                            { key = "morning", label = L["Morning (05-11)"] },
-                            { key = "evening", label = L["Evening (17-23)"] },
-                            { key = "night",   label = L["Night (23-05)"] },
-                        }) do
-                            args[band.key .. "Header"] = {
-                                type = "description", order = order,
-                                name = "|cFFFFD100" .. band.label .. "|r",
-                                fontSize = "medium",
-                            }
-                            order = order + 1
-                            for _, entry in ipairs(AutoSay.GreetingsTimeOfDay[band.key] or {}) do
-                                local key = entry.key
-                                args[band.key .. "_" .. key] = {
-                                    type = "toggle", order = order, width = 1.2,
-                                    name = '"' .. entry.text .. '"',
-                                    get = function() return Addon.db.profile.social.enabledTimeOfDay[key] end,
-                                    set = function(_, v) Addon.db.profile.social.enabledTimeOfDay[key] = v end,
-                                }
-                                order = order + 1
-                            end
-                        end
-                        return args
-                    end)(),
-                },
-                styleBundles = {
-                    type = "group", order = 5.6, inline = true,
-                    name = L["Message style bundles"],
-                    args = {
-                        desc = {
-                            type = "description", order = 1,
-                            name = L["Style bundle desc"],
-                        },
-                        style = {
-                            type = "select", order = 2, width = 1.5,
-                            name = L["Style"],
-                            values = (function()
-                                local values = {}
-                                for _, style in ipairs(AutoSay.MessageStyles) do
-                                    values[style] = L["Style " .. style]
-                                end
-                                return values
-                            end)(),
-                            sorting = AutoSay.MessageStyles,
-                            get = function() return selectedStyle end,
-                            set = function(_, v) selectedStyle = v end,
-                        },
-                        replace = {
-                            type = "toggle", order = 3, width = 1.5,
-                            name = L["Replace current selection"],
-                            desc = L["Replace current selection desc"],
-                            get = function() return replaceOnApply end,
-                            set = function(_, v) replaceOnApply = v end,
-                        },
-                        apply = {
-                            type = "execute", order = 4, width = 1.0,
-                            name = L["Apply bundle"],
-                            confirm = true,
-                            confirmText = L["Apply this bundle to all channels?"],
-                            func = function() Addon:ApplyStyleBundle(selectedStyle, replaceOnApply) end,
-                        },
-                    },
-                },
-                lowercaseFirst = {
-                    type = "toggle", order = 5.9, width = "full",
-                    name = L["Lowercase first letter"],
-                    desc = L["Lowercase first letter desc"],
-                    get = function() return Addon.db.profile.social.lowercaseFirst end,
-                    set = function(_, v) Addon.db.profile.social.lowercaseFirst = v end,
                 },
                 guildGrats = {
                     type = "toggle", order = 6, width = "full",
@@ -983,7 +937,7 @@ local options = {
         -- === INSTANCE (LFG dungeons / LFR / battlegrounds) ===
         instance = {
             type = "group",
-            name = "|cFF9999FFInstance|r",
+            name = NewTag("|cFF9999FFInstance|r", "1.6"),
             order = 25,
             childGroups = "tab",
             hidden = function() return not Addon.db.profile.instance.enabled end,

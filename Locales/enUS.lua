@@ -282,3 +282,8 @@ L["Apply this bundle to all channels?"] = "Apply this bundle to all channels?"
 L["Style bundle applied"] = "Style bundle applied"
 L["Lowercase first letter"] = "Lowercase first letter"
 L["Lowercase first letter desc"] = "Send \"hi!\" instead of \"Hi!\" - lowercase openings read less bot-like. Off keeps the current look."
+L["Tone"] = "Tone"
+L["Classic"] = "Classic"
+
+-- Footer
+L["Made in Ukraine"] = "|cFF0057B7Made with love|r |cFFFFD700in Ukraine|r"
