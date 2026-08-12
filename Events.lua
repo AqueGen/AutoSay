@@ -105,21 +105,21 @@ function Addon:GROUP_JOINED()
         self.state.previousGroup = self:GetCurrentGroupMembers()
         self.state.sentGreetings = {}
 
-        -- Update current group type
-        if IsInRaid() then
-            self.state.currentGroupType = "RAID"
-        elseif IsInGroup() then
-            self.state.currentGroupType = "PARTY"
-        end
-
         -- Determine channel type
         local channel = self:GetChatChannel()
+        self.state.currentGroupType = channel
         if not channel then
             self:DebugPrint("Not in group after delay, skipping greeting")
             return
         end
 
         self:DebugPrint("Detected group type:", channel)
+
+        -- Instance groups are greeted on zone-in (PLAYER_ENTERING_WORLD), not on group form
+        if channel == "INSTANCE_CHAT" then
+            self:DebugPrint("Instance group - greeting handled by the zone-in path")
+            return
+        end
 
         -- If we're the group leader, we created the group - don't send self_join greeting
         -- The others_join greeting will handle welcoming people who joined our group
@@ -182,6 +182,7 @@ function Addon:GROUP_LEFT()
     end
     self.state.keyAnnounced = false
     self.state.cachedLFGListing = nil
+    self.state.instanceGreeted = false
 end
 
 -- Handle GROUP_ROSTER_UPDATE - group composition changed
@@ -193,13 +194,7 @@ function Addon:GROUP_ROSTER_UPDATE()
     if not db.enabled then return end
 
     -- Update current group type
-    if IsInRaid() then
-        self.state.currentGroupType = "RAID"
-    elseif IsInGroup() then
-        self.state.currentGroupType = "PARTY"
-    else
-        self.state.currentGroupType = nil
-    end
+    self.state.currentGroupType = self:GetChatChannel()
 
     self:DebugPrint("Group type:", self.state.currentGroupType, "Size:", GetNumGroupMembers())
 
@@ -461,14 +456,18 @@ function Addon:PLAYER_ENTERING_WORLD(event, isInitialLogin, isReloadingUi)
         end, 20)
     end
 
+    -- Greet the instance group once after zoning in (covers reconnects too, since a login
+    -- inside an instance fires this event as well)
+    if self.db.profile.enabled and IsInInstance() and not self.state.instanceGreeted then
+        self:ScheduleTimer(function()
+            self:HandleInstanceEnter()
+        end, 3) -- Delay for chat/group state to settle after the load screen
+    end
+
     -- Initialize group state if already in a group
     if IsInGroup() then
         self.state.previousGroup = self:GetCurrentGroupMembers()
-        if IsInRaid() then
-            self.state.currentGroupType = "RAID"
-        else
-            self.state.currentGroupType = "PARTY"
-        end
+        self.state.currentGroupType = self:GetChatChannel()
 
         -- Handle reconnect to existing group (login while already in a group)
         -- This is different from GROUP_JOINED which fires when joining a NEW group
@@ -486,17 +485,46 @@ function Addon:PLAYER_ENTERING_WORLD(event, isInitialLogin, isReloadingUi)
             if IsInGroup() then
                 self:DebugPrint("Reconnect retry: now in group, handling reconnect")
                 self.state.previousGroup = self:GetCurrentGroupMembers()
-                if IsInRaid() then
-                    self.state.currentGroupType = "RAID"
-                else
-                    self.state.currentGroupType = "PARTY"
-                end
+                self.state.currentGroupType = self:GetChatChannel()
                 self:HandleGroupReconnect()
             else
                 self:DebugPrint("Reconnect retry: still not in group, no reconnect needed")
             end
         end, 5) -- Longer delay for group state to load after disconnect
     end
+end
+
+-- Greet the instance group after zoning in - fires once per group, not per load screen
+function Addon:HandleInstanceEnter()
+    if self.state.instanceGreeted then return end
+
+    if self:GetChatChannel() ~= "INSTANCE_CHAT" or not IsInInstance() then
+        self:DebugPrint("Not in an instance group after delay, skipping instance greeting")
+        return
+    end
+
+    local settings = self.db.profile.instance
+    if not settings.enabled or not settings.greetOnEnter then
+        self:DebugPrint("Instance zone-in greeting disabled")
+        return
+    end
+
+    -- Collect group member names if enabled
+    local memberNames = nil
+    if settings.includeGroupNames then
+        memberNames = {}
+        local currentGroup = self:GetCurrentGroupMembers()
+        local myName = UnitName("player")
+        for name in pairs(currentGroup) do
+            if name ~= myName then
+                table.insert(memberNames, name)
+            end
+        end
+        self:DebugPrint("Including group member names:", table.concat(memberNames, ", "))
+    end
+
+    self.state.instanceGreeted = true
+    self:SendGreeting(memberNames, "self_join")
 end
 
 -- Handle reconnecting to an existing group
@@ -512,6 +540,12 @@ function Addon:HandleGroupReconnect()
     end
 
     self:DebugPrint("HandleGroupReconnect - channel:", channel)
+
+    -- Instance groups have no reconnect trigger - the zone-in path owns their greeting
+    if channel == "INSTANCE_CHAT" then
+        self:DebugPrint("Instance group - reconnect greeting handled by the zone-in path")
+        return
+    end
 
     -- Check if reconnect greeting is enabled for this channel
     if not self:ShouldGreetOnReconnect(channel) then

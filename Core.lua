@@ -201,6 +201,21 @@ local defaults = {
             customReconnects = {},
         },
 
+        -- Instance group settings (LFG dungeons/LFR/battlegrounds, INSTANCE_CHAT)
+        instance = {
+            enabled = true,
+            greetOnEnter = true,        -- Greet once after zoning into the instance
+            onOthersJoin = false,
+            onOthersJoinLeaderOnly = false,
+            includeNames = false,
+            includeGroupNames = false,
+            sendGoodbye = true,
+            enabledGreetings = DeepCopy(defaultGreetings),
+            enabledGoodbyes = DeepCopy(defaultGoodbyes),
+            customGreetings = {},
+            customGoodbyes = {},
+        },
+
         -- Mythic+ settings
         mythicplus = {
             enabled = true,
@@ -268,6 +283,7 @@ Addon.state = {
     queueTimer = nil, -- Timer for processing queued messages
     cachedLFGListing = nil, -- Cached LFG listing data (before auto-delist)
     keyAnnounced = false, -- Prevent duplicate M+ key announcements per group
+    instanceGreeted = false, -- Instance zone-in greeting sent (reset only when leaving the group)
     pendingGuildLogins = {}, -- Batch guild member login names
     guildLoginTimer = nil, -- Timer for batched guild login greeting
     lastGuildLoginGreetTime = 0, -- Separate cooldown for guild member login greetings
@@ -480,7 +496,9 @@ function Addon:SendGroupGoodbyeOnce()
         return
     end
 
-    local channel = self.state.currentGroupType
+    -- Resolve live (we are still in the group at this point) so LFG groups pick up
+    -- the instance settings; cached type is the fallback if the API already dropped us
+    local channel = self:GetChatChannel() or self.state.currentGroupType
     if not channel then
         self:DebugPrint("No current group type cached, skipping goodbye")
         return
@@ -533,6 +551,8 @@ function Addon:SlashCommand(input)
             self:TestJoinParty()
         elseif subcmd == "raid" or subcmd == "r" then
             self:TestJoinRaid()
+        elseif subcmd == "instance" or subcmd == "i" then
+            self:TestJoinInstance()
         elseif subcmd == "leave" or subcmd == "l" then
             self:TestLeaveGroup()
         elseif subcmd == "guild" or subcmd == "g" then
@@ -576,6 +596,7 @@ function Addon:SlashCommand(input)
             self:Print("|cFFFF9900Test commands:|r")
             self:Print("  /as test party - Simulate joining a party")
             self:Print("  /as test raid - Simulate joining a raid")
+            self:Print("  /as test instance - Simulate zoning into an instance group")
             self:Print("  /as test leave - Simulate leaving group")
             self:Print("  /as test guild - Simulate guild login greeting")
             self:Print("  /as test guildbye - Simulate guild logout goodbye")
@@ -799,8 +820,7 @@ function Addon:GetChannelSettings(channel)
     elseif channel == "RAID" then
         return db.raid
     elseif channel == "INSTANCE_CHAT" then
-        -- Instance groups (LFG/LFR/battlegrounds) reuse party/raid settings
-        return IsInRaid() and db.raid or db.party
+        return db.instance
     elseif channel == "GUILD" then
         return db.guild
     end
@@ -1732,6 +1752,7 @@ function Addon:TestReset()
     end
     self.state.cachedLFGListing = nil
     self.state.keyAnnounced = false
+    self.state.instanceGreeted = false
     self.state.mythicPlusFlowActive = false
     self.state.goodbyeSent = false
     self.state.groupGoodbyeSent = false
@@ -1789,6 +1810,30 @@ function Addon:TestJoinRaid()
     end
 end
 
+-- Simulate zoning into an instance group (LFG dungeon/LFR/battleground)
+function Addon:TestJoinInstance()
+    if not self:IsTestMode() then
+        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
+        return
+    end
+
+    self:TestPrint("=== Simulating ENTER INSTANCE GROUP ===")
+    self.testState.simulatedGroupType = "INSTANCE_CHAT"
+    self.state.previousGroup = { [UnitName("player")] = true }
+    self.state.sentGreetings = {}
+    self.state.currentGroupType = "INSTANCE_CHAT"
+    self.state.instanceGreeted = false
+
+    -- Trigger the greeting logic (mirrors the PLAYER_ENTERING_WORLD zone-in path)
+    local settings = self.db.profile.instance
+    if self.db.profile.enabled and settings.enabled and settings.greetOnEnter then
+        self.state.instanceGreeted = true
+        self:SendGreeting(nil, "self_join")
+    else
+        self:TestPrint("Greeting skipped (disabled in settings)")
+    end
+end
+
 -- Simulate leaving current group
 function Addon:TestLeaveGroup()
     if not self:IsTestMode() then
@@ -1812,6 +1857,7 @@ function Addon:TestLeaveGroup()
     self.state.previousGroup = nil
     self.state.sentGreetings = {}
     self.state.currentGroupType = nil
+    self.state.instanceGreeted = false
 end
 
 -- Simulate player joining the group

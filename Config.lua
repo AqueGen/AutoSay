@@ -127,21 +127,34 @@ local function BuildGreetingToggles(channel)
         }
         order = order + 1
     else
+        -- Instance groups greet on zone-in instead of on group form
+        local isInstance = channel == "instance"
+        local selfJoinKey = isInstance and "greetOnEnter" or "onSelfJoin"
+        local selfJoinName = isInstance and L["Greet on entering instance"] or L["On self join"]
+        local selfJoinDesc
+        if isInstance then
+            selfJoinDesc = L["Send greeting once after you zone into the instance"]
+        elseif channel == "party" then
+            selfJoinDesc = L["Send greeting when you join a party"]
+        else
+            selfJoinDesc = L["Send greeting when you join a raid"]
+        end
+
         -- Panel 1: On self join
         args.selfJoinGroup = {
             type = "group",
-            name = L["On self join"],
+            name = selfJoinName,
             inline = true,
             order = order,
             args = {
                 onSelfJoin = {
                     type = "toggle",
-                    name = L["On self join"],
-                    desc = channel == "party" and L["Send greeting when you join a party"] or L["Send greeting when you join a raid"],
+                    name = selfJoinName,
+                    desc = selfJoinDesc,
                     order = 1,
                     width = "full",
-                    get = function() return Addon.db.profile[channel].onSelfJoin end,
-                    set = function(_, val) Addon.db.profile[channel].onSelfJoin = val end,
+                    get = function() return Addon.db.profile[channel][selfJoinKey] end,
+                    set = function(_, val) Addon.db.profile[channel][selfJoinKey] = val end,
                 },
                 includeGroupNames = {
                     type = "toggle",
@@ -149,13 +162,25 @@ local function BuildGreetingToggles(channel)
                     desc = L["Add names of current group members to the greeting"],
                     order = 2,
                     width = "full",
-                    hidden = function() return not Addon.db.profile[channel].onSelfJoin end,
+                    hidden = function() return not Addon.db.profile[channel][selfJoinKey] end,
                     get = function() return Addon.db.profile[channel].includeGroupNames end,
                     set = function(_, val) Addon.db.profile[channel].includeGroupNames = val end,
                 },
             },
         }
         order = order + 1
+
+        local othersJoinDesc, leaderOnlyDesc
+        if isInstance then
+            othersJoinDesc = L["Send greeting when others join your instance group"]
+            leaderOnlyDesc = L["Only greet newcomers when you are the group leader"]
+        elseif channel == "party" then
+            othersJoinDesc = L["Send greeting when others join your party"]
+            leaderOnlyDesc = L["Only greet newcomers when you are the party leader"]
+        else
+            othersJoinDesc = L["Send greeting when others join your raid"]
+            leaderOnlyDesc = L["Only greet newcomers when you are the raid leader"]
+        end
 
         -- Panel 2: Greet newcomers
         args.othersJoinGroup = {
@@ -167,7 +192,7 @@ local function BuildGreetingToggles(channel)
                 onOthersJoin = {
                     type = "toggle",
                     name = L["On others join"],
-                    desc = channel == "party" and L["Send greeting when others join your party"] or L["Send greeting when others join your raid"],
+                    desc = othersJoinDesc,
                     order = 1,
                     width = "full",
                     get = function() return Addon.db.profile[channel].onOthersJoin end,
@@ -176,7 +201,7 @@ local function BuildGreetingToggles(channel)
                 onOthersJoinLeaderOnly = {
                     type = "toggle",
                     name = L["Only if leader"],
-                    desc = channel == "party" and L["Only greet newcomers when you are the party leader"] or L["Only greet newcomers when you are the raid leader"],
+                    desc = leaderOnlyDesc,
                     order = 2,
                     width = "full",
                     hidden = function() return not Addon.db.profile[channel].onOthersJoin end,
@@ -355,10 +380,18 @@ local function BuildGoodbyeToggles(channel)
             set = function(_, val) Addon.db.profile.guild.sendGoodbye = val end,
         }
     else
+        local goodbyeDesc
+        if channel == "instance" then
+            goodbyeDesc = L["Send goodbye when leaving instance group"]
+        elseif channel == "party" then
+            goodbyeDesc = L["Send goodbye when leaving party"]
+        else
+            goodbyeDesc = L["Send goodbye when leaving raid"]
+        end
         triggersArgs.sendGoodbye = {
             type = "toggle",
             name = L["Send goodbye on leave"],
-            desc = channel == "party" and L["Send goodbye when leaving party"] or L["Send goodbye when leaving raid"],
+            desc = goodbyeDesc,
             order = 1,
             width = 1.5,
             get = function() return Addon.db.profile[channel].sendGoodbye end,
@@ -596,11 +629,23 @@ local options = {
                                 LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
                             end,
                         },
+                        enableInstance = {
+                            type = "toggle",
+                            name = L["Enable Instance"],
+                            desc = L["Send greetings and goodbyes in instance chat"],
+                            order = 3,
+                            width = "full",
+                            get = function() return Addon.db.profile.instance.enabled end,
+                            set = function(_, val)
+                                Addon.db.profile.instance.enabled = val
+                                LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+                            end,
+                        },
                         enableGuild = {
                             type = "toggle",
                             name = L["Enable Guild"],
                             desc = L["Send greetings and goodbyes to guild chat"],
-                            order = 3,
+                            order = 4,
                             width = "full",
                             get = function() return Addon.db.profile.guild.enabled end,
                             set = function(_, val)
@@ -612,7 +657,7 @@ local options = {
                             type = "toggle",
                             name = L["Enable Mythic+"],
                             desc = L["Send key announcement in party chat when group is full"],
-                            order = 4,
+                            order = 5,
                             width = "full",
                             get = function() return Addon.db.profile.mythicplus.enabled end,
                             set = function(_, val)
@@ -833,6 +878,29 @@ local options = {
                     name = L["Reconnects"],
                     order = 3,
                     args = BuildReconnectToggles("raid"),
+                },
+            },
+        },
+
+        -- === INSTANCE (LFG dungeons / LFR / battlegrounds) ===
+        instance = {
+            type = "group",
+            name = "|cFF9999FFInstance|r",
+            order = 25,
+            childGroups = "tab",
+            hidden = function() return not Addon.db.profile.instance.enabled end,
+            args = {
+                greetings = {
+                    type = "group",
+                    name = L["Greetings"],
+                    order = 1,
+                    args = BuildGreetingToggles("instance"),
+                },
+                goodbyes = {
+                    type = "group",
+                    name = L["Goodbyes"],
+                    order = 2,
+                    args = BuildGoodbyeToggles("instance"),
                 },
             },
         },
@@ -1159,6 +1227,15 @@ local options = {
                             order = 2,
                             width = 0.8,
                             func = function() Addon:TestJoinRaid() end,
+                            disabled = function() return not Addon.db.profile.testMode end,
+                        },
+                        simulateInstance = {
+                            type = "execute",
+                            name = L["Enter Instance"],
+                            desc = L["Simulate zoning into an instance group"],
+                            order = 2.5,
+                            width = 1.0,
+                            func = function() Addon:TestJoinInstance() end,
                             disabled = function() return not Addon.db.profile.testMode end,
                         },
                         simulateLeave = {
