@@ -6,6 +6,22 @@ local AceConfigDialog = LibStub("AceConfigDialog-3.0")
 
 local MAX_CUSTOM_MESSAGES = 10
 
+-- Style bundle picker state (UI only, deliberately not saved to the profile)
+local selectedStyle = AutoSay.MessageStyles[1]
+local replaceOnApply = false
+
+-- Checkbox label for a preset message: style bundle phrases carry a grey [style] / [style, tag] suffix
+local function PresetLabel(msg)
+    if not msg.style then return msg.text end
+    local tag = msg.style
+    if msg.role then
+        tag = tag .. ", " .. (AutoSay.RoleWords[msg.role] or msg.role)
+    elseif msg.faction then
+        tag = tag .. ", " .. msg.faction:lower()
+    end
+    return msg.text .. " |cFF888888[" .. tag .. "]|r"
+end
+
 -- Build a custom message list UI group for any message type
 -- Pre-allocates all MAX_CUSTOM_MESSAGES slots with hidden functions
 -- so that add/delete dynamically shows/hides entries via NotifyChange.
@@ -229,7 +245,7 @@ local function BuildGreetingToggles(channel)
         local msg = AutoSay.Greetings[i]
         popularArgs[msg.key] = {
             type = "toggle",
-            name = msg.text,
+            name = PresetLabel(msg),
             order = i,
             width = 1.0,
             get = function() return Addon.db.profile[channel].enabledGreetings[msg.key] end,
@@ -251,7 +267,7 @@ local function BuildGreetingToggles(channel)
         local msg = AutoSay.Greetings[i]
         moreArgs[msg.key] = {
             type = "toggle",
-            name = msg.text,
+            name = PresetLabel(msg),
             order = i - defaultCount,
             width = 1.0,
             get = function() return Addon.db.profile[channel].enabledGreetings[msg.key] end,
@@ -311,7 +327,7 @@ local function BuildReconnectToggles(channel)
         local msg = AutoSay.Reconnects[i]
         popularArgs[msg.key] = {
             type = "toggle",
-            name = msg.text,
+            name = PresetLabel(msg),
             order = i,
             width = 1.0,
             get = function() return Addon.db.profile[channel].enabledReconnects[msg.key] end,
@@ -333,7 +349,7 @@ local function BuildReconnectToggles(channel)
         local msg = AutoSay.Reconnects[i]
         moreArgs[msg.key] = {
             type = "toggle",
-            name = msg.text,
+            name = PresetLabel(msg),
             order = i - defaultCount,
             width = 1.0,
             get = function() return Addon.db.profile[channel].enabledReconnects[msg.key] end,
@@ -413,7 +429,7 @@ local function BuildGoodbyeToggles(channel)
         local msg = AutoSay.Goodbyes[i]
         popularArgs[msg.key] = {
             type = "toggle",
-            name = msg.text,
+            name = PresetLabel(msg),
             order = i,
             width = 1.0,
             get = function() return Addon.db.profile[channel].enabledGoodbyes[msg.key] end,
@@ -435,7 +451,7 @@ local function BuildGoodbyeToggles(channel)
         local msg = AutoSay.Goodbyes[i]
         moreArgs[msg.key] = {
             type = "toggle",
-            name = msg.text,
+            name = PresetLabel(msg),
             order = i - defaultCount,
             width = 1.0,
             get = function() return Addon.db.profile[channel].enabledGoodbyes[msg.key] end,
@@ -508,7 +524,7 @@ local function BuildGuildLoginToggles()
         local msg = AutoSay.GuildLoginGreetings[i]
         popularArgs[msg.key] = {
             type = "toggle",
-            name = msg.text,
+            name = PresetLabel(msg),
             order = i,
             width = 1.0,
             get = function() return Addon.db.profile.guild.enabledLoginGreetings[msg.key] end,
@@ -530,7 +546,7 @@ local function BuildGuildLoginToggles()
         local msg = AutoSay.GuildLoginGreetings[i]
         moreArgs[msg.key] = {
             type = "toggle",
-            name = msg.text,
+            name = PresetLabel(msg),
             order = i - defaultCount,
             width = 1.0,
             get = function() return Addon.db.profile.guild.enabledLoginGreetings[msg.key] end,
@@ -844,6 +860,51 @@ local options = {
                         return args
                     end)(),
                 },
+                styleBundles = {
+                    type = "group", order = 5.6, inline = true,
+                    name = L["Message style bundles"],
+                    args = {
+                        desc = {
+                            type = "description", order = 1,
+                            name = L["Style bundle desc"],
+                        },
+                        style = {
+                            type = "select", order = 2, width = 1.5,
+                            name = L["Style"],
+                            values = (function()
+                                local values = {}
+                                for _, style in ipairs(AutoSay.MessageStyles) do
+                                    values[style] = L["Style " .. style]
+                                end
+                                return values
+                            end)(),
+                            sorting = AutoSay.MessageStyles,
+                            get = function() return selectedStyle end,
+                            set = function(_, v) selectedStyle = v end,
+                        },
+                        replace = {
+                            type = "toggle", order = 3, width = 1.5,
+                            name = L["Replace current selection"],
+                            desc = L["Replace current selection desc"],
+                            get = function() return replaceOnApply end,
+                            set = function(_, v) replaceOnApply = v end,
+                        },
+                        apply = {
+                            type = "execute", order = 4, width = 1.0,
+                            name = L["Apply bundle"],
+                            confirm = true,
+                            confirmText = L["Apply this bundle to all channels?"],
+                            func = function() Addon:ApplyStyleBundle(selectedStyle, replaceOnApply) end,
+                        },
+                    },
+                },
+                lowercaseFirst = {
+                    type = "toggle", order = 5.9, width = "full",
+                    name = L["Lowercase first letter"],
+                    desc = L["Lowercase first letter desc"],
+                    get = function() return Addon.db.profile.social.lowercaseFirst end,
+                    set = function(_, v) Addon.db.profile.social.lowercaseFirst = v end,
+                },
                 guildGrats = {
                     type = "toggle", order = 6, width = "full",
                     name = L["Congratulate guild achievements"],
@@ -1100,7 +1161,7 @@ local options = {
                                 for i, msg in ipairs(AutoSay.KeyAnnounce) do
                                     args[msg.key] = {
                                         type = "toggle",
-                                        name = msg.text,
+                                        name = PresetLabel(msg),
                                         order = i,
                                         width = 1.5,
                                         get = function() return Addon.db.profile.mythicplus.enabledKeyAnnounce[msg.key] end,
@@ -1151,7 +1212,7 @@ local options = {
                                 for i, msg in ipairs(AutoSay.CompletionTimed) do
                                     args[msg.key] = {
                                         type = "toggle",
-                                        name = msg.text,
+                                        name = PresetLabel(msg),
                                         order = i,
                                         width = 1.5,
                                         get = function() return Addon.db.profile.mythicplus.enabledCompletionTimed[msg.key] end,
@@ -1193,7 +1254,7 @@ local options = {
                                 for i, msg in ipairs(AutoSay.CompletionDepleted) do
                                     args[msg.key] = {
                                         type = "toggle",
-                                        name = msg.text,
+                                        name = PresetLabel(msg),
                                         order = i,
                                         width = 1.5,
                                         get = function() return Addon.db.profile.mythicplus.enabledCompletionDepleted[msg.key] end,

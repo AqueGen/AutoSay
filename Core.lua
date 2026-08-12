@@ -260,6 +260,7 @@ local defaults = {
             enabledTimeOfDay = {
                 ["*"] = true, -- AceDB wildcard: every phrase key defaults to enabled
             },
+            lowercaseFirst = false,
             guildGrats = false,
             guildWelcome = false,
         },
@@ -301,6 +302,7 @@ Addon.testState = {
     simulatedInGuild = false,
     simulatedGroupMembers = {},
     simulatedIsLeader = true, -- Simulate being group leader (default true for test)
+    simulatedRole = "DAMAGER", -- Role used for role-tagged phrases while testing
     mythicPlusRole = "leader", -- "leader" or "joined" for M+ flow simulation
 }
 
@@ -731,11 +733,24 @@ function Addon:SendMessageToChat(message, channel, target)
     return true
 end
 
+-- Final polish applied to every outgoing message: {role} placeholder + optional lowercase first letter
+-- (%a is ASCII-only on purpose, so UTF-8 custom messages are left alone)
+function Addon:PolishMessage(message)
+    if not message then return nil end
+    message = message:gsub("{role}", self:GetRoleWord())
+    if self.db.profile.social.lowercaseFirst then
+        message = message:gsub("^%a", string.lower)
+    end
+    return message
+end
+
 function Addon:DoSendMessage(message, channel, target)
     if not message then
         self:DebugPrint("No message to send")
         return
     end
+
+    message = self:PolishMessage(message)
 
     -- Update appropriate cooldown based on channel type
     local function updateCooldown()
@@ -815,6 +830,19 @@ function Addon:IsGroupLeaderOrTest()
     return UnitIsGroupLeader("player")
 end
 
+-- Get assigned role (with test mode support); "NONE" when solo/unassigned
+function Addon:GetPlayerRoleOrTest()
+    if self:IsTestMode() then
+        return self.testState.simulatedRole or "DAMAGER"
+    end
+    return UnitGroupRolesAssigned("player")
+end
+
+-- Word used for the {role} placeholder
+function Addon:GetRoleWord()
+    return AutoSay.RoleWords[self:GetPlayerRoleOrTest()] or AutoSay.RoleWords.DAMAGER
+end
+
 -- Get channel settings table
 function Addon:GetChannelSettings(channel)
     local db = self.db.profile
@@ -828,6 +856,13 @@ function Addon:GetChannelSettings(channel)
         return db.guild
     end
     return nil
+end
+
+-- Style bundle phrases can be tagged with a role/faction - skip the ones that do not fit the player
+local function FitsPlayer(msg, role, faction)
+    if msg.role and msg.role ~= role then return false end
+    if msg.faction and msg.faction ~= faction then return false end
+    return true
 end
 
 -- Get random message for a channel
@@ -856,8 +891,10 @@ function Addon:GetRandomMessageForChannel(messageType, channel)
 
     -- Add enabled preset messages
     if settings[enabledKey] then
+        local role = self:GetPlayerRoleOrTest()
+        local faction = UnitFactionGroup("player")
         for _, msg in ipairs(messages) do
-            if settings[enabledKey][msg.key] then
+            if settings[enabledKey][msg.key] and FitsPlayer(msg, role, faction) then
                 table.insert(enabled, msg.text)
             end
         end
@@ -903,6 +940,36 @@ function Addon:GetEnabledTimeOfDayBands()
         end
     end
     return bands
+end
+
+-- Pools a style bundle can toggle (channels without a pool are skipped)
+local stylePools = {
+    { messages = "Greetings",  enabledKey = "enabledGreetings" },
+    { messages = "Goodbyes",   enabledKey = "enabledGoodbyes" },
+    { messages = "Reconnects", enabledKey = "enabledReconnects" },
+}
+
+-- Enable every preset phrase of a style on all channels.
+-- replace = true also turns off everything that is not part of the style (custom messages are untouched).
+function Addon:ApplyStyleBundle(style, replace)
+    for _, channel in ipairs({ "party", "raid", "instance", "guild" }) do
+        local settings = self.db.profile[channel]
+        for _, pool in ipairs(stylePools) do
+            local enabled = settings and settings[pool.enabledKey]
+            if enabled then
+                for _, msg in ipairs(AutoSay[pool.messages]) do
+                    if msg.style == style then
+                        enabled[msg.key] = true
+                    elseif replace then
+                        enabled[msg.key] = false
+                    end
+                end
+            end
+        end
+    end
+
+    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+    self:Print(L["Style bundle applied"] .. ": |cFFFFFF00" .. L["Style " .. style] .. "|r")
 end
 
 -- Add player names to message
@@ -1533,7 +1600,8 @@ function Addon:ReplacePlaceholders(message, dungeon, keyLevel, extraReplacements
             message = message:gsub("{" .. placeholder .. "}", value)
         end
     end
-    return message
+    -- M+ messages go straight to SendChatMessage, so apply the shared polish here
+    return self:PolishMessage(message)
 end
 
 -- Get key level based on message mode
