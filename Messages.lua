@@ -153,6 +153,8 @@ AutoSay.GreetingsTimeOfDay = {
         { key = "eveningall", text = "evening all o/" },
     },
     night = {
+        { key = "lateone", text = "hi, late one o/" },
+        { key = "laterun", text = "heya, late run" },
         { key = "uplate", text = "up late too? hi" },
         { key = "nightowls", text = "night owls unite o/" },
     },
