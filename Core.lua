@@ -84,11 +84,13 @@ local defaultGoodbyes = {
     gn = false,
     bb = false,
     laterall = false,
-    -- Time-of-day phrases: on by default, gated by social.timeOfDay and the local hour
-    eveningbye = true,
-    gnall = true,
-    goodnightall = true,
-    sleepwell = true,
+    -- Time-of-day phrases: off by default - band goodbyes are new behavior, and AceDB
+    -- merges these keys into existing profiles (a true here would surprise upgraders
+    -- who had turned every stock goodbye off)
+    eveningbye = false,
+    gnall = false,
+    goodnightall = false,
+    sleepwell = false,
 }
 
 -- Default enabled reconnect messages
@@ -289,6 +291,7 @@ local defaults = {
         -- Instance zone-in greeting flag, persisted so a /reload does not re-greet
         instanceGreeted = { done = false },
         lastLogoutTime = 0,
+        lastSeenTime = 0, -- Heartbeat: PLAYER_LOGOUT never fires on a crash/hard DC, this does
     },
 }
 
@@ -460,6 +463,12 @@ function Addon:OnEnable()
 
     -- Hook leave group functions to send farewell before leaving
     self:HookLeaveGroupFunctions()
+
+    -- Presence heartbeat: PLAYER_LOGOUT never fires on a crash or hard disconnect, so the
+    -- reconnect detection also compares against this once-a-minute timestamp
+    self:ScheduleRepeatingTimer(function()
+        self.db.char.lastSeenTime = time()
+    end, 60)
 
     self:DebugPrint("Addon enabled")
 end
@@ -843,6 +852,13 @@ function Addon:DoSendMessage(message, channel, target, keepCase)
 
     message = TruncateToChatLimit(self:PolishMessage(message, keepCase))
 
+    -- Token stripping can reduce a message to nothing (custom text of only "{dungeon} {key}")
+    -- and SendChatMessage("") would error - drop instead
+    if not message:match("%S") then
+        self:DebugPrint("Message empty after polish, dropping")
+        return
+    end
+
     -- Update appropriate cooldown based on channel type
     local function updateCooldown()
         if channel == "GUILD" then
@@ -944,6 +960,8 @@ end
 -- Preset phrases can be tagged with a role/faction/time-of-day band/trigger - skip the ones that do not fit right now
 local function FitsContext(msg, role, faction, band, reason)
     if msg.role and msg.role ~= role then return false end
+    -- No assigned role: a {role} phrase would confidently announce "dps" for an unassigned tank
+    if role == "NONE" and msg.text:find("{role}", 1, true) then return false end
     if msg.faction and msg.faction ~= faction then return false end
     if msg.band and msg.band ~= band then return false end
     -- Reason-less paths (guild login/logout, group goodbye) have no join to talk about,

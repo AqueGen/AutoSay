@@ -108,7 +108,11 @@ function Addon:GROUP_JOINED()
         self:CancelTimer(self.state.groupGoodbyeTimer)
         self.state.groupGoodbyeTimer = nil
     end
-    self:SetInstanceGreeted(false)
+    -- GROUP_JOINED/GROUP_LEFT also fire for the HOME category while an already-greeted
+    -- instance group lives on - only reset the zone-in guard when no instance group remains
+    if not IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
+        self:SetInstanceGreeted(false)
+    end
 
     if not db.enabled then return end
 
@@ -178,7 +182,10 @@ function Addon:GROUP_LEFT()
         self.state.keyAnnounceTimer = nil
     end
     self.state.cachedLFGListing = nil
-    self:SetInstanceGreeted(false)
+    -- Same HOME-category guard as GROUP_JOINED: a surviving instance group keeps its flag
+    if not IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
+        self:SetInstanceGreeted(false)
+    end
 end
 
 -- Handle GROUP_ROSTER_UPDATE - group composition changed
@@ -441,8 +448,10 @@ function Addon:PLAYER_ENTERING_WORLD(event, isInitialLogin, isReloadingUi)
         self.state.guildPresenceReady = false
         self.state.guildMemberPresence = {}
         -- A login within 5 minutes of the last logout is a reconnect, not an arrival:
-        -- guildmates saw us a moment ago, so skip the hello
-        local sinceLogout = time() - (self.db.char.lastLogoutTime or 0)
+        -- guildmates saw us a moment ago, so skip the hello. lastSeenTime (heartbeat)
+        -- covers crashes and hard DCs, where PLAYER_LOGOUT never gets to run.
+        local lastSeen = math.max(self.db.char.lastLogoutTime or 0, self.db.char.lastSeenTime or 0)
+        local sinceLogout = time() - lastSeen
         local isReconnect = isInitialLogin and sinceLogout < 300
         if isReconnect then
             self:DebugPrint("Login", sinceLogout, "s after logout - treating as reconnect, no guild greeting")
