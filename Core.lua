@@ -43,6 +43,7 @@ local defaultGreetings = {
     hello = true,
     hey = true,
     greetings = true,
+    welcome = true,
     -- Disabled by default
     wassup = false,
     yo = false,
@@ -52,6 +53,9 @@ local defaultGreetings = {
     hiya = false,
     yoyo = false,
     hellothere = false,
+    welcomenames = false,
+    hinames = false,
+    welcomeaboard = false,
     -- Time-of-day phrases: on by default, gated by social.timeOfDay and the local hour
     morning = true,
     goodmorningall = true,
@@ -872,16 +876,29 @@ function Addon:GetChannelSettings(channel)
     return nil
 end
 
--- Preset phrases can be tagged with a role/faction/time-of-day band - skip the ones that do not fit right now
-local function FitsContext(msg, role, faction, band)
+-- Preset phrases can be tagged with a role/faction/time-of-day band/trigger - skip the ones that do not fit right now
+local function FitsContext(msg, role, faction, band, reason)
     if msg.role and msg.role ~= role then return false end
     if msg.faction and msg.faction ~= faction then return false end
     if msg.band and msg.band ~= band then return false end
+    -- Anything that is not someone else joining (self join, reconnect, guild login) counts as "self"
+    if msg.trigger == "others" and reason ~= "others_join" then return false end
+    if msg.trigger == "self" and reason == "others_join" then return false end
     return true
 end
 
--- Get random message for a channel
-function Addon:GetRandomMessageForChannel(messageType, channel)
+-- How a phrase carries player names: "slot" = {names} inside the text, "append" = glued to the end
+local function NameMode(msg)
+    if msg.text:find("{names}", 1, true) then return "slot" end
+    if msg.appendNames then return "append" end
+    return nil
+end
+
+-- Get random message for a channel.
+-- reason is the greeting reason ("self_join"/"others_join"/"reconnect", nil elsewhere) and gates
+-- the per-phrase trigger; wantNames prefers phrases that can carry names.
+-- Returns the text plus its name mode (nil = the phrase must never carry names).
+function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantNames)
     local settings = self:GetChannelSettings(channel)
     if not settings then return nil end
 
@@ -902,7 +919,7 @@ function Addon:GetRandomMessageForChannel(messageType, channel)
         return nil
     end
 
-    local enabled = {}
+    local candidates = {}
 
     -- Add enabled preset messages
     if settings[enabledKey] then
@@ -912,30 +929,52 @@ function Addon:GetRandomMessageForChannel(messageType, channel)
         local band = self.db.profile.social.timeOfDay
             and AutoSay.Humanizer.BandForHour(tonumber(date("%H"))) or nil
         for _, msg in ipairs(messages) do
-            if settings[enabledKey][msg.key] and FitsContext(msg, role, faction, band) then
-                table.insert(enabled, msg.text)
+            if settings[enabledKey][msg.key] and FitsContext(msg, role, faction, band, reason) then
+                table.insert(candidates, { text = msg.text, mode = NameMode(msg) })
             end
         end
     end
 
-    -- Add enabled custom messages
+    -- Add enabled custom messages (no metadata, so they keep the old append-if-asked behaviour)
     if settings[customsKey] then
         for _, entry in ipairs(settings[customsKey]) do
             if entry.enabled and entry.text and entry.text ~= "" then
-                table.insert(enabled, entry.text)
+                table.insert(candidates, { text = entry.text, mode = "append" })
             end
         end
     end
 
-    if #enabled == 0 then
+    -- With names in hand prefer the phrases built for them; without, drop the ones
+    -- that would render a hole where {names} sits
+    local pool = {}
+    for _, c in ipairs(candidates) do
+        if wantNames then
+            if c.mode then table.insert(pool, c) end
+        elseif c.mode ~= "slot" then
+            table.insert(pool, c)
+        end
+    end
+    if wantNames and #pool == 0 then
+        pool = candidates -- nothing name-capable is enabled: send without names
+    end
+    if #pool == 0 then
         return nil
     end
 
-    if self.humanizer then
-        return self.humanizer:Pick(messageType .. ":" .. channel, enabled)
+    local texts, modeByText = {}, {}
+    for _, c in ipairs(pool) do
+        table.insert(texts, c.text)
+        modeByText[c.text] = c.mode
     end
 
-    return enabled[math.random(#enabled)]
+    local text
+    if self.humanizer then
+        text = self.humanizer:Pick(messageType .. ":" .. channel, texts)
+    else
+        text = texts[math.random(#texts)]
+    end
+
+    return text, modeByText[text]
 end
 
 -- Pools a style bundle can toggle (channels without a pool are skipped)
@@ -991,13 +1030,19 @@ function Addon:ApplyStyleBundle(style, replace, state)
     self:Print(L[doneKey] .. ": |cFFFFFF00" .. L["Style " .. style] .. "|r")
 end
 
--- Add player names to message
-function Addon:AddPlayersToMessage(message, playerNames, includeNames)
-    if not includeNames or not playerNames or #playerNames == 0 then
+-- Render player names into a message according to the phrase's name mode
+-- ("slot" = fill the {names} placeholder, "append" = glue to the end, nil = no names at all)
+function Addon:AddPlayersToMessage(message, playerNames, nameMode)
+    if not nameMode or not playerNames or #playerNames == 0 then
         return message
     end
 
-    return message .. " " .. table.concat(playerNames, ", ")
+    local names = table.concat(playerNames, ", ")
+    if nameMode == "slot" then
+        return (message:gsub("{names}", names))
+    end
+
+    return message .. " " .. names
 end
 
 -- Send greeting (checks cooldown and queues if blocked)
@@ -1051,16 +1096,22 @@ function Addon:BuildAndSendGreeting(channel, reason, playerNames)
     local settings = self:GetChannelSettings(channel)
     if not settings or not settings.enabled then return end
 
+    -- Do we want names on this one?
+    -- For self_join: names are pre-collected based on includeGroupNames, use them if provided
+    -- For others_join: check includeNames setting
+    local hasNames = playerNames ~= nil and #playerNames > 0
+    local wantNames = hasNames and (reason == "self_join" or settings.includeNames or false)
+
     -- Pick a message based on reason (humanizer history avoids immediate repeats)
-    local message
+    local message, nameMode
     if reason == "reconnect" then
-        message = self:GetRandomMessageForChannel("reconnects", channel)
+        message, nameMode = self:GetRandomMessageForChannel("reconnects", channel, reason, wantNames)
         if not message then
             self:DebugPrint("No reconnects enabled for", channel, "- falling back to greetings")
-            message = self:GetRandomMessageForChannel("greetings", channel)
+            message, nameMode = self:GetRandomMessageForChannel("greetings", channel, reason, wantNames)
         end
     else
-        message = self:GetRandomMessageForChannel("greetings", channel)
+        message, nameMode = self:GetRandomMessageForChannel("greetings", channel, reason, wantNames)
     end
 
     if not message then
@@ -1068,16 +1119,7 @@ function Addon:BuildAndSendGreeting(channel, reason, playerNames)
         return
     end
 
-    -- Add player names if enabled for this channel
-    -- For self_join: names are pre-collected based on includeGroupNames, always append if provided
-    -- For others_join: check includeNames setting
-    local includeNames
-    if reason == "self_join" then
-        includeNames = (playerNames ~= nil and #playerNames > 0)
-    else
-        includeNames = settings.includeNames or false
-    end
-    message = self:AddPlayersToMessage(message, playerNames, includeNames)
+    message = self:AddPlayersToMessage(message, playerNames, wantNames and nameMode or nil)
 
     self:DebugPrint("BuildAndSend -> final message:", message)
 

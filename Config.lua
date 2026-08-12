@@ -22,24 +22,25 @@ local replaceOnApply = false
 -- Per-pool accordion fold state: shownStyle[poolId][style] = open (UI only, not saved)
 local shownStyle = {}
 
--- Checkbox label for a preset message: style bundle phrases carry a grey [style] / [style, tag] suffix.
--- Inside its own style group the style word is redundant, so only the secondary tag is shown.
+-- Word shown for a per-phrase trigger tag
+local triggerWords = { self = "self", others = "newcomers" }
+
+-- Checkbox label for a preset message: tagged phrases carry a grey suffix, style word first,
+-- then the role/faction tag, then the trigger: [fun, tank, self].
+-- Inside its own style group the style word is redundant, so it is left out.
 -- Time-of-day phrases have no style word, just their band: [morning] / [evening] / [night].
 local function PresetLabel(msg, ownStyleGroup)
     if msg.band then return msg.text .. " |cFF888888[" .. msg.band .. "]|r" end
-    if not msg.style then return msg.text end
-    local tag = ownStyleGroup and "" or msg.style
-    local extra
+    local tags = {}
+    if msg.style and not ownStyleGroup then table.insert(tags, msg.style) end
     if msg.role then
-        extra = AutoSay.RoleWords[msg.role] or msg.role
+        table.insert(tags, AutoSay.RoleWords[msg.role] or msg.role)
     elseif msg.faction then
-        extra = msg.faction:lower()
+        table.insert(tags, msg.faction:lower())
     end
-    if extra then
-        tag = tag == "" and extra or (tag .. ", " .. extra)
-    end
-    if tag == "" then return msg.text end
-    return msg.text .. " |cFF888888[" .. tag .. "]|r"
+    if msg.trigger then table.insert(tags, triggerWords[msg.trigger] or msg.trigger) end
+    if #tags == 0 then return msg.text end
+    return msg.text .. " |cFF888888[" .. table.concat(tags, ", ") .. "]|r"
 end
 
 -- Style-grouped preset picker for one message pool: an accordion of style sections.

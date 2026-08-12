@@ -1,5 +1,21 @@
 local ADDON_NAME, AutoSay = ...
 
+-- Preset phrase model (Greetings / Goodbyes / Reconnects)
+--   key         unique id inside the pool, also the SavedVariables key of the on/off checkbox
+--   text        the phrase itself; {role} is replaced on send, {names} by the joined/current players
+--   style       style bundle id (fun, fantasy, dark, light, pirate, faction, zoomer, butler).
+--               Styled phrases are off by default and toggled by the bundle buttons.
+--   role        only picked while the player has that assigned role (TANK/HEALER/DAMAGER)
+--   faction     only picked for that faction (Horde/Alliance)
+--   band        time-of-day band (morning/evening/night); only picked inside that band
+--   trigger     "self"   - only for our own join (and reconnect fallback)
+--               "others" - only when someone else joins
+--               absent   - fits both
+--   {names}     natural name slot inside the text; such a phrase is only picked when
+--               names are actually available, and never rendered with an empty hole
+--   appendNames the phrase reads fine with " Name1, Name2" glued to the end.
+--               Mutually exclusive with {names}. No marker at all = never carries names.
+
 -- Guild achievement congratulations
 AutoSay.GuildGrats = {
     "gz", "grats!", "gratz {name}", "grats {name}!", "nice one {name}!", "congrats {name}!",
@@ -12,24 +28,28 @@ AutoSay.GuildWelcome = {
 
 -- Greetings database (enabled by default first)
 AutoSay.Greetings = {
-    { key = "hi", text = "Hi!" },
-    { key = "hello", text = "Hello!" },
-    { key = "hey", text = "Hey!" },
-    { key = "greetings", text = "Greetings!" },
+    { key = "hi", text = "Hi!", appendNames = true },
+    { key = "hello", text = "Hello!", appendNames = true },
+    { key = "hey", text = "Hey!", appendNames = true },
+    { key = "greetings", text = "Greetings!", appendNames = true },
+    { key = "welcome", text = "welcome!", trigger = "others", appendNames = true },
     -- Disabled by default
-    { key = "wassup", text = "Wassup!" },
-    { key = "yo", text = "Yo!" },
-    { key = "heya", text = "Heya!" },
-    { key = "sup", text = "Sup?" },
-    { key = "howdy", text = "Howdy!" },
-    { key = "hiya", text = "Hiya!" },
-    { key = "yoyo", text = "Yo yo!" },
-    { key = "hellothere", text = "Hello there!" },
+    { key = "wassup", text = "Wassup!", appendNames = true },
+    { key = "yo", text = "Yo!", appendNames = true },
+    { key = "heya", text = "Heya!", appendNames = true },
+    { key = "sup", text = "Sup?", appendNames = true },
+    { key = "howdy", text = "Howdy!", appendNames = true },
+    { key = "hiya", text = "Hiya!", appendNames = true },
+    { key = "yoyo", text = "Yo yo!", appendNames = true },
+    { key = "hellothere", text = "Hello there!", appendNames = true },
+    { key = "welcomenames", text = "welcome {names}!", trigger = "others" },
+    { key = "hinames", text = "hi {names} o/", trigger = "others" },
+    { key = "welcomeaboard", text = "welcome aboard", trigger = "others" },
     -- Time-of-day phrases: only picked while the local hour is in their band
-    { key = "morning", text = "morning!", band = "morning" },
+    { key = "morning", text = "morning!", band = "morning", appendNames = true },
     { key = "goodmorningall", text = "good morning all", band = "morning" },
     { key = "morningwave", text = "morning o/", band = "morning" },
-    { key = "evening", text = "evening!", band = "evening" },
+    { key = "evening", text = "evening!", band = "evening", appendNames = true },
     { key = "goodevening", text = "good evening", band = "evening" },
     { key = "eveningall", text = "evening all o/", band = "evening" },
     { key = "lateone", text = "hi, late one o/", band = "night" },
@@ -37,29 +57,34 @@ AutoSay.Greetings = {
     { key = "uplate", text = "up late too? hi", band = "night" },
     { key = "nightowls", text = "night owls unite o/", band = "night" },
     -- Style bundles (never enabled by default, activated by bundle or by hand)
-    { key = "fun_o7", text = "o7", style = "fun" },
-    { key = "fun_wildgroup", text = "a wild group appears", style = "fun" },
-    { key = "fun_snacks", text = "hi, I brought snacks", style = "fun" },
-    { key = "fun_plusone", text = "your +1 {role} has arrived", style = "fun" },
-    { key = "fun_loot", text = "hello friends, let's loot", style = "fun" },
-    { key = "fun_tankhere", text = "tank here, pull respectfully", style = "fun", role = "TANK" },
-    { key = "fun_shield", text = "your shield has arrived", style = "fun", role = "TANK" },
-    { key = "fun_healeronline", text = "healer online, don't stand in fire", style = "fun", role = "HEALER" },
-    { key = "fun_pocketheals", text = "pocket heals reporting in", style = "fun", role = "HEALER" },
-    { key = "fantasy_wellmet", text = "well met, travelers", style = "fantasy" },
+    { key = "fun_o7", text = "o7", style = "fun", appendNames = true },
+    { key = "fun_wildgroup", text = "a wild group appears", style = "fun", trigger = "self" },
+    { key = "fun_snacks", text = "hi, I brought snacks", style = "fun", trigger = "self" },
+    { key = "fun_plusone", text = "your +1 {role} has arrived", style = "fun", trigger = "self" },
+    { key = "fun_loot", text = "hello friends, let's loot", style = "fun", trigger = "self" },
+    { key = "fun_tankhere", text = "tank here, pull respectfully", style = "fun", role = "TANK", trigger = "self" },
+    { key = "fun_shield", text = "your shield has arrived", style = "fun", role = "TANK", trigger = "self" },
+    { key = "fun_healeronline", text = "healer online, don't stand in fire", style = "fun", role = "HEALER", trigger = "self" },
+    { key = "fun_pocketheals", text = "pocket heals reporting in", style = "fun", role = "HEALER", trigger = "self" },
+    { key = "fun_reinforcements", text = "reinforcements have arrived, welcome {names}", style = "fun", trigger = "others" },
+    { key = "fun_freshrecruits", text = "fresh recruits, welcome o/", style = "fun", trigger = "others" },
+    { key = "fantasy_wellmet", text = "well met, travelers", style = "fantasy", trigger = "self" },
     { key = "fantasy_adventurers", text = "greetings, adventurers o/", style = "fantasy" },
     { key = "fantasy_blades", text = "may your blades stay sharp", style = "fantasy" },
     { key = "fantasy_quest", text = "a fine day for a quest", style = "fantasy" },
+    { key = "fantasy_wellmetnames", text = "well met, {names}", style = "fantasy", trigger = "others" },
     { key = "dark_mortals", text = "greetings, mortals", style = "dark" },
-    { key = "dark_soul", text = "another soul joins the run", style = "dark" },
-    { key = "dark_reinforcements", text = "the shadows sent reinforcements", style = "dark" },
-    { key = "light_friends", text = "hi friends <3", style = "light" },
-    { key = "light_glhf", text = "hello all, glhf", style = "light" },
-    { key = "light_happy", text = "happy to be here o/", style = "light" },
-    { key = "light_vibes", text = "hey team, good vibes only", style = "light" },
+    { key = "dark_soul", text = "another soul joins the run", style = "dark", trigger = "others" },
+    { key = "dark_reinforcements", text = "the shadows sent reinforcements", style = "dark", trigger = "others" },
+    { key = "light_friends", text = "hi friends <3", style = "light", appendNames = true },
+    { key = "light_glhf", text = "hello all, glhf", style = "light", trigger = "self" },
+    { key = "light_happy", text = "happy to be here o/", style = "light", trigger = "self" },
+    { key = "light_vibes", text = "hey team, good vibes only", style = "light", trigger = "self" },
+    { key = "light_welcomenames", text = "welcome, {names} <3", style = "light", trigger = "others" },
     { key = "pirate_ahoy", text = "ahoy crew o/", style = "pirate" },
-    { key = "pirate_aboard", text = "all aboard!", style = "pirate" },
-    { key = "pirate_finecrew", text = "a fine crew we have here", style = "pirate" },
+    { key = "pirate_aboard", text = "all aboard!", style = "pirate", trigger = "others" },
+    { key = "pirate_finecrew", text = "a fine crew we have here", style = "pirate", trigger = "self" },
+    { key = "pirate_aboardnames", text = "welcome aboard, {names}", style = "pirate", trigger = "others" },
     { key = "faction_loktar", text = "Lok'tar ogar!", style = "faction", faction = "Horde" },
     { key = "faction_forthehorde", text = "for the Horde o/", style = "faction", faction = "Horde" },
     { key = "faction_bloodthunder", text = "blood and thunder!", style = "faction", faction = "Horde" },
@@ -67,11 +92,12 @@ AutoSay.Greetings = {
     { key = "faction_wellmetheroes", text = "well met, heroes", style = "faction", faction = "Alliance" },
     { key = "faction_bythelight", text = "by the Light, hello", style = "faction", faction = "Alliance" },
     { key = "zoomer_weball", text = "yo we ball", style = "zoomer" },
-    { key = "zoomer_cook", text = "lets cook team", style = "zoomer" },
+    { key = "zoomer_cook", text = "lets cook team", style = "zoomer", trigger = "self" },
     { key = "zoomer_squad", text = "squad up o/", style = "zoomer" },
     { key = "butler_goodday", text = "good day to you all", style = "butler" },
-    { key = "butler_pleasure", text = "a pleasure to join you", style = "butler" },
-    { key = "butler_service", text = "at your service o/", style = "butler" },
+    { key = "butler_pleasure", text = "a pleasure to join you", style = "butler", trigger = "self" },
+    { key = "butler_service", text = "at your service o/", style = "butler", trigger = "self" },
+    { key = "butler_welcomenames", text = "a warm welcome, {names}", style = "butler", trigger = "others" },
 }
 
 -- Goodbyes database (enabled by default first)
