@@ -201,8 +201,11 @@ local function BuildCustomMessageList(channel, customsKey, labelKey)
             if val and val ~= "" then
                 -- {dungeon}/{key} only resolve on the M+ path; elsewhere they are stripped
                 -- on send. Accept the text, but say so once per session.
-                if channel ~= "mythicplus" and not Addon.mplusTokenHintShown
-                   and (val:find("{dungeon}", 1, true) or val:find("{key}", 1, true)) then
+                local hasMPlusToken = false
+                for _, token in ipairs(AutoSay.MPlusTokens) do
+                    if val:find(token, 1, true) then hasMPlusToken = true end
+                end
+                if channel ~= "mythicplus" and not Addon.mplusTokenHintShown and hasMPlusToken then
                     Addon.mplusTokenHintShown = true
                     Addon:Print(L["{dungeon} and {key} only work in Mythic+ messages - they are removed from other messages."])
                 end
@@ -251,8 +254,7 @@ local function BuildGreetingToggles(channel)
     else
         -- Instance groups greet on zone-in instead of on group form
         local isInstance = channel == "instance"
-        local selfJoinKey = isInstance and "greetOnEnter" or "onSelfJoin"
-        local selfJoinName = isInstance and L["Greet on entering instance"] or L["On self join"]
+        local selfJoinName = isInstance and NewTag(L["Greet on entering instance"], "1.6") or L["On self join"]
         local selfJoinDesc
         if isInstance then
             selfJoinDesc = L["Send greeting once after you zone into the instance"]
@@ -275,8 +277,8 @@ local function BuildGreetingToggles(channel)
                     desc = selfJoinDesc,
                     order = 1,
                     width = "full",
-                    get = function() return Addon.db.profile[channel][selfJoinKey] end,
-                    set = function(_, val) Addon.db.profile[channel][selfJoinKey] = val end,
+                    get = function() return Addon.db.profile[channel].onSelfJoin end,
+                    set = function(_, val) Addon.db.profile[channel].onSelfJoin = val end,
                 },
                 includeGroupNames = {
                     type = "toggle",
@@ -284,7 +286,7 @@ local function BuildGreetingToggles(channel)
                     desc = L["Add names of current group members to the greeting"],
                     order = 2,
                     width = "full",
-                    hidden = function() return not Addon.db.profile[channel][selfJoinKey] end,
+                    hidden = function() return not Addon.db.profile[channel].onSelfJoin end,
                     get = function() return Addon.db.profile[channel].includeGroupNames end,
                     set = function(_, val) Addon.db.profile[channel].includeGroupNames = val end,
                 },
@@ -618,7 +620,7 @@ local options = {
                         },
                         enableInstance = {
                             type = "toggle",
-                            name = L["Enable Instance"],
+                            name = NewTag(L["Enable Instance"], "1.6"),
                             desc = L["Send greetings and goodbyes in instance chat"],
                             order = 3,
                             width = "full",
@@ -770,7 +772,7 @@ local options = {
                             },
                             replace = {
                                 type = "toggle", order = 2, width = "full",
-                                name = L["Replace current selection"],
+                                name = NewTag(L["Replace current selection"], "1.6"),
                                 desc = L["Replace current selection desc"],
                                 get = function() return replaceOnApply end,
                                 set = function(_, v) replaceOnApply = v end,
@@ -798,10 +800,11 @@ local options = {
                                 type = "execute", order = 10 + i, width = 0.9,
                                 -- Green name = bundle fully enabled; clicking then disables it
                                 name = function()
+                                    local label = NewTag(L["Style " .. style], "1.6")
                                     if Addon:IsStyleBundleEnabled(style) then
-                                        return "|cFF00FF00" .. L["Style " .. style] .. "|r"
+                                        return "|cFF00FF00" .. label .. "|r"
                                     end
-                                    return L["Style " .. style]
+                                    return label
                                 end,
                                 desc = phrasesDesc .. "\n\n" .. L["Bundle button hint"],
                                 confirm = function()
@@ -830,7 +833,7 @@ local options = {
                 },
                 tone = {
                     type = "group", order = 4, inline = true,
-                    name = L["Tone"],
+                    name = NewTag(L["Tone"], "1.6"),
                     args = {
                         lowercaseFirst = {
                             type = "toggle", order = 1, width = "full",
@@ -958,7 +961,7 @@ local options = {
         -- === INSTANCE (LFG dungeons / LFR / battlegrounds) ===
         instance = {
             type = "group",
-            name = NewTag("|cFF9999FFInstance|r", "1.6"),
+            name = NewTag("|cFF9999FF" .. L["Instance"] .. "|r", "1.6"),
             order = 25,
             childGroups = "tab",
             hidden = function() return not Addon.db.profile.instance.enabled end,
@@ -1304,7 +1307,7 @@ local options = {
                         },
                         simulateInstance = {
                             type = "execute",
-                            name = L["Enter Instance"],
+                            name = NewTag(L["Enter Instance"], "1.6"),
                             desc = L["Simulate zoning into an instance group"],
                             order = 2.5,
                             width = 1.0,

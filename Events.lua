@@ -97,9 +97,17 @@ function Addon:GROUP_JOINED()
     self.state.cachedLFGListing = nil
     self.state.keyAnnounced = false
     self.state.keyAnnounceRetried = false
+    if self.state.keyAnnounceTimer then
+        self:CancelTimer(self.state.keyAnnounceTimer)
+        self.state.keyAnnounceTimer = nil
+    end
     -- Join time is where the once-per-group guards reset: GROUP_LEFT fires milliseconds
     -- after the leave hook, which would make the goodbye guard useless
     self.state.groupGoodbyeSent = false
+    if self.state.groupGoodbyeTimer then
+        self:CancelTimer(self.state.groupGoodbyeTimer)
+        self.state.groupGoodbyeTimer = nil
+    end
     self:SetInstanceGreeted(false)
 
     if not db.enabled then return end
@@ -139,23 +147,8 @@ function Addon:GROUP_JOINED()
             return
         end
 
-        -- Collect group member names if enabled
-        local memberNames = nil
-        local settings = self:GetChannelSettings(channel)
-        if settings and settings.includeGroupNames then
-            memberNames = {}
-            local currentGroup = self:GetCurrentGroupMembers()
-            local myName = UnitName("player")
-            for name in pairs(currentGroup) do
-                if name ~= myName then
-                    table.insert(memberNames, name)
-                end
-            end
-            self:DebugPrint("Including group member names:", table.concat(memberNames, ", "))
-        end
-
         -- Send greeting
-        self:SendGreeting(memberNames, "self_join")
+        self:SendGreeting(self:CollectGroupMemberNames(self:GetChannelSettings(channel)), "self_join")
     end, 1) -- 1 second delay for group state to initialize
 end
 
@@ -180,6 +173,10 @@ function Addon:GROUP_LEFT()
     end
     self.state.keyAnnounced = false
     self.state.keyAnnounceRetried = false
+    if self.state.keyAnnounceTimer then
+        self:CancelTimer(self.state.keyAnnounceTimer)
+        self.state.keyAnnounceTimer = nil
+    end
     self.state.cachedLFGListing = nil
     self:SetInstanceGreeted(false)
 end
@@ -491,34 +488,38 @@ function Addon:PLAYER_ENTERING_WORLD(event, isInitialLogin, isReloadingUi)
         end, 3) -- Delay for chat/group state to settle after the load screen
     end
 
-    -- Initialize group state if already in a group
-    if IsInGroup() then
-        self.state.previousGroup = self:GetCurrentGroupMembers()
-        self.state.currentGroupType = self:GetChatChannel()
-        self.state.groupGoodbyeSent = false -- fresh session in this group: re-arm the goodbye guard
+    -- Initialize group state if already in a group. Only on login/reload: this event also
+    -- fires on every zone change, and re-arming the goodbye guard mid-group would let a
+    -- second LeaveParty post a second goodbye.
+    if isInitialLogin or isReloadingUi then
+        if IsInGroup() then
+            self.state.previousGroup = self:GetCurrentGroupMembers()
+            self.state.currentGroupType = self:GetChatChannel()
+            self.state.groupGoodbyeSent = false -- fresh session in this group: re-arm the goodbye guard
 
-        -- Handle reconnect to existing group (login while already in a group)
-        -- This is different from GROUP_JOINED which fires when joining a NEW group
-        if isInitialLogin and not isReloadingUi then
-            self:DebugPrint("Reconnect detected - already in group on login")
-            self:ScheduleTimer(function()
-                self:HandleGroupReconnect()
-            end, 3) -- Delay for group state to fully initialize (increased for 12.0 compatibility)
-        end
-    elseif isInitialLogin and not isReloadingUi then
-        -- Group state might not be available yet on 12.0+
-        -- Schedule a retry to check if we're actually in a group
-        self:DebugPrint("Initial login but not in group yet - scheduling reconnect check retry")
-        self:ScheduleTimer(function()
-            if IsInGroup() then
-                self:DebugPrint("Reconnect retry: now in group, handling reconnect")
-                self.state.previousGroup = self:GetCurrentGroupMembers()
-                self.state.currentGroupType = self:GetChatChannel()
-                self:HandleGroupReconnect()
-            else
-                self:DebugPrint("Reconnect retry: still not in group, no reconnect needed")
+            -- Handle reconnect to existing group (login while already in a group)
+            -- This is different from GROUP_JOINED which fires when joining a NEW group
+            if isInitialLogin and not isReloadingUi then
+                self:DebugPrint("Reconnect detected - already in group on login")
+                self:ScheduleTimer(function()
+                    self:HandleGroupReconnect()
+                end, 3) -- Delay for group state to fully initialize (increased for 12.0 compatibility)
             end
-        end, 5) -- Longer delay for group state to load after disconnect
+        elseif isInitialLogin and not isReloadingUi then
+            -- Group state might not be available yet on 12.0+
+            -- Schedule a retry to check if we're actually in a group
+            self:DebugPrint("Initial login but not in group yet - scheduling reconnect check retry")
+            self:ScheduleTimer(function()
+                if IsInGroup() then
+                    self:DebugPrint("Reconnect retry: now in group, handling reconnect")
+                    self.state.previousGroup = self:GetCurrentGroupMembers()
+                    self.state.currentGroupType = self:GetChatChannel()
+                    self:HandleGroupReconnect()
+                else
+                    self:DebugPrint("Reconnect retry: still not in group, no reconnect needed")
+                end
+            end, 5) -- Longer delay for group state to load after disconnect
+        end
     end
 end
 
@@ -531,28 +532,33 @@ function Addon:HandleInstanceEnter()
         return
     end
 
-    local settings = self.db.profile.instance
-    if not settings.enabled or not settings.greetOnEnter then
+    if not self:ShouldGreetOnSelfJoin("INSTANCE_CHAT") then
         self:DebugPrint("Instance zone-in greeting disabled")
         return
     end
 
-    -- Collect group member names if enabled
-    local memberNames = nil
-    if settings.includeGroupNames then
-        memberNames = {}
-        local currentGroup = self:GetCurrentGroupMembers()
-        local myName = UnitName("player")
-        for name in pairs(currentGroup) do
-            if name ~= myName then
-                table.insert(memberNames, name)
-            end
-        end
-        self:DebugPrint("Including group member names:", table.concat(memberNames, ", "))
+    -- Only burn the once-per-group flag when a greeting actually went out
+    local names = self:CollectGroupMemberNames(self.db.profile.instance)
+    if self:SendGreeting(names, "self_join") then
+        self:SetInstanceGreeted(true)
     end
+end
 
-    self:SetInstanceGreeted(true)
-    self:SendGreeting(memberNames, "self_join")
+-- Names of the other group members for a self-join greeting, or nil when the channel
+-- does not want them. Only connected members: someone still on a load screen has no name yet.
+function Addon:CollectGroupMemberNames(settings)
+    if not settings or not settings.includeGroupNames then return nil end
+
+    local names = {}
+    local _, connected = self:GetCurrentGroupMembers()
+    local myName = UnitName("player")
+    for name in pairs(connected) do
+        if name ~= myName then
+            table.insert(names, name)
+        end
+    end
+    self:DebugPrint("Including group member names:", table.concat(names, ", "))
+    return names
 end
 
 -- Handle reconnecting to an existing group

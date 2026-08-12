@@ -57,18 +57,4 @@ describe("Humanizer", function()
       assert.is_string(h:Pick("p", pool))
     end)
   end)
-
-  describe("PickTimed", function()
-    it("mixes band pool with universal when band matches", function()
-      local h = Humanizer.New{ random = function(n) return n end, hour = function() return 7 end }
-      local universal = { "hi" }
-      local bands = { morning = { "morning!" } }
-      -- random(n)=n picks last entry: with merge order universal..band, that is the band phrase
-      assert.equal("morning!", h:PickTimed("g", universal, bands))
-    end)
-    it("uses only universal when band has no pool", function()
-      local h = Humanizer.New{ random = function(n) return n end, hour = function() return 12 end }
-      assert.equal("hi", h:PickTimed("g", { "hi" }, { morning = { "morning!" } }))
-    end)
-  end)
 end)

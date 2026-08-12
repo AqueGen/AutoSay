@@ -18,6 +18,20 @@ local ADDON_NAME, AutoSay = ...
 --   appendNames the phrase reads fine with " Name1, Name2" glued to the end.
 --               Mutually exclusive with {names}. No marker at all = never carries names.
 
+-- The channels the addon speaks on, in UI order.
+--   key    profile sub-table (db.profile[key]) and style-bundle iteration key
+--   chat    SendChatMessage channel type, also the key of GetChannelSettings
+--   color  chat colour used by the test-mode "would send" line (matches the config tab)
+AutoSay.Channels = {
+    { key = "party",    chat = "PARTY",         color = "|cFFAAAAFF" },
+    { key = "raid",     chat = "RAID",          color = "|cFFFF7F00" },
+    { key = "instance", chat = "INSTANCE_CHAT", color = "|cFF9999FF" },
+    { key = "guild",    chat = "GUILD",         color = "|cFF40FF40" },
+}
+
+-- M+ placeholders that only the M+ path can resolve - anywhere else they are stripped on send
+AutoSay.MPlusTokens = { "{dungeon}", "{key}", "{upgrade}", "{time}" }
+
 -- Guild achievement congratulations
 AutoSay.GuildGrats = {
     "gz", "grats!", "gratz {name}", "grats {name}!", "nice one {name}!", "congrats {name}!",

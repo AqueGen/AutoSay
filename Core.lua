@@ -175,6 +175,7 @@ local defaults = {
         enabled = true,
         debugMode = false,
         testMode = false,
+        instanceMigrated = false, -- Instance channel seeded from the party settings (see MigrateInstanceChannel)
 
         -- Minimap icon
         minimap = {
@@ -224,7 +225,7 @@ local defaults = {
         -- Instance group settings (LFG dungeons/LFR/battlegrounds, INSTANCE_CHAT)
         instance = {
             enabled = true,
-            greetOnEnter = true,        -- Greet once after zoning into the instance
+            onSelfJoin = true,          -- Greet once after zoning into the instance
             onOthersJoin = false,
             onOthersJoinLeaderOnly = false,
             includeNames = false,
@@ -306,6 +307,8 @@ Addon.state = {
     cachedLFGListing = nil, -- Cached LFG listing data (before auto-delist)
     keyAnnounced = false, -- Prevent duplicate M+ key announcements per group
     keyAnnounceRetried = false, -- Key announce was already re-scheduled once for the cooldown
+    keyAnnounceTimer = nil, -- Pending key announce retry timer (one in flight at a time)
+    groupGoodbyeTimer = nil, -- Self-reset timer for the once-per-leave goodbye guard
     instanceGreeted = false, -- Instance zone-in greeting sent (mirrors db.char.instanceGreeted, see SetInstanceGreeted)
     pendingGuildLogins = {}, -- Batch guild member login names
     guildLoginTimer = nil, -- Timer for batched guild login greeting
@@ -331,6 +334,9 @@ function Addon:OnInitialize()
 
     -- Migrate old single custom message format to new array format
     self:MigrateCustomMessages()
+
+    -- Seed the instance channel from the party settings on the first run after the upgrade
+    self:MigrateInstanceChannel()
 
     -- Wire up social gate + humanizer core
     self.socialGate = AutoSay.SocialGate.New{
@@ -421,6 +427,27 @@ function Addon:MigrateCustomMessages()
     end
 end
 
+-- The instance channel is new: before it existed LFG groups used the party settings, so seed
+-- it from them once. On a fresh install the party values are the defaults, so this is a no-op.
+-- Only the active profile is migrated - the addon registers no AceDB profile callbacks, so a
+-- profile switched to later keeps its own (defaults-equal) instance settings.
+function Addon:MigrateInstanceChannel()
+    local profile = self.db.profile
+    if profile.instanceMigrated then return end
+
+    local party, instance = profile.party, profile.instance
+    instance.enabled = party.enabled
+    instance.onSelfJoin = party.onSelfJoin
+    instance.onOthersJoin = party.onOthersJoin
+    instance.onOthersJoinLeaderOnly = party.onOthersJoinLeaderOnly
+    instance.includeNames = party.includeNames
+    instance.includeGroupNames = party.includeGroupNames
+    instance.sendGoodbye = party.sendGoodbye
+
+    profile.instanceMigrated = true
+    self:DebugPrint("Instance channel seeded from party settings")
+end
+
 function Addon:OnEnable()
     -- Register events
     self:RegisterEvents()
@@ -494,7 +521,7 @@ function Addon:HookLeaveGroupFunctions()
     if C_PartyInfo and C_PartyInfo.LeaveParty and not self:IsHooked(C_PartyInfo, "LeaveParty") then
         self:RawHook(C_PartyInfo, "LeaveParty", function(category)
             self:DebugPrint("C_PartyInfo.LeaveParty() intercepted - sending goodbye BEFORE leaving")
-            self:SendGroupGoodbyeOnce()
+            self:SendGroupGoodbyeOnce(category)
             -- Call the original function
             return self.hooks[C_PartyInfo].LeaveParty(category)
         end, true)
@@ -513,16 +540,27 @@ function Addon:HookLeaveGroupFunctions()
     self:DebugPrint("Leave group functions hooked")
 end
 
+-- Which chat the goodbye belongs in for the group we are leaving. LeaveParty tells us
+-- which of the two group slots is being dropped; without it fall back to where we are now.
+function Addon:GoodbyeChannelForCategory(category)
+    if category == LE_PARTY_CATEGORY_HOME then
+        return IsInRaid(LE_PARTY_CATEGORY_HOME) and "RAID" or "PARTY"
+    elseif category == LE_PARTY_CATEGORY_INSTANCE then
+        return "INSTANCE_CHAT"
+    end
+    -- Resolve live (we are still in the group at this point) so LFG groups pick up
+    -- the instance settings; cached type is the fallback if the API already dropped us
+    return self:GetChatChannel() or self.state.currentGroupType
+end
+
 -- Send group goodbye only once per leave action
-function Addon:SendGroupGoodbyeOnce()
+function Addon:SendGroupGoodbyeOnce(category)
     if self.state.groupGoodbyeSent then
         self:DebugPrint("Group goodbye already sent, skipping")
         return
     end
 
-    -- Resolve live (we are still in the group at this point) so LFG groups pick up
-    -- the instance settings; cached type is the fallback if the API already dropped us
-    local channel = self:GetChatChannel() or self.state.currentGroupType
+    local channel = self:GoodbyeChannelForCategory(category)
     if not channel then
         self:DebugPrint("No current group type cached, skipping goodbye")
         return
@@ -531,8 +569,17 @@ function Addon:SendGroupGoodbyeOnce()
     self.state.groupGoodbyeSent = true
     self:DebugPrint("Sending goodbye to", channel, "before leaving")
     self:SendGoodbye(channel)
-    -- The flag stays set until we join a group again (GROUP_JOINED / PLAYER_ENTERING_WORLD):
-    -- a timed reset would expire right after GROUP_LEFT and let a double LeaveParty double-post.
+
+    -- GROUP_LEFT deliberately does not clear the flag (it fires milliseconds after this
+    -- hook), and leaving an instance group while still in a home party fires no group event
+    -- at all - so the guard resets itself. 5s covers a double LeaveParty, nothing longer.
+    if self.state.groupGoodbyeTimer then
+        self:CancelTimer(self.state.groupGoodbyeTimer)
+    end
+    self.state.groupGoodbyeTimer = self:ScheduleTimer(function()
+        self.state.groupGoodbyeTimer = nil
+        self.state.groupGoodbyeSent = false
+    end, 5)
 end
 
 function Addon:OnDisable()
@@ -750,17 +797,15 @@ function Addon:SendMessageToChat(message, channel, target, keepCase)
     return true
 end
 
--- M+ placeholders that only the M+ path can resolve - a custom greeting/goodbye using them
--- would otherwise ship the raw token to chat
-local mplusTokens = { "{dungeon}", "{key}", "{upgrade}", "{time}" }
-
 -- Final polish applied to every outgoing message: {role} placeholder, leftover M+ tokens,
 -- and the optional lowercase first letter (skipped for keepCase phrases, e.g. "Lok'tar ogar!")
 -- (%a is ASCII-only on purpose, so UTF-8 custom messages are left alone)
 function Addon:PolishMessage(message, keepCase)
     if not message then return nil end
     message = message:gsub("{role}", self:GetRoleWord())
-    for _, token in ipairs(mplusTokens) do
+    -- M+ placeholders only the M+ path can resolve - a custom greeting/goodbye using them
+    -- would otherwise ship the raw token to chat
+    for _, token in ipairs(AutoSay.MPlusTokens) do
         message = message:gsub(token, "")
     end
     message = message:gsub("  +", " "):gsub("^%s+", ""):gsub("%s+$", "")
@@ -769,6 +814,10 @@ function Addon:PolishMessage(message, keepCase)
     end
     return message
 end
+
+-- Chat colour per channel for the test-mode "would send" line
+local ChannelColor = {}
+for _, c in ipairs(AutoSay.Channels) do ChannelColor[c.chat] = c.color end
 
 -- SendChatMessage rejects anything over 255 bytes: cut to 252 + "...", never inside a UTF-8 sequence
 local function TruncateToChatLimit(message)
@@ -805,15 +854,7 @@ function Addon:DoSendMessage(message, channel, target, keepCase)
 
     -- In test mode, print to chat instead of actually sending
     if self:IsTestMode() then
-        local channelColor = "|cFF00CCFF" -- Default blue
-        if channel == "RAID" then
-            channelColor = "|cFFFF7F00" -- Orange
-        elseif channel == "GUILD" then
-            channelColor = "|cFF40FF40" -- Green
-        elseif channel == "PARTY" then
-            channelColor = "|cFFAAAAFF" -- Light blue
-        end
-
+        local channelColor = ChannelColor[channel] or "|cFF00CCFF" -- Default blue
         print("|cFFFF9900[AutoSay TEST]|r Would send to " .. channelColor .. "[" .. channel .. "]|r: " .. message)
         updateCooldown()
         self:DebugPrint("Test mode - simulated send to", channel, ":", message)
@@ -894,15 +935,8 @@ end
 
 -- Get channel settings table
 function Addon:GetChannelSettings(channel)
-    local db = self.db.profile
-    if channel == "PARTY" then
-        return db.party
-    elseif channel == "RAID" then
-        return db.raid
-    elseif channel == "INSTANCE_CHAT" then
-        return db.instance
-    elseif channel == "GUILD" then
-        return db.guild
+    for _, c in ipairs(AutoSay.Channels) do
+        if c.chat == channel then return self.db.profile[c.key] end
     end
     return nil
 end
@@ -912,10 +946,21 @@ local function FitsContext(msg, role, faction, band, reason)
     if msg.role and msg.role ~= role then return false end
     if msg.faction and msg.faction ~= faction then return false end
     if msg.band and msg.band ~= band then return false end
+    -- Reason-less paths (guild login/logout, group goodbye) have no join to talk about,
+    -- so a phrase written for one ("tank here, pull respectfully") never fits them
+    if reason == nil then return msg.trigger == nil end
     -- Anything that is not someone else joining (self join, reconnect, guild login) counts as "self"
     if msg.trigger == "others" and reason ~= "others_join" then return false end
     if msg.trigger == "self" and reason == "others_join" then return false end
     return true
+end
+
+-- Names-carrying phrase with no names to carry: drop the slot instead of the phrase,
+-- so a pool of only {names} phrases still says something ("welcome {names}!" -> "welcome!")
+local function StripNameSlot(text)
+    text = text:gsub("{names}", "")
+    text = text:gsub("  +", " "):gsub("%s+([!?.,])", "%1")
+    return (text:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
 -- How a phrase carries player names: "slot" = {names} inside the text, "append" = glued to the end
@@ -950,18 +995,27 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
         return nil
     end
 
-    local candidates = {}
+    -- Presets first, and the same text never enters twice: a custom copy of a preset must not
+    -- override the preset's keepCase/mode, nor double that text's odds of being picked
+    local candidates, seen = {}, {}
+    local function AddCandidate(c)
+        if seen[c.text] then return end
+        seen[c.text] = true
+        table.insert(candidates, c)
+    end
 
     -- Add enabled preset messages
     if settings[enabledKey] then
         local role = self:GetPlayerRoleOrTest()
         local faction = UnitFactionGroup("player")
         -- nil band = band-tagged phrases never match, i.e. the master switch is off
+        local hour = (self.humanizer and self.humanizer.hour)
+            and self.humanizer.hour() or tonumber(date("%H"))
         local band = self.db.profile.social.timeOfDay
-            and AutoSay.Humanizer.BandForHour(tonumber(date("%H"))) or nil
+            and AutoSay.Humanizer.BandForHour(hour) or nil
         for _, msg in ipairs(messages) do
             if settings[enabledKey][msg.key] and FitsContext(msg, role, faction, band, reason) then
-                table.insert(candidates, { text = msg.text, mode = NameMode(msg), keepCase = msg.keepCase })
+                AddCandidate({ text = msg.text, mode = NameMode(msg), keepCase = msg.keepCase })
             end
         end
     end
@@ -972,7 +1026,7 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
         for _, entry in ipairs(settings[customsKey]) do
             if entry.enabled and entry.text and entry.text ~= "" then
                 local mode = entry.text:find("{names}", 1, true) and "slot" or "append"
-                table.insert(candidates, { text = entry.text, mode = mode })
+                AddCandidate({ text = entry.text, mode = mode })
             end
         end
     end
@@ -989,15 +1043,22 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
     end
     if wantNames and #pool == 0 then
         pool = candidates -- nothing name-capable is enabled: send without names
+    elseif not wantNames and #pool == 0 then
+        -- Only {names} phrases are enabled and there are no names: say them without the slot
+        -- rather than going silent
+        for _, c in ipairs(candidates) do
+            if c.mode == "slot" then
+                table.insert(pool, { text = StripNameSlot(c.text), keepCase = c.keepCase })
+            end
+        end
     end
     if #pool == 0 then
         return nil
     end
 
-    local texts, byText = {}, {}
+    local texts = {}
     for _, c in ipairs(pool) do
         table.insert(texts, c.text)
-        byText[c.text] = c
     end
 
     local text
@@ -1007,8 +1068,11 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
         text = texts[math.random(#texts)]
     end
 
-    local picked = byText[text] or {}
-    return text, picked.mode, picked.keepCase
+    -- First match wins, same rule the dedupe above used
+    for _, c in ipairs(pool) do
+        if c.text == text then return text, c.mode, c.keepCase end
+    end
+    return text
 end
 
 -- Pools a style bundle can toggle (channels without a pool are skipped)
@@ -1017,8 +1081,6 @@ local stylePools = {
     { messages = "Goodbyes",   enabledKey = "enabledGoodbyes" },
     { messages = "Reconnects", enabledKey = "enabledReconnects" },
 }
-
-local styleChannels = { "party", "raid", "instance", "guild" }
 
 -- Phrases of the other faction can never be picked on this character, so the bundle both
 -- ignores them when deciding "fully enabled" and leaves them alone when applying.
@@ -1029,8 +1091,8 @@ end
 -- True when every usable phrase of the style is enabled on every channel that has its pool
 function Addon:IsStyleBundleEnabled(style)
     local faction = UnitFactionGroup("player")
-    for _, channel in ipairs(styleChannels) do
-        local settings = self.db.profile[channel]
+    for _, c in ipairs(AutoSay.Channels) do
+        local settings = self.db.profile[c.key]
         for _, pool in ipairs(stylePools) do
             local enabled = settings and settings[pool.enabledKey]
             if enabled then
@@ -1063,8 +1125,8 @@ function Addon:ApplyStyleBundle(style, replace, state)
         end
     end
 
-    for _, channel in ipairs(styleChannels) do
-        local settings = self.db.profile[channel]
+    for _, c in ipairs(AutoSay.Channels) do
+        local settings = self.db.profile[c.key]
         for _, pool in ipairs(stylePools) do
             local enabled = settings and settings[pool.enabledKey]
             if enabled and poolHasStyle[pool.enabledKey] then
@@ -1109,25 +1171,27 @@ function Addon:AddPlayersToMessage(message, playerNames, nameMode)
     return message .. " " .. names
 end
 
--- Send greeting (checks cooldown and drops if blocked)
+-- Send greeting (checks cooldown and drops if blocked).
+-- Returns true only when a message reached the send pipeline - callers that burn a
+-- once-per-group flag (instance zone-in) must not burn it on a bail-out.
 function Addon:SendGreeting(playerNames, reason)
     local db = self.db.profile
 
-    if not db.enabled then return end
+    if not db.enabled then return false end
 
     local channel = self:GetChatChannel()
     if not channel then
         self:DebugPrint("Not in group, skipping greeting")
-        return
+        return false
     end
 
     local settings = self:GetChannelSettings(channel)
-    if not settings then return end
+    if not settings then return false end
 
     -- Check if channel is enabled
     if not settings.enabled then
         self:DebugPrint(channel, "greetings disabled")
-        return
+        return false
     end
 
     if self.socialGate then
@@ -1136,7 +1200,7 @@ function Addon:SendGreeting(playerNames, reason)
         if not ok then
             self:DebugPrint("SendGreeting gated:", why)
             if self:IsTestMode() then self:TestPrint("Greeting blocked: " .. why) end
-            return
+            return false
         end
     end
 
@@ -1148,18 +1212,18 @@ function Addon:SendGreeting(playerNames, reason)
     if not self:CanSendMessage(channel) then
         self:DebugPrint("SendGreeting -> cooldown active, dropping", reason, "greeting for", channel)
         if self:IsTestMode() then self:TestPrint("Greeting dropped (cooldown active): " .. tostring(reason)) end
-        return
+        return false
     end
 
     -- Send immediately
     self:DebugPrint("SendGreeting -> cooldown OK, sending immediately")
-    self:BuildAndSendGreeting(channel, reason, playerNames)
+    return self:BuildAndSendGreeting(channel, reason, playerNames)
 end
 
--- Build a greeting message and send it
+-- Build a greeting message and send it. Returns true when it reached the send pipeline.
 function Addon:BuildAndSendGreeting(channel, reason, playerNames)
     local settings = self:GetChannelSettings(channel)
-    if not settings or not settings.enabled then return end
+    if not settings or not settings.enabled then return false end
 
     -- Do we want names on this one?
     -- For self_join: names are pre-collected based on includeGroupNames, use them if provided
@@ -1181,22 +1245,24 @@ function Addon:BuildAndSendGreeting(channel, reason, playerNames)
 
     if not message then
         self:DebugPrint("No greetings enabled for", channel)
-        return
+        return false
     end
 
     message = self:AddPlayersToMessage(message, playerNames, wantNames and nameMode or nil)
 
     self:DebugPrint("BuildAndSend -> final message:", message)
 
-    -- Reserve the budget slot here, where a message is certain to go out
-    if self.socialGate then
-        self.socialGate:Record("greeting", playerNames and playerNames[1] or nil)
-    end
-
     if not self:SendMessageToChat(message, channel, nil, keepCase) then
         -- Cooldown won the race - drop it, a late greeting is just a second greeting
         self:DebugPrint("BuildAndSend -> SendMessageToChat refused (cooldown), dropping")
+        return false
     end
+
+    -- Spend the budget slot only for a message that actually went out
+    if self.socialGate then
+        self.socialGate:Record("greeting", playerNames and playerNames[1] or nil)
+    end
+    return true
 end
 
 -- Send goodbye
@@ -1230,13 +1296,13 @@ function Addon:SendGoodbye(channel)
         return
     end
 
-    -- Reserve the budget slot now that a message is certain to go out
+    -- Send immediately (no delay for goodbyes since we're leaving)
+    self:DoSendMessage(message, channel, nil, keepCase)
+
+    -- Spend the budget slot for the message we just dispatched
     if self.socialGate then
         self.socialGate:Record("goodbye")
     end
-
-    -- Send immediately (no delay for goodbyes since we're leaving)
-    self:DoSendMessage(message, channel, nil, keepCase)
 end
 
 -- Send congrats when a guildmate earns an achievement
@@ -1323,10 +1389,12 @@ function Addon:SendGuildGreeting()
             if self:IsTestMode() then self:TestPrint("Guild greeting blocked: " .. why) end
             return
         end
-        self.socialGate:Record("greeting")
     end
 
-    self:SendMessageToChat(message, "GUILD", nil, keepCase)
+    -- Spend the budget slot only for a message that actually went out
+    if self:SendMessageToChat(message, "GUILD", nil, keepCase) and self.socialGate then
+        self.socialGate:Record("greeting")
+    end
 end
 
 -- Send guild goodbye on logout
@@ -1368,12 +1436,16 @@ function Addon:SendGuildGoodbye()
             if self:IsTestMode() then self:TestPrint("Guild goodbye blocked: " .. why) end
             return
         end
-        self.socialGate:Record("goodbye")
     end
 
     self:DebugPrint("Sending guild goodbye:", message)
     -- Send immediately (no delay for goodbyes)
     self:DoSendMessage(message, "GUILD", nil, keepCase)
+
+    -- Spend the budget slot for the message we just dispatched
+    if self.socialGate then
+        self.socialGate:Record("goodbye")
+    end
 end
 
 -- Handle a guild member logging in (called from CLUB_MEMBER_PRESENCE_UPDATED)
@@ -1556,8 +1628,9 @@ function Addon:ReplacePlaceholders(message, dungeon, keyLevel, extraReplacements
             message = message:gsub("{" .. placeholder .. "}", value)
         end
     end
-    -- M+ messages go straight to SendChatMessage, so apply the shared polish here
-    return self:PolishMessage(message)
+    -- M+ messages go straight to SendChatMessage, so apply the shared polish here.
+    -- keepCase: dungeon names are proper nouns, "Ruby Life Pools" must not become "ruby ...".
+    return self:PolishMessage(message, true)
 end
 
 -- Get key level based on message mode
@@ -1646,6 +1719,12 @@ function Addon:SendKeyAnnounce()
     local db = self.db.profile
     if not db.enabled or not db.mythicplus.enabled then return end
 
+    -- One announce in flight: a retry is already carrying this group's message
+    if self.state.keyAnnounceTimer then
+        self:DebugPrint("Key announce retry already pending, skipping")
+        return
+    end
+
     local listing = self.state.cachedLFGListing
     if not listing or not listing.dungeonName then
         self:DebugPrint("SendKeyAnnounce: no cached listing data")
@@ -1681,7 +1760,8 @@ function Addon:SendKeyAnnounce()
 
     -- Share the group cooldown with greetings: an announce landing in the same second as
     -- the greeting reads like a bot. One retry when the cooldown is still running, then drop.
-    if self:SendMessageToChat(message, channel) then
+    -- keepCase so the second polish inside DoSendMessage keeps the dungeon name capitalized.
+    if self:SendMessageToChat(message, channel, nil, true) then
         self.state.keyAnnounceRetried = false
         return
     end
@@ -1695,7 +1775,16 @@ function Addon:SendKeyAnnounce()
     local remaining = self.db.profile.cooldown - (GetTime() - self.state.lastGroupMessageTime)
     local wait = math.max(remaining, 0) + (self.db.profile.messageDelay or 0) + 0.5
     self:DebugPrint("Key announce cooldown-blocked, retrying in", string.format("%.1f", wait) .. "s")
-    self:ScheduleTimer(function() self:SendKeyAnnounce() end, wait)
+    -- Resend the very message we built, not a fresh roll, and only while the announce
+    -- this retry belongs to is still valid (same full group, flag not reset meanwhile)
+    self.state.keyAnnounceTimer = self:ScheduleTimer(function()
+        self.state.keyAnnounceTimer = nil
+        if not self.state.keyAnnounced or GetNumGroupMembers() ~= 5 then
+            self:DebugPrint("Key announce retry no longer valid, dropping")
+            return
+        end
+        self:SendMessageToChat(message, channel, nil, true)
+    end, wait)
 end
 
 -- Get a random completion message from enabled pool
@@ -1757,20 +1846,12 @@ function Addon:SendCompletionMessage(dungeon, keyLevel, onTime, upgrade, timeFor
     self:DebugPrint("SendCompletionMessage:", message, "(onTime:", tostring(onTime),
         "dungeon:", dungeon, "level:", tostring(keyLevel), "upgrade:", tostring(upgrade) .. ")")
 
-    -- Always party in M+ dungeon
+    -- Always party in M+ dungeon. Routed through the normal pipeline for truncation,
+    -- cooldown and test mode; keepCase keeps the dungeon name capitalized.
     local channel = "PARTY"
-
-    if self:IsTestMode() then
-        local channelColor = "|cFFAAAAFF"
-        print("|cFFFF9900[AutoSay TEST]|r Would send to " .. channelColor .. "[" .. channel .. "]|r: " .. message)
-        self:DebugPrint("Test mode - simulated completion message to", channel)
-    else
-        local ok, err = pcall(SendChatMessage, message, channel, nil, nil)
-        if ok then
-            self:DebugPrint("Completion message sent to", channel, ":", message)
-        else
-            self:DebugPrint("Failed to send completion message:", tostring(err))
-        end
+    if not self:SendMessageToChat(message, channel, nil, true) then
+        -- A completion line that lands half a minute late is noise, so no retry
+        self:DebugPrint("Completion message dropped (cooldown or addon disabled)")
     end
 end
 
@@ -1803,6 +1884,10 @@ function Addon:TestReset()
     self.state.cachedLFGListing = nil
     self.state.keyAnnounced = false
     self.state.keyAnnounceRetried = false
+    if self.state.keyAnnounceTimer then
+        self:CancelTimer(self.state.keyAnnounceTimer)
+        self.state.keyAnnounceTimer = nil
+    end
     self:SetInstanceGreeted(false)
     self.state.mythicPlusFlowActive = false
     self.state.goodbyeSent = false
@@ -1876,10 +1961,10 @@ function Addon:TestJoinInstance()
     self:SetInstanceGreeted(false)
 
     -- Trigger the greeting logic (mirrors the PLAYER_ENTERING_WORLD zone-in path)
-    local settings = self.db.profile.instance
-    if self.db.profile.enabled and settings.enabled and settings.greetOnEnter then
-        self:SetInstanceGreeted(true)
-        self:SendGreeting(nil, "self_join")
+    if self.db.profile.enabled and self:ShouldGreetOnSelfJoin("INSTANCE_CHAT") then
+        if self:SendGreeting(nil, "self_join") then
+            self:SetInstanceGreeted(true)
+        end
     else
         self:TestPrint("Greeting skipped (disabled in settings)")
     end
@@ -2196,16 +2281,17 @@ function Addon:TestStatus()
 
     -- Show channel status
     local db = self.db.profile
-    self:Print("Party:", db.party.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
-        "| Self:", db.party.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Others:", db.party.onOthersJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Names:", db.party.includeNames and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Bye:", db.party.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
-    self:Print("Raid:", db.raid.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
-        "| Self:", db.raid.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Others:", db.raid.onOthersJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Names:", db.raid.includeNames and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Bye:", db.raid.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
+    local function YesNo(v) return v and "|cFF00FF00Yes|r" or "|cFFFF0000No|r" end
+    for _, c in ipairs(AutoSay.Channels) do
+        local s = db[c.key]
+        if c.key ~= "guild" then
+            self:Print(L[c.chat] .. ":", s.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
+                "| Self:", YesNo(s.onSelfJoin),
+                "| Others:", YesNo(s.onOthersJoin),
+                "| Names:", YesNo(s.includeNames),
+                "| Bye:", YesNo(s.sendGoodbye))
+        end
+    end
     self:Print("Guild:", db.guild.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
         "| Login:", db.guild.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
         "| Logout:", db.guild.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
