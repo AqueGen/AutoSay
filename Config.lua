@@ -43,11 +43,28 @@ local function PresetLabel(msg, ownStyleGroup)
     return msg.text .. " |cFF888888[" .. table.concat(tags, ", ") .. "]|r"
 end
 
+-- A phrase is listed only while every trigger it depends on is switched on above
+-- (AND semantics): [newcomers] needs On others join, [self] needs On self join,
+-- a {names} slot needs the names option. Flipping a trigger immediately grows or
+-- shrinks the visible lists, so the tags explain themselves without tooltip-hunting.
+-- settingsFn is nil for pools without trigger context (goodbyes/reconnects/guild login).
+local function PhraseVisible(msg, settingsFn)
+    if not settingsFn then return true end
+    local settings = settingsFn()
+    if msg.trigger == "others" and not settings.onOthersJoin then return false end
+    if msg.trigger == "self" and not settings.onSelfJoin then return false end
+    if msg.text:find("{names}", 1, true)
+        and not (settings.includeNames or settings.includeGroupNames) then
+        return false
+    end
+    return true
+end
+
 -- Style-grouped preset picker for one message pool: an accordion of style sections.
 -- Each section header is a full-width button that folds/unfolds its checkboxes;
 -- "Classic" (every untagged phrase) starts open, styles start folded.
 -- poolId keys the fold state, tableFn returns the profile table of enabled keys.
-local function BuildMessagePicker(poolId, pool, tableFn)
+local function BuildMessagePicker(poolId, pool, tableFn, settingsFn)
     local args = {}
 
     local byStyle = { classic = {} }
@@ -85,6 +102,8 @@ local function BuildMessagePicker(poolId, pool, tableFn)
                 dialogControl = "AutoSayCollapse",
                 -- The leading "-"/"+" is the fold-state contract: AutoSayCollapse
                 -- strips it and renders it as the [-]/[+] expand icon.
+                -- Counts are absolute (whole category, enabled per the profile), not filtered
+                -- by the trigger visibility - the header tells what the category holds in total
                 name = function()
                     local enabled, total = 0, #entries
                     local flags = tableFn()
@@ -93,6 +112,13 @@ local function BuildMessagePicker(poolId, pool, tableFn)
                     end
                     return string.format("%s %s  |cFF888888(%d/%d)|r",
                         open[style] and "-" or "+", label, enabled, total)
+                end,
+                -- A section whose every phrase is trigger-hidden disappears entirely
+                hidden = function()
+                    for _, msg in ipairs(entries) do
+                        if PhraseVisible(msg, settingsFn) then return false end
+                    end
+                    return true
                 end,
                 func = function()
                     open[style] = not open[style]
@@ -109,6 +135,7 @@ local function BuildMessagePicker(poolId, pool, tableFn)
                 order = order,
                 width = 1.0,
                 hidden = function()
+                    if not PhraseVisible(msg, settingsFn) then return true end
                     return #styles > 1 and not open[msg.style or (msg.band and "timeofday") or "classic"]
                 end,
                 get = function() return tableFn()[msg.key] end,
@@ -278,7 +305,10 @@ local function BuildGreetingToggles(channel)
                     order = 1,
                     width = "full",
                     get = function() return Addon.db.profile[channel].onSelfJoin end,
-                    set = function(_, val) Addon.db.profile[channel].onSelfJoin = val end,
+                    set = function(_, val)
+                        Addon.db.profile[channel].onSelfJoin = val
+                        LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
+                    end,
                 },
                 includeGroupNames = {
                     type = "toggle",
@@ -288,7 +318,10 @@ local function BuildGreetingToggles(channel)
                     width = "full",
                     hidden = function() return not Addon.db.profile[channel].onSelfJoin end,
                     get = function() return Addon.db.profile[channel].includeGroupNames end,
-                    set = function(_, val) Addon.db.profile[channel].includeGroupNames = val end,
+                    set = function(_, val)
+                        Addon.db.profile[channel].includeGroupNames = val
+                        LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
+                    end,
                 },
             },
         }
@@ -320,7 +353,10 @@ local function BuildGreetingToggles(channel)
                     order = 1,
                     width = "full",
                     get = function() return Addon.db.profile[channel].onOthersJoin end,
-                    set = function(_, val) Addon.db.profile[channel].onOthersJoin = val end,
+                    set = function(_, val)
+                        Addon.db.profile[channel].onOthersJoin = val
+                        LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
+                    end,
                 },
                 onOthersJoinLeaderOnly = {
                     type = "toggle",
@@ -340,7 +376,10 @@ local function BuildGreetingToggles(channel)
                     width = "full",
                     hidden = function() return not Addon.db.profile[channel].onOthersJoin end,
                     get = function() return Addon.db.profile[channel].includeNames end,
-                    set = function(_, val) Addon.db.profile[channel].includeNames = val end,
+                    set = function(_, val)
+                        Addon.db.profile[channel].includeNames = val
+                        LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
+                    end,
                 },
             },
         }
@@ -354,7 +393,8 @@ local function BuildGreetingToggles(channel)
         inline = true,
         order = order,
         args = BuildMessagePicker(channel .. "Greetings", AutoSay.Greetings,
-            function() return Addon.db.profile[channel].enabledGreetings end),
+            function() return Addon.db.profile[channel].enabledGreetings end,
+            function() return Addon.db.profile[channel] end),
     }
     order = order + 1
 
