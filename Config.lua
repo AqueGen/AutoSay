@@ -20,7 +20,7 @@ end
 local selectedStyle = AutoSay.MessageStyles[1]
 local replaceOnApply = false
 
--- Which style bundle each message pool currently shows (UI only, not saved)
+-- Per-pool accordion fold state: shownStyle[poolId][style] = open (UI only, not saved)
 local shownStyle = {}
 
 -- Checkbox label for a preset message: style bundle phrases carry a grey [style] / [style, tag] suffix.
@@ -41,51 +41,66 @@ local function PresetLabel(msg, ownStyleGroup)
     return msg.text .. " |cFF888888[" .. tag .. "]|r"
 end
 
--- Style-grouped preset picker for one message pool: a style dropdown plus the
--- checkboxes of the selected style. "Classic" holds every untagged phrase.
--- poolId keys the dropdown state, tableFn returns the profile table of enabled keys.
+-- Style-grouped preset picker for one message pool: an accordion of style sections.
+-- Each section header is a full-width button that folds/unfolds its checkboxes;
+-- "Classic" (every untagged phrase) starts open, styles start folded.
+-- poolId keys the fold state, tableFn returns the profile table of enabled keys.
 local function BuildMessagePicker(poolId, pool, tableFn)
     local args = {}
 
-    local present = {}
+    local byStyle = { classic = {} }
     for _, msg in ipairs(pool) do
-        if msg.style then present[msg.style] = true end
-    end
-
-    local values, sorting = { classic = L["Classic"] }, { "classic" }
-    for _, style in ipairs(AutoSay.MessageStyles) do
-        if present[style] then
-            values[style] = NewTag(L["Style " .. style], "1.6")
-            sorting[#sorting + 1] = style
-        end
-    end
-
-    -- Pools without style phrases (guild login greetings) get no pointless one-entry dropdown
-    if #sorting > 1 then
-        args.style = {
-            type = "select", order = 1, width = 1.5,
-            name = L["Style"],
-            values = values,
-            sorting = sorting,
-            get = function() return shownStyle[poolId] or "classic" end,
-            set = function(_, v)
-                shownStyle[poolId] = v
-                LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
-            end,
-        }
-    end
-
-    for i, msg in ipairs(pool) do
         local style = msg.style or "classic"
-        args["m_" .. msg.key] = {
-            type = "toggle",
-            name = PresetLabel(msg, msg.style ~= nil),
-            order = 10 + i,
-            width = 1.0,
-            hidden = function() return (shownStyle[poolId] or "classic") ~= style end,
-            get = function() return tableFn()[msg.key] end,
-            set = function(_, val) tableFn()[msg.key] = val end,
-        }
+        byStyle[style] = byStyle[style] or {}
+        table.insert(byStyle[style], msg)
+    end
+
+    local styles = { "classic" }
+    for _, style in ipairs(AutoSay.MessageStyles) do
+        if byStyle[style] then styles[#styles + 1] = style end
+    end
+
+    shownStyle[poolId] = shownStyle[poolId] or { classic = true }
+    local open = shownStyle[poolId]
+
+    local order = 1
+    for _, style in ipairs(styles) do
+        local entries = byStyle[style]
+        local label = style == "classic" and L["Classic"] or NewTag(L["Style " .. style], "1.6")
+
+        -- Pools without style phrases (guild login greetings) get a plain list, no accordion
+        if #styles > 1 then
+            args["head_" .. style] = {
+                type = "execute", order = order, width = "full",
+                name = function()
+                    local enabled, total = 0, #entries
+                    local flags = tableFn()
+                    for _, msg in ipairs(entries) do
+                        if flags[msg.key] then enabled = enabled + 1 end
+                    end
+                    return string.format("%s %s  |cFF888888(%d/%d)|r",
+                        open[style] and "-" or "+", label, enabled, total)
+                end,
+                func = function()
+                    open[style] = not open[style]
+                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+                end,
+            }
+            order = order + 1
+        end
+
+        for _, msg in ipairs(entries) do
+            args["m_" .. msg.key] = {
+                type = "toggle",
+                name = PresetLabel(msg, msg.style ~= nil),
+                order = order,
+                width = 1.0,
+                hidden = function() return #styles > 1 and not open[msg.style or "classic"] end,
+                get = function() return tableFn()[msg.key] end,
+                set = function(_, val) tableFn()[msg.key] = val end,
+            }
+            order = order + 1
+        end
     end
 
     return args
@@ -712,12 +727,6 @@ local options = {
                         Addon:Print(L["Settings reset to defaults"])
                     end,
                 },
-                madeInUkraine = {
-                    type = "description",
-                    name = L["Made in Ukraine"],
-                    order = 99,
-                    fontSize = "small",
-                },
             },
         },
 
@@ -736,7 +745,7 @@ local options = {
                             name = L["Style bundle desc"],
                         },
                         style = {
-                            type = "select", order = 2, width = 1.5,
+                            type = "select", style = "radio", order = 2, width = "full",
                             name = L["Style"],
                             values = (function()
                                 local values = {}

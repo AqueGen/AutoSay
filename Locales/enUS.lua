@@ -286,4 +286,4 @@ L["Tone"] = "Tone"
 L["Classic"] = "Classic"
 
 -- Footer
-L["Made in Ukraine"] = "|cFF0057B7Made with love|r |cFFFFD700in Ukraine|r"
+L["Made in Ukraine"] = "|cFF0057B7Made|r |cFFFFD700in Ukraine|r"

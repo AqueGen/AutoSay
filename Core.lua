@@ -659,6 +659,7 @@ function Addon:OpenConfig()
     -- Hook frame close to save window status
     local frame = AceConfigDialog.OpenFrames["AutoSay"]
     if frame then
+        frame:SetStatusText(L["Made in Ukraine"])
         frame:SetCallback("OnClose", function(widget, event)
             local s = AceConfigDialog:GetStatusTable("AutoSay")
             self.db.profile.configWindowStatus = {
