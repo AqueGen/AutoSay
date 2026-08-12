@@ -789,21 +789,37 @@ local options = {
                 listen = {
                     type = "toggle", order = 3, width = "full",
                     name = L["Social listening"],
-                    desc = L["Skip a message if someone else already said it"],
+                    desc = L["Skip a message if someone else already said it"] .. "\n"
+                        .. L["Social listening example"],
                     get = function() return Addon.db.profile.social.listen end,
                     set = function(_, v) Addon.db.profile.social.listen = v end,
                 },
                 typingDelay = {
                     type = "toggle", order = 4, width = "full",
                     name = L["Human typing delay"],
-                    desc = L["Delay messages as if typed by hand"],
+                    desc = L["Delay messages as if typed by hand"] .. "\n"
+                        .. L["Human typing delay example"],
                     get = function() return Addon.db.profile.social.typingDelay end,
                     set = function(_, v) Addon.db.profile.social.typingDelay = v end,
                 },
                 timeOfDay = {
                     type = "toggle", order = 5, width = "full",
                     name = L["Time-of-day greetings"],
-                    desc = L["Mix in morning/evening phrases by local time"],
+                    -- Build the example list from the live pools so the tooltip never drifts
+                    desc = function()
+                        local lines = { L["Mix in morning/evening phrases by local time"] }
+                        for _, band in ipairs({
+                            { key = "morning", label = L["Morning (05-11)"] },
+                            { key = "evening", label = L["Evening (17-23)"] },
+                            { key = "night",   label = L["Night (23-05)"] },
+                        }) do
+                            local pool = AutoSay.GreetingsTimeOfDay and AutoSay.GreetingsTimeOfDay[band.key]
+                            if pool and #pool > 0 then
+                                lines[#lines + 1] = format('%s: "%s"', band.label, table.concat(pool, '", "'))
+                            end
+                        end
+                        return table.concat(lines, "\n")
+                    end,
                     get = function() return Addon.db.profile.social.timeOfDay end,
                     set = function(_, v) Addon.db.profile.social.timeOfDay = v end,
                 },
