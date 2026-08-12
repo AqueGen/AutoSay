@@ -805,23 +805,44 @@ local options = {
                 timeOfDay = {
                     type = "toggle", order = 5, width = "full",
                     name = L["Time-of-day greetings"],
-                    -- Build the example list from the live pools so the tooltip never drifts
-                    desc = function()
-                        local lines = { L["Mix in morning/evening phrases by local time"] }
+                    desc = L["Mix in morning/evening phrases by local time"],
+                    get = function() return Addon.db.profile.social.timeOfDay end,
+                    set = function(_, v)
+                        Addon.db.profile.social.timeOfDay = v
+                        LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+                    end,
+                },
+                timeOfDayPhrases = {
+                    type = "group", order = 5.5, inline = true,
+                    name = L["Time-of-day phrases"],
+                    hidden = function() return not Addon.db.profile.social.timeOfDay end,
+                    args = (function()
+                        local args = {}
+                        local order = 1
                         for _, band in ipairs({
                             { key = "morning", label = L["Morning (05-11)"] },
                             { key = "evening", label = L["Evening (17-23)"] },
                             { key = "night",   label = L["Night (23-05)"] },
                         }) do
-                            local pool = AutoSay.GreetingsTimeOfDay and AutoSay.GreetingsTimeOfDay[band.key]
-                            if pool and #pool > 0 then
-                                lines[#lines + 1] = format('%s: "%s"', band.label, table.concat(pool, '", "'))
+                            args[band.key .. "Header"] = {
+                                type = "description", order = order,
+                                name = "|cFFFFD100" .. band.label .. "|r",
+                                fontSize = "medium",
+                            }
+                            order = order + 1
+                            for _, entry in ipairs(AutoSay.GreetingsTimeOfDay[band.key] or {}) do
+                                local key = entry.key
+                                args[band.key .. "_" .. key] = {
+                                    type = "toggle", order = order, width = 1.2,
+                                    name = '"' .. entry.text .. '"',
+                                    get = function() return Addon.db.profile.social.enabledTimeOfDay[key] end,
+                                    set = function(_, v) Addon.db.profile.social.enabledTimeOfDay[key] = v end,
+                                }
+                                order = order + 1
                             end
                         end
-                        return table.concat(lines, "\n")
-                    end,
-                    get = function() return Addon.db.profile.social.timeOfDay end,
-                    set = function(_, v) Addon.db.profile.social.timeOfDay = v end,
+                        return args
+                    end)(),
                 },
                 guildGrats = {
                     type = "toggle", order = 6, width = "full",

@@ -142,7 +142,18 @@ AutoSay.CompletionDepleted = {
 
 -- Time-of-day greeting extras, mixed into the universal pool by local hour
 AutoSay.GreetingsTimeOfDay = {
-    morning = { "morning!", "good morning all", "morning o/" },
-    evening = { "evening!", "good evening", "evening all o/" },
-    night = { "up late too? hi", "night owls unite o/" },
+    morning = {
+        { key = "morning", text = "morning!" },
+        { key = "goodmorningall", text = "good morning all" },
+        { key = "morningwave", text = "morning o/" },
+    },
+    evening = {
+        { key = "evening", text = "evening!" },
+        { key = "goodevening", text = "good evening" },
+        { key = "eveningall", text = "evening all o/" },
+    },
+    night = {
+        { key = "uplate", text = "up late too? hi" },
+        { key = "nightowls", text = "night owls unite o/" },
+    },
 }

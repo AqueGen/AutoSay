@@ -257,6 +257,9 @@ local defaults = {
             listen = true,
             typingDelay = true,
             timeOfDay = true,
+            enabledTimeOfDay = {
+                ["*"] = true, -- AceDB wildcard: every phrase key defaults to enabled
+            },
             guildGrats = false,
             guildWelcome = false,
         },
@@ -874,7 +877,7 @@ function Addon:GetRandomMessageForChannel(messageType, channel)
     end
 
     if messageType == "greetings" and self.db.profile.social.timeOfDay and self.humanizer then
-        return self.humanizer:PickTimed("greetings:" .. channel, enabled, AutoSay.GreetingsTimeOfDay)
+        return self.humanizer:PickTimed("greetings:" .. channel, enabled, self:GetEnabledTimeOfDayBands())
     end
 
     if self.humanizer then
@@ -882,6 +885,24 @@ function Addon:GetRandomMessageForChannel(messageType, channel)
     end
 
     return enabled[math.random(#enabled)]
+end
+
+-- Filter the time-of-day phrase pools by the per-phrase toggles (plain text lists for PickTimed)
+function Addon:GetEnabledTimeOfDayBands()
+    local enabledKeys = self.db.profile.social.enabledTimeOfDay
+    local bands = {}
+    for band, entries in pairs(AutoSay.GreetingsTimeOfDay) do
+        local list = {}
+        for _, entry in ipairs(entries) do
+            if enabledKeys[entry.key] then
+                list[#list + 1] = entry.text
+            end
+        end
+        if #list > 0 then
+            bands[band] = list
+        end
+    end
+    return bands
 end
 
 -- Add player names to message
