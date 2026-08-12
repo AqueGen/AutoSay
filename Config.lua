@@ -17,7 +17,6 @@ local function NewTag(name, ver)
 end
 
 -- Style bundle picker state (UI only, deliberately not saved to the profile)
-local selectedStyle = AutoSay.MessageStyles[1]
 local replaceOnApply = false
 
 -- Per-pool accordion fold state: shownStyle[poolId][style] = open (UI only, not saved)
@@ -742,40 +741,48 @@ local options = {
                 styleBundles = {
                     type = "group", order = 1, inline = true,
                     name = NewTag(L["Message style bundles"], "1.6"),
-                    args = {
-                        desc = {
-                            type = "description", order = 1,
-                            name = L["Style bundle desc"],
-                        },
-                        style = {
-                            type = "select", style = "radio", order = 2, width = "full",
-                            name = L["Style"],
-                            values = (function()
-                                local values = {}
-                                for _, style in ipairs(AutoSay.MessageStyles) do
-                                    values[style] = L["Style " .. style]
+                    args = (function()
+                        local args = {
+                            desc = {
+                                type = "description", order = 1,
+                                name = L["Style bundle desc"],
+                            },
+                            replace = {
+                                type = "toggle", order = 2, width = "full",
+                                name = L["Replace current selection"],
+                                desc = L["Replace current selection desc"],
+                                get = function() return replaceOnApply end,
+                                set = function(_, v) replaceOnApply = v end,
+                            },
+                        }
+                        -- One button per bundle: click applies it; the tooltip lists its phrases
+                        local pools = {
+                            { list = AutoSay.Greetings,  header = "Greetings" },
+                            { list = AutoSay.Goodbyes,   header = "Goodbyes" },
+                            { list = AutoSay.Reconnects, header = "Reconnects" },
+                        }
+                        for i, style in ipairs(AutoSay.MessageStyles) do
+                            local lines = {}
+                            for _, pool in ipairs(pools) do
+                                local texts = {}
+                                for _, msg in ipairs(pool.list) do
+                                    if msg.style == style then texts[#texts + 1] = msg.text end
                                 end
-                                return values
-                            end)(),
-                            sorting = AutoSay.MessageStyles,
-                            get = function() return selectedStyle end,
-                            set = function(_, v) selectedStyle = v end,
-                        },
-                        replace = {
-                            type = "toggle", order = 3, width = 1.5,
-                            name = L["Replace current selection"],
-                            desc = L["Replace current selection desc"],
-                            get = function() return replaceOnApply end,
-                            set = function(_, v) replaceOnApply = v end,
-                        },
-                        apply = {
-                            type = "execute", order = 4, width = 1.0,
-                            name = L["Apply bundle"],
-                            confirm = true,
-                            confirmText = L["Apply this bundle to all channels?"],
-                            func = function() Addon:ApplyStyleBundle(selectedStyle, replaceOnApply) end,
-                        },
-                    },
+                                if #texts > 0 then
+                                    lines[#lines + 1] = "|cFFFFD100" .. L[pool.header] .. ":|r " .. table.concat(texts, "  |cFF555555/|r  ")
+                                end
+                            end
+                            args["bundle_" .. style] = {
+                                type = "execute", order = 10 + i, width = 0.9,
+                                name = L["Style " .. style],
+                                desc = table.concat(lines, "\n"),
+                                confirm = true,
+                                confirmText = L["Apply this bundle to all channels?"],
+                                func = function() Addon:ApplyStyleBundle(style, replaceOnApply) end,
+                            }
+                        end
+                        return args
+                    end)(),
                 },
                 timeOfDay = {
                     type = "toggle", order = 2, width = "full",
