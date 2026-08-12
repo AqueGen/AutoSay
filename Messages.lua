@@ -25,6 +25,17 @@ AutoSay.Greetings = {
     { key = "hiya", text = "Hiya!" },
     { key = "yoyo", text = "Yo yo!" },
     { key = "hellothere", text = "Hello there!" },
+    -- Time-of-day phrases: only picked while the local hour is in their band
+    { key = "morning", text = "morning!", band = "morning" },
+    { key = "goodmorningall", text = "good morning all", band = "morning" },
+    { key = "morningwave", text = "morning o/", band = "morning" },
+    { key = "evening", text = "evening!", band = "evening" },
+    { key = "goodevening", text = "good evening", band = "evening" },
+    { key = "eveningall", text = "evening all o/", band = "evening" },
+    { key = "lateone", text = "hi, late one o/", band = "night" },
+    { key = "laterun", text = "heya, late run", band = "night" },
+    { key = "uplate", text = "up late too? hi", band = "night" },
+    { key = "nightowls", text = "night owls unite o/", band = "night" },
     -- Style bundles (never enabled by default, activated by bundle or by hand)
     { key = "fun_o7", text = "o7", style = "fun" },
     { key = "fun_wildgroup", text = "a wild group appears", style = "fun" },
@@ -78,6 +89,11 @@ AutoSay.Goodbyes = {
     { key = "gn", text = "GN!" },
     { key = "bb", text = "BB!" },
     { key = "laterall", text = "Later all!" },
+    -- Time-of-day phrases: only picked while the local hour is in their band
+    { key = "eveningbye", text = "have a good evening", band = "evening" },
+    { key = "gnall", text = "gn all", band = "night" },
+    { key = "goodnightall", text = "good night everyone", band = "night" },
+    { key = "sleepwell", text = "gn, sleep well", band = "night" },
     -- Style bundles (never enabled by default, activated by bundle or by hand)
     { key = "fun_hearthstone", text = "gtg, my hearthstone is calling", style = "fun" },
     { key = "fun_afkirl", text = "afk irl, bye o/", style = "fun" },
@@ -224,24 +240,4 @@ AutoSay.CompletionDepleted = {
     { key = "wpall", text = "wp all" },
     { key = "done", text = "{dungeon} {key} done, gg" },
     { key = "tyfun", text = "ty all, was fun" },
-}
-
--- Time-of-day greeting extras, mixed into the universal pool by local hour
-AutoSay.GreetingsTimeOfDay = {
-    morning = {
-        { key = "morning", text = "morning!" },
-        { key = "goodmorningall", text = "good morning all" },
-        { key = "morningwave", text = "morning o/" },
-    },
-    evening = {
-        { key = "evening", text = "evening!" },
-        { key = "goodevening", text = "good evening" },
-        { key = "eveningall", text = "evening all o/" },
-    },
-    night = {
-        { key = "lateone", text = "hi, late one o/" },
-        { key = "laterun", text = "heya, late run" },
-        { key = "uplate", text = "up late too? hi" },
-        { key = "nightowls", text = "night owls unite o/" },
-    },
 }

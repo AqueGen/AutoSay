@@ -24,7 +24,9 @@ local shownStyle = {}
 
 -- Checkbox label for a preset message: style bundle phrases carry a grey [style] / [style, tag] suffix.
 -- Inside its own style group the style word is redundant, so only the secondary tag is shown.
+-- Time-of-day phrases have no style word, just their band: [morning] / [evening] / [night].
 local function PresetLabel(msg, ownStyleGroup)
+    if msg.band then return msg.text .. " |cFF888888[" .. msg.band .. "]|r" end
     if not msg.style then return msg.text end
     local tag = ownStyleGroup and "" or msg.style
     local extra
@@ -49,12 +51,13 @@ local function BuildMessagePicker(poolId, pool, tableFn)
 
     local byStyle = { classic = {} }
     for _, msg in ipairs(pool) do
-        local style = msg.style or "classic"
+        local style = msg.style or (msg.band and "timeofday") or "classic"
         byStyle[style] = byStyle[style] or {}
         table.insert(byStyle[style], msg)
     end
 
     local styles = { "classic" }
+    if byStyle.timeofday then styles[#styles + 1] = "timeofday" end
     for _, style in ipairs(AutoSay.MessageStyles) do
         if byStyle[style] then styles[#styles + 1] = style end
     end
@@ -65,7 +68,14 @@ local function BuildMessagePicker(poolId, pool, tableFn)
     local order = 1
     for _, style in ipairs(styles) do
         local entries = byStyle[style]
-        local label = style == "classic" and L["Classic"] or NewTag(L["Style " .. style], "1.6")
+        local label
+        if style == "classic" then
+            label = L["Classic"]
+        elseif style == "timeofday" then
+            label = NewTag(L["Time of day"], "1.6")
+        else
+            label = NewTag(L["Style " .. style], "1.6")
+        end
 
         -- Pools without style phrases (guild login greetings) get a plain list, no accordion
         if #styles > 1 then
@@ -97,7 +107,9 @@ local function BuildMessagePicker(poolId, pool, tableFn)
                 name = PresetLabel(msg, msg.style ~= nil),
                 order = order,
                 width = 1.0,
-                hidden = function() return #styles > 1 and not open[msg.style or "classic"] end,
+                hidden = function()
+                    return #styles > 1 and not open[msg.style or (msg.band and "timeofday") or "classic"]
+                end,
                 get = function() return tableFn()[msg.key] end,
                 set = function(_, val) tableFn()[msg.key] = val end,
             }
@@ -800,44 +812,12 @@ local options = {
                 timeOfDay = {
                     type = "toggle", order = 2, width = "full",
                     name = L["Time-of-day greetings"],
-                    desc = L["Mix in morning/evening phrases by local time"],
+                    desc = L["Time-of-day greetings desc"],
                     get = function() return Addon.db.profile.social.timeOfDay end,
                     set = function(_, v)
                         Addon.db.profile.social.timeOfDay = v
                         LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
                     end,
-                },
-                timeOfDayPhrases = {
-                    type = "group", order = 3, inline = true,
-                    name = NewTag(L["Time-of-day phrases"], "1.6"),
-                    hidden = function() return not Addon.db.profile.social.timeOfDay end,
-                    args = (function()
-                        local args = {}
-                        local order = 1
-                        for _, band in ipairs({
-                            { key = "morning", label = L["Morning (05-11)"] },
-                            { key = "evening", label = L["Evening (17-23)"] },
-                            { key = "night",   label = L["Night (23-05)"] },
-                        }) do
-                            args[band.key .. "Header"] = {
-                                type = "description", order = order,
-                                name = "|cFFFFD100" .. band.label .. "|r",
-                                fontSize = "medium",
-                            }
-                            order = order + 1
-                            for _, entry in ipairs(AutoSay.GreetingsTimeOfDay[band.key] or {}) do
-                                local key = entry.key
-                                args[band.key .. "_" .. key] = {
-                                    type = "toggle", order = order, width = 1.2,
-                                    name = '"' .. entry.text .. '"',
-                                    get = function() return Addon.db.profile.social.enabledTimeOfDay[key] end,
-                                    set = function(_, v) Addon.db.profile.social.enabledTimeOfDay[key] = v end,
-                                }
-                                order = order + 1
-                            end
-                        end
-                        return args
-                    end)(),
                 },
                 tone = {
                     type = "group", order = 4, inline = true,

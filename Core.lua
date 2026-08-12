@@ -52,6 +52,17 @@ local defaultGreetings = {
     hiya = false,
     yoyo = false,
     hellothere = false,
+    -- Time-of-day phrases: on by default, gated by social.timeOfDay and the local hour
+    morning = true,
+    goodmorningall = true,
+    morningwave = true,
+    evening = true,
+    goodevening = true,
+    eveningall = true,
+    lateone = true,
+    laterun = true,
+    uplate = true,
+    nightowls = true,
 }
 
 -- Default enabled goodbyes
@@ -69,6 +80,11 @@ local defaultGoodbyes = {
     gn = false,
     bb = false,
     laterall = false,
+    -- Time-of-day phrases: on by default, gated by social.timeOfDay and the local hour
+    eveningbye = true,
+    gnall = true,
+    goodnightall = true,
+    sleepwell = true,
 }
 
 -- Default enabled reconnect messages
@@ -257,9 +273,6 @@ local defaults = {
             listen = true,
             typingDelay = true,
             timeOfDay = true,
-            enabledTimeOfDay = {
-                ["*"] = true, -- AceDB wildcard: every phrase key defaults to enabled
-            },
             lowercaseFirst = false,
             guildGrats = false,
             guildWelcome = false,
@@ -859,10 +872,11 @@ function Addon:GetChannelSettings(channel)
     return nil
 end
 
--- Style bundle phrases can be tagged with a role/faction - skip the ones that do not fit the player
-local function FitsPlayer(msg, role, faction)
+-- Preset phrases can be tagged with a role/faction/time-of-day band - skip the ones that do not fit right now
+local function FitsContext(msg, role, faction, band)
     if msg.role and msg.role ~= role then return false end
     if msg.faction and msg.faction ~= faction then return false end
+    if msg.band and msg.band ~= band then return false end
     return true
 end
 
@@ -894,8 +908,11 @@ function Addon:GetRandomMessageForChannel(messageType, channel)
     if settings[enabledKey] then
         local role = self:GetPlayerRoleOrTest()
         local faction = UnitFactionGroup("player")
+        -- nil band = band-tagged phrases never match, i.e. the master switch is off
+        local band = self.db.profile.social.timeOfDay
+            and AutoSay.Humanizer.BandForHour(tonumber(date("%H"))) or nil
         for _, msg in ipairs(messages) do
-            if settings[enabledKey][msg.key] and FitsPlayer(msg, role, faction) then
+            if settings[enabledKey][msg.key] and FitsContext(msg, role, faction, band) then
                 table.insert(enabled, msg.text)
             end
         end
@@ -914,33 +931,11 @@ function Addon:GetRandomMessageForChannel(messageType, channel)
         return nil
     end
 
-    if messageType == "greetings" and self.db.profile.social.timeOfDay and self.humanizer then
-        return self.humanizer:PickTimed("greetings:" .. channel, enabled, self:GetEnabledTimeOfDayBands())
-    end
-
     if self.humanizer then
         return self.humanizer:Pick(messageType .. ":" .. channel, enabled)
     end
 
     return enabled[math.random(#enabled)]
-end
-
--- Filter the time-of-day phrase pools by the per-phrase toggles (plain text lists for PickTimed)
-function Addon:GetEnabledTimeOfDayBands()
-    local enabledKeys = self.db.profile.social.enabledTimeOfDay
-    local bands = {}
-    for band, entries in pairs(AutoSay.GreetingsTimeOfDay) do
-        local list = {}
-        for _, entry in ipairs(entries) do
-            if enabledKeys[entry.key] then
-                list[#list + 1] = entry.text
-            end
-        end
-        if #list > 0 then
-            bands[band] = list
-        end
-    end
-    return bands
 end
 
 -- Pools a style bundle can toggle (channels without a pool are skipped)
@@ -982,7 +977,8 @@ function Addon:ApplyStyleBundle(style, replace, state)
                 for _, msg in ipairs(AutoSay[pool.messages]) do
                     if msg.style == style then
                         enabled[msg.key] = state
-                    elseif replace and state then
+                    elseif replace and state and not msg.band then
+                        -- Band phrases are not shown in this UI - Replace must not silently kill them
                         enabled[msg.key] = false
                     end
                 end
