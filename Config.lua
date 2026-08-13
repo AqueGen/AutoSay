@@ -980,8 +980,16 @@ local function BuildOptions()
                         if wasTestMode then
                             Addon:TestReset() -- bumps sendGeneration itself
                         else
-                            -- Still invalidate delayed sends built before the reset
+                            -- Still invalidate delayed sends built before the reset. The
+                            -- guild-login batch cannot rely on its own stale-generation
+                            -- clear (a NEW login would cancel that timer and inherit the
+                            -- names), so drop the batch here explicitly.
                             Addon.state.sendGeneration = Addon.state.sendGeneration + 1
+                            if Addon.state.guildLoginTimer then
+                                Addon:CancelTimer(Addon.state.guildLoginTimer)
+                                Addon.state.guildLoginTimer = nil
+                            end
+                            Addon.state.pendingGuildLogins = {}
                         end
                         Addon:InvalidateBundleCache()
                         LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
