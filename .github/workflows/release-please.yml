@@ -20,33 +20,20 @@ jobs:
         id: release
         uses: googleapis/release-please-action@v4
 
-  # The tag release-please pushes uses GITHUB_TOKEN, so it never triggers
-  # another workflow. Packaging has to happen in this run instead.
+  # A tag pushed with GITHUB_TOKEN does not start a workflow, so packaging
+  # cannot wait for a tag-push run. Packaging in this run does not work either:
+  # the packager reads the real GITHUB_REF (refs/heads/main here, and step-level
+  # env cannot override a reserved GITHUB_* variable) and skips with
+  # "Found future tag". workflow_dispatch is the one event GITHUB_TOKEN may
+  # still start, and dispatching on the tag gives the packager a tag ref.
   package:
     needs: release-please
     if: needs.release-please.outputs.releases_created == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
     steps:
-      - name: Checkout the new tag
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
-          fetch-depth: 0
-
-      - name: Extract release notes for this version
-        run: |
-          awk '/^## \[/ { if (seen) exit; seen = 1 } seen' CHANGELOG.md > RELEASE_NOTES.md
-          cat RELEASE_NOTES.md
-
-      - name: Package and Release
-        uses: BigWigsMods/packager@v2
+      - name: Dispatch packaging on the new tag
         env:
-          CF_API_KEY: ${{ secrets.CF_API_KEY }}
-          WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
-          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
-          # The workflow runs on a branch push, so GITHUB_REF is refs/heads/main.
-          # The packager then sees a tag on HEAD and skips with "Found future tag",
-          # expecting a tag-push run that never comes (GITHUB_TOKEN pushes do not
-          # trigger workflows). Override the ref so it packages as a tag build.
-          GITHUB_REF: refs/tags/${{ needs.release-please.outputs.tag_name }}
-          GITHUB_REF_NAME: ${{ needs.release-please.outputs.tag_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "${{ needs.release-please.outputs.tag_name }}"
