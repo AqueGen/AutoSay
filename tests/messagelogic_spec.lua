@@ -1,0 +1,326 @@
+require("tests.wow_stub")
+local Logic = require("MessageLogic")
+
+describe("CleanupAfterTokenStrip", function()
+  local f = Logic.CleanupAfterTokenStrip
+  it("collapses comma runs from adjacent stripped tokens", function()
+    assert.equals("a, b", f("a, , , b"))
+  end)
+  it("removes a leading comma", function()
+    assert.equals("hi", f(", hi"))
+  end)
+  it("removes a trailing comma", function()
+    assert.equals("bye", f("bye, "))
+  end)
+  it("collapses double spaces and space before punctuation", function()
+    assert.equals("hi!", f("hi  !"))
+    assert.equals("go go!", f("go  go !"))
+  end)
+  it("is idempotent (M+ messages are polished twice)", function()
+    local once = f("gg, , wp , !")
+    assert.equals(once, f(once))
+  end)
+  it("leaves a clean message alone", function()
+    assert.equals("hello there, friend!", f("hello there, friend!"))
+  end)
+end)
+
+describe("StripTokens", function()
+  local tokens = { "{dungeon}", "{key}", "{upgrade}", "{time}" }
+  local f = function(s) return Logic.StripTokens(s, tokens) end
+  it("strips a mid-sentence token with its introducing comma", function()
+    assert.equals("go now", f("go, {key} now"))
+  end)
+  it("takes a leading token's trailing punctuation with it", function()
+    assert.equals("here we go", f("{key}! here we go"))
+    assert.equals("hi", f("{dungeon}? hi"))
+  end)
+  it("strips adjacent tokens without leaving debris", function()
+    assert.equals("done", f("{dungeon} {key} done"))
+  end)
+  it("strips a token-only message to empty", function()
+    assert.equals("", f("{dungeon} {key}"))
+  end)
+  it("strips a trailing token", function()
+    assert.equals("time was", f("time was {time}"))
+  end)
+end)
+
+describe("StripNameSlot", function()
+  local f = Logic.StripNameSlot
+  it("drops the slot and its introducing comma", function()
+    assert.equals("welcome <3", f("welcome, {names} <3"))
+  end)
+  it("drops a trailing slot cleanly", function()
+    assert.equals("welcome!", f("welcome {names}!"))
+  end)
+  it("drops a leading slot cleanly", function()
+    assert.equals("says hi", f("{names} says hi"))
+  end)
+  it("leaves slotless text alone", function()
+    assert.equals("hello", f("hello"))
+  end)
+end)
+
+describe("TruncateToChatLimit", function()
+  local f = Logic.TruncateToChatLimit
+  it("leaves short messages alone", function()
+    assert.equals("hi", f("hi"))
+    local exact = string.rep("a", 255)
+    assert.equals(exact, f(exact))
+  end)
+  it("cuts ASCII at 252 plus ellipsis", function()
+    local long = string.rep("a", 300)
+    local out = f(long)
+    assert.equals(255, #out)
+    assert.equals(string.rep("a", 252) .. "...", out)
+  end)
+  it("never cuts inside a UTF-8 sequence", function()
+    -- Cyrillic "я" is 2 bytes: 150 of them = 300 bytes, byte 252 is a continuation byte
+    local long = string.rep("\209\143", 150)
+    local out = f(long)
+    assert.is_true(#out <= 255)
+    -- Every byte pair must decode: no orphan lead/continuation byte before the ellipsis
+    local body = out:sub(1, -4)
+    assert.equals(0, #body % 2)
+    for i = 1, #body, 2 do
+      assert.equals(0xD1, body:byte(i))
+      assert.equals(0x8F, body:byte(i + 1))
+    end
+  end)
+  it("drops a complete multibyte char when its tail does not fit", function()
+    -- 251 ASCII + one 3-byte char: bytes 252-254 are the sequence, byte 252 is its lead
+    local msg = string.rep("a", 251) .. "\226\130\172" .. string.rep("b", 10)
+    local out = f(msg)
+    assert.equals(string.rep("a", 251) .. "...", out)
+  end)
+end)
+
+describe("FitsContext", function()
+  local f = Logic.FitsContext
+  local function msg(t)
+    t.text = t.text or "hello"
+    return t
+  end
+  it("rejects any role-tagged phrase when the master switch is off", function()
+    assert.is_false(f(msg{ role = "TANK" }, "TANK", nil, nil, "self_join", false))
+    assert.is_false(f(msg{ text = "{role} here" }, "TANK", nil, nil, "self_join", false))
+  end)
+  it("matches role tags against the current role", function()
+    assert.is_true(f(msg{ role = "TANK" }, "TANK", nil, nil, "self_join", true))
+    assert.is_false(f(msg{ role = "TANK" }, "HEALER", nil, nil, "self_join", true))
+  end)
+  it("rejects {role} phrases with no assigned role", function()
+    assert.is_false(f(msg{ text = "{role} here" }, "NONE", nil, nil, "self_join", true))
+  end)
+  it("matches faction tags", function()
+    assert.is_true(f(msg{ faction = "Horde" }, nil, "Horde", nil, "self_join", true))
+    assert.is_false(f(msg{ faction = "Horde" }, nil, "Alliance", nil, "self_join", true))
+    assert.is_false(f(msg{ faction = "Horde" }, nil, nil, nil, "self_join", true))
+  end)
+  it("matches band tags, and nil band rejects every band phrase", function()
+    assert.is_true(f(msg{ band = "night" }, nil, nil, "night", "self_join", true))
+    assert.is_false(f(msg{ band = "night" }, nil, nil, "morning", "self_join", true))
+    assert.is_false(f(msg{ band = "night" }, nil, nil, nil, "self_join", true))
+  end)
+  it("nil reason accepts only untagged phrases", function()
+    assert.is_true(f(msg{}, nil, nil, nil, nil, true))
+    assert.is_false(f(msg{ trigger = "self" }, nil, nil, nil, nil, true))
+    assert.is_false(f(msg{ trigger = "others" }, nil, nil, nil, nil, true))
+  end)
+  it("routes triggers by reason", function()
+    assert.is_true(f(msg{ trigger = "others" }, nil, nil, nil, "others_join", true))
+    assert.is_false(f(msg{ trigger = "others" }, nil, nil, nil, "self_join", true))
+    assert.is_true(f(msg{ trigger = "self" }, nil, nil, nil, "self_join", true))
+    assert.is_true(f(msg{ trigger = "self" }, nil, nil, nil, "reconnect", true))
+    assert.is_false(f(msg{ trigger = "self" }, nil, nil, nil, "others_join", true))
+  end)
+  it("accepts an untagged phrase under any reason", function()
+    assert.is_true(f(msg{}, "NONE", "Horde", nil, "others_join", false))
+  end)
+end)
+
+describe("NameMode", function()
+  it("detects slot, append and none", function()
+    assert.equals("slot", Logic.NameMode({ text = "welcome {names}!" }))
+    assert.equals("append", Logic.NameMode({ text = "welcome!", appendNames = true }))
+    assert.is_nil(Logic.NameMode({ text = "welcome!" }))
+  end)
+end)
+
+describe("FormatNameList / AddPlayersToMessage", function()
+  it("joins up to four names", function()
+    assert.equals("A, B", Logic.FormatNameList({ "A", "B" }))
+    assert.equals("A, B, C, D", Logic.FormatNameList({ "A", "B", "C", "D" }))
+  end)
+  it("caps at four names plus a count", function()
+    assert.equals("A, B, C, D +2", Logic.FormatNameList({ "A", "B", "C", "D", "E", "F" }))
+  end)
+  it("returns the message untouched without a mode or names", function()
+    assert.equals("hi", Logic.AddPlayersToMessage("hi", { "A" }, nil))
+    assert.equals("hi", Logic.AddPlayersToMessage("hi", {}, "append"))
+    assert.equals("hi", Logic.AddPlayersToMessage("hi", nil, "append"))
+  end)
+  it("fills the slot in place", function()
+    assert.equals("welcome A, B!", Logic.AddPlayersToMessage("welcome {names}!", { "A", "B" }, "slot"))
+  end)
+  it("appends to the end", function()
+    assert.equals("welcome A", Logic.AddPlayersToMessage("welcome", { "A" }, "append"))
+  end)
+end)
+
+describe("SameKey", function()
+  local f = Logic.SameKey
+  it("is false when either side is missing", function()
+    assert.is_false(f(nil, { level = 10 }))
+    assert.is_false(f({ level = 10 }, nil))
+  end)
+  it("compares levels first", function()
+    assert.is_false(f({ level = 10, mapID = 1 }, { level = 12, mapID = 1 }))
+  end)
+  it("decides by map id when both sides have one", function()
+    assert.is_true(f({ level = 10, mapID = 588 }, { level = 10, mapID = 588 }))
+    assert.is_false(f({ level = 10, mapID = 588, dungeon = "X" }, { level = 10, mapID = 400, dungeon = "X" }))
+  end)
+  it("falls back to the dungeon name when a map id is missing", function()
+    assert.is_true(f({ level = 10, dungeon = "Ara-Kara" }, { level = 10, mapID = 588, dungeon = "Ara-Kara" }))
+    assert.is_false(f({ level = 10, dungeon = "Ara-Kara" }, { level = 10, dungeon = "Dawnbreaker" }))
+  end)
+  it("matches nil levels (includeKeyLevel off on both paths)", function()
+    assert.is_true(f({ mapID = 588 }, { mapID = 588 }))
+  end)
+end)
+
+describe("StyleFits", function()
+  local f = Logic.StyleFits
+  it("matches style with no faction tag", function()
+    assert.is_true(f({ style = "fun" }, "fun", "Horde"))
+  end)
+  it("matches style with the same faction", function()
+    assert.is_true(f({ style = "faction", faction = "Horde" }, "faction", "Horde"))
+  end)
+  it("rejects the other faction and other styles", function()
+    assert.is_false(f({ style = "faction", faction = "Horde" }, "faction", "Alliance"))
+    assert.is_false(f({ style = "dark" }, "fun", "Horde"))
+  end)
+end)
+
+describe("VersionMatchesMinor", function()
+  local f = Logic.VersionMatchesMinor
+  it("matches the minor and its patches", function()
+    assert.is_true(f("1.6", "1.6"))
+    assert.is_true(f("1.6.2", "1.6"))
+  end)
+  it("does not prefix-match into other versions", function()
+    assert.is_false(f("1.60.0", "1.6"))
+    assert.is_false(f("11.6.0", "1.6"))
+    assert.is_false(f("1.16.0", "1.6"))
+    assert.is_false(f("1.7.0", "1.6"))
+    assert.is_false(f("2.0.0", "1.6"))
+  end)
+  it("never matches an unpackaged build", function()
+    assert.is_false(f("", "1.6"))
+    assert.is_false(f(nil, "1.6"))
+  end)
+end)
+
+describe("NewestVersion", function()
+  local f = Logic.NewestVersion
+  it("picks the numerically newest minor", function()
+    assert.equals("1.6", f({ ["1.5"] = {}, ["1.6"] = {} }))
+    assert.equals("1.10", f({ ["1.10"] = {}, ["1.9"] = {} }))
+  end)
+  it("handles a single entry and an empty table", function()
+    assert.equals("1.6", f({ ["1.6"] = {} }))
+    assert.is_nil(f({}))
+  end)
+end)
+
+describe("MigrateInstanceChannel", function()
+  local function freshProfile()
+    return {
+      party = {
+        enabled = true, onSelfJoin = false, onOthersJoin = true,
+        onOthersJoinLeaderOnly = true, includeNames = false,
+        includeGroupNames = true, sendGoodbye = false,
+        enabledGreetings = { hi = true, hello = false },
+        enabledGoodbyes = { bye = true },
+        customGreetings = { { text = "gl hf all", enabled = true } },
+        customGoodbyes = nil,
+      },
+      instance = {
+        enabled = false, onSelfJoin = true,
+        enabledGreetings = { hi = false },
+        enabledGoodbyes = {},
+      },
+    }
+  end
+
+  it("copies toggles and phrase selections from party", function()
+    local p = freshProfile()
+    assert.is_true(Logic.MigrateInstanceChannel(p))
+    assert.is_true(p.instance.enabled)
+    assert.is_false(p.instance.onSelfJoin)
+    assert.is_true(p.instance.onOthersJoinLeaderOnly)
+    assert.is_true(p.instance.enabledGreetings.hi)
+    assert.is_false(p.instance.enabledGreetings.hello)
+    assert.is_true(p.instance.enabledGoodbyes.bye)
+    assert.equals("gl hf all", p.instance.customGreetings[1].text)
+    assert.is_true(p.instanceMigrated)
+  end)
+
+  it("clones tables instead of sharing them", function()
+    local p = freshProfile()
+    Logic.MigrateInstanceChannel(p)
+    p.instance.enabledGreetings.hi = false
+    p.instance.customGreetings[1].text = "changed"
+    assert.is_true(p.party.enabledGreetings.hi)
+    assert.equals("gl hf all", p.party.customGreetings[1].text)
+  end)
+
+  it("is a no-op once stamped", function()
+    local p = freshProfile()
+    p.instanceMigrated = true
+    assert.is_false(Logic.MigrateInstanceChannel(p))
+    assert.is_false(p.instance.enabled)
+    assert.is_true(p.instance.onSelfJoin)
+  end)
+
+  it("survives absent custom lists", function()
+    local p = freshProfile()
+    p.party.customGreetings = nil
+    Logic.MigrateInstanceChannel(p)
+    assert.is_nil(p.instance.customGreetings)
+    assert.is_nil(p.instance.customGoodbyes)
+  end)
+end)
+
+describe("MigrateKeyLevelMode", function()
+  it("lifts withlevel and smart to includeKeyLevel", function()
+    for _, mode in ipairs({ "withlevel", "smart" }) do
+      local mplus = { messageMode = mode }
+      assert.is_true(Logic.MigrateKeyLevelMode(mplus))
+      assert.is_true(mplus.includeKeyLevel)
+      assert.is_nil(mplus.messageMode)
+      assert.is_true(mplus.keyLevelMigrated)
+    end
+  end)
+  it("leaves includeKeyLevel alone for basic and for a stripped default", function()
+    for _, mode in ipairs({ "basic" }) do
+      local mplus = { messageMode = mode }
+      assert.is_false(Logic.MigrateKeyLevelMode(mplus))
+      assert.is_nil(mplus.includeKeyLevel)
+      assert.is_true(mplus.keyLevelMigrated)
+    end
+    local mplus = {}
+    assert.is_false(Logic.MigrateKeyLevelMode(mplus))
+    assert.is_nil(mplus.includeKeyLevel)
+    assert.is_true(mplus.keyLevelMigrated)
+  end)
+  it("is a no-op once stamped", function()
+    local mplus = { keyLevelMigrated = true, messageMode = "withlevel" }
+    assert.is_false(Logic.MigrateKeyLevelMode(mplus))
+    assert.is_nil(mplus.includeKeyLevel)
+    assert.equals("withlevel", mplus.messageMode)
+  end)
+end)

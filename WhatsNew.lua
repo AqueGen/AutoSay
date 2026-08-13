@@ -35,15 +35,7 @@ local WHATS_NEW = {
 
 -- Newest entry in the table, for the preview path on a build with no notes of its own
 local function NewestVersion()
-    local newest, newestValue
-    for version in pairs(WHATS_NEW) do
-        local major, minor = version:match("^(%d+)%.(%d+)$")
-        local value = (tonumber(major) or 0) * 1000 + (tonumber(minor) or 0)
-        if not newestValue or value > newestValue then
-            newest, newestValue = version, value
-        end
-    end
-    return newest
+    return AutoSay.MessageLogic.NewestVersion(WHATS_NEW)
 end
 
 -- One frame per version rendered, built on demand; a frame cannot be thrown away once created

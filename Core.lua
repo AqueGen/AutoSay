@@ -7,6 +7,16 @@ local L = LibStub("AceLocale-3.0"):GetLocale(ADDON_NAME)
 -- Version (replaced by packager with git tag)
 Addon.version = "@project-version@"
 
+-- Pure string/table logic lives in MessageLogic.lua (headless-testable); alias what this file uses
+local Logic = AutoSay.MessageLogic
+local CleanupAfterTokenStrip = Logic.CleanupAfterTokenStrip
+local TruncateToChatLimit = Logic.TruncateToChatLimit
+local FitsContext = Logic.FitsContext
+local StripNameSlot = Logic.StripNameSlot
+local NameMode = Logic.NameMode
+local SameKey = Logic.SameKey
+local StyleFits = Logic.StyleFits
+
 -- Debug print helper
 function Addon:DebugPrint(...)
     if self.db and self.db.profile.debugMode and self.db.profile.testMode then
@@ -459,51 +469,15 @@ end
 -- Only the active profile is migrated - the addon registers no AceDB profile callbacks, so a
 -- profile switched to later keeps its own (defaults-equal) instance settings.
 function Addon:MigrateInstanceChannel()
-    local profile = self.db.profile
-    if profile.instanceMigrated then return end
-
-    local party, instance = profile.party, profile.instance
-    instance.enabled = party.enabled
-    instance.onSelfJoin = party.onSelfJoin
-    instance.onOthersJoin = party.onOthersJoin
-    instance.onOthersJoinLeaderOnly = party.onOthersJoinLeaderOnly
-    instance.includeNames = party.includeNames
-    instance.includeGroupNames = party.includeGroupNames
-    instance.sendGoodbye = party.sendGoodbye
-    -- The phrase selection too: LFG groups used to speak with the party phrases, so a user
-    -- who narrowed those down (or lives off custom lines) must not get the stock set back.
-    -- Entry tables are cloned, not shared - an edit on one channel must not leak into the other.
-    if party.enabledGreetings then instance.enabledGreetings = DeepCopy(party.enabledGreetings) end
-    if party.enabledGoodbyes then instance.enabledGoodbyes = DeepCopy(party.enabledGoodbyes) end
-    local function CloneCustoms(list)
-        if not list then return nil end
-        local copy = {}
-        for i, entry in ipairs(list) do
-            copy[i] = { text = entry.text, enabled = entry.enabled }
-        end
-        return copy
+    if Logic.MigrateInstanceChannel(self.db.profile) then
+        self:DebugPrint("Instance channel seeded from party settings")
     end
-    instance.customGreetings = CloneCustoms(party.customGreetings)
-    instance.customGoodbyes = CloneCustoms(party.customGoodbyes)
-
-    profile.instanceMigrated = true
-    self:DebugPrint("Instance channel seeded from party settings")
 end
 
--- "basic"/"withlevel"/"smart" collapsed into one toggle. Only "withlevel"/"smart" asked for
--- a level, so only those lift the (now false) default. A missing messageMode means "basic":
--- AceDB strips values equal to the default, and "basic" was that default.
 function Addon:MigrateKeyLevelMode()
-    local mplus = self.db.profile.mythicplus
-    if mplus.keyLevelMigrated then return end
-
-    if mplus.messageMode == "withlevel" or mplus.messageMode == "smart" then
-        mplus.includeKeyLevel = true
-        self:DebugPrint("Key level mode migrated from", mplus.messageMode, "- includeKeyLevel = true")
+    if Logic.MigrateKeyLevelMode(self.db.profile.mythicplus) then
+        self:DebugPrint("Key level mode migrated - includeKeyLevel = true")
     end
-    mplus.messageMode = nil
-
-    mplus.keyLevelMigrated = true
 end
 
 function Addon:OnEnable()
@@ -924,21 +898,6 @@ function Addon:SendMessageToChat(message, channel, target, keepCase)
     return true
 end
 
--- A stripped token can leave punctuation debris in any position: "departs, " (comma before),
--- ", here we go" (comma after a leading token), "gg, , wp" (comma on both sides). Sweep it all.
-local function CleanupAfterTokenStrip(message)
-    -- Adjacent stripped tokens leave a run of commas, and one pass only halves it
-    -- ("a, , , b"), so collapse until there is nothing left to collapse
-    local n = 1
-    while n > 0 do
-        message, n = message:gsub("%s*,%s*,", ",")
-    end
-    message = message:gsub("^[%s,]+", "")       -- leading comma from a stripped leading token
-    message = message:gsub("[%s,]+$", "")       -- trailing comma from a stripped trailing token
-    message = message:gsub("  +", " "):gsub("%s+([!?.,])", "%1")
-    return message
-end
-
 -- Final polish applied to every outgoing message: {role} placeholder, leftover M+ tokens,
 -- and the optional lowercase first letter (skipped for keepCase phrases, e.g. "Lok'tar ogar!")
 -- (%a is ASCII-only on purpose, so UTF-8 custom messages are left alone)
@@ -946,14 +905,8 @@ function Addon:PolishMessage(message, keepCase)
     if not message then return nil end
     message = message:gsub("{role}", self:GetRoleWord())
     -- M+ placeholders only the M+ path can resolve - a custom greeting/goodbye using them
-    -- would otherwise ship the raw token to chat. A leading token takes its trailing
-    -- punctuation with it ("{key}! here we go" -> "here we go", not "! here we go"),
-    -- elsewhere the introducing comma goes with the token.
-    for _, token in ipairs(AutoSay.MPlusTokens) do
-        message = message:gsub("^%s*" .. token .. "[%s!?.,]*", "")
-        message = message:gsub(",?%s*" .. token, "")
-    end
-    message = CleanupAfterTokenStrip(message)
+    -- would otherwise ship the raw token to chat
+    message = Logic.StripTokens(message, AutoSay.MPlusTokens)
     if self.db.profile.social.lowercaseFirst and not keepCase then
         message = message:gsub("^%a", string.lower)
     end
@@ -963,22 +916,6 @@ end
 -- Chat colour per channel for the test-mode "would send" line
 local ChannelColor = {}
 for _, c in ipairs(AutoSay.Channels) do ChannelColor[c.chat] = c.color end
-
--- SendChatMessage rejects anything over 255 bytes: cut to 252 + "...", never inside a UTF-8 sequence
-local function TruncateToChatLimit(message)
-    if #message <= 255 then return message end
-    local cut = 252
-    while cut > 0 do
-        local b = message:byte(cut)
-        if b >= 0x80 and b < 0xC0 then
-            cut = cut - 1 -- continuation byte, walk back to the lead byte
-        else
-            if b >= 0xC0 then cut = cut - 1 end -- lead byte of a sequence that no longer fits
-            break
-        end
-    end
-    return message:sub(1, cut) .. "..."
-end
 
 function Addon:DoSendMessage(message, channel, target, keepCase)
     if not message then
@@ -1090,39 +1027,6 @@ function Addon:GetChannelSettings(channel)
     for _, c in ipairs(AutoSay.Channels) do
         if c.chat == channel then return self.db.profile[c.key] end
     end
-    return nil
-end
-
--- Preset phrases can be tagged with a role/faction/time-of-day band/trigger - skip the ones that do not fit right now
-local function FitsContext(msg, role, faction, band, reason, rolePhrases)
-    -- Master switch: every tag has its filter, and this one gates the role tag and {role}
-    if not rolePhrases and (msg.role or msg.text:find("{role}", 1, true)) then return false end
-    if msg.role and msg.role ~= role then return false end
-    -- No assigned role: a {role} phrase would confidently announce "dps" for an unassigned tank
-    if role == "NONE" and msg.text:find("{role}", 1, true) then return false end
-    if msg.faction and msg.faction ~= faction then return false end
-    if msg.band and msg.band ~= band then return false end
-    -- Reason-less paths (guild login/logout, group goodbye) have no join to talk about,
-    -- so a phrase written for one ("tank here, pull respectfully") never fits them
-    if reason == nil then return msg.trigger == nil end
-    -- Anything that is not someone else joining (self join, reconnect, guild login) counts as "self"
-    if msg.trigger == "others" and reason ~= "others_join" then return false end
-    if msg.trigger == "self" and reason == "others_join" then return false end
-    return true
-end
-
--- Names-carrying phrase with no names to carry: drop the slot instead of the phrase,
--- so a pool of only {names} phrases still says something ("welcome {names}!" -> "welcome!")
-local function StripNameSlot(text)
-    -- The comma introducing the slot goes with it: "welcome, {names} <3" -> "welcome <3",
-    -- not "welcome, <3" (CleanupAfterTokenStrip only sweeps commas left ADJACENT to debris)
-    return CleanupAfterTokenStrip(text:gsub(",?%s*{names}", ""))
-end
-
--- How a phrase carries player names: "slot" = {names} inside the text, "append" = glued to the end
-local function NameMode(msg)
-    if msg.text:find("{names}", 1, true) then return "slot" end
-    if msg.appendNames then return "append" end
     return nil
 end
 
@@ -1262,11 +1166,8 @@ local function StylePoolTargets(profile)
     return targets
 end
 
--- Phrases of the other faction can never be picked on this character, so the bundle both
--- ignores them when deciding "fully enabled" and leaves them alone when applying.
-local function StyleFits(msg, style, faction)
-    return msg.style == style and (not msg.faction or msg.faction == faction)
-end
+-- StyleFits (from MessageLogic): used by the "fully enabled" check to ignore phrases this
+-- character's faction can never say; the apply loop enables both factions on purpose.
 
 -- style -> list of { enabledKey, mplus, <msg>, <msg>, ... }: every styled phrase, bucketed by
 -- the pool it lives in. The phrase tables never change, so this is built once and the bundle
@@ -1423,23 +1324,7 @@ end
 -- Render player names into a message according to the phrase's name mode
 -- ("slot" = fill the {names} placeholder, "append" = glue to the end, nil = no names at all)
 function Addon:AddPlayersToMessage(message, playerNames, nameMode)
-    if not nameMode or not playerNames or #playerNames == 0 then
-        return message
-    end
-
-    -- Long name lists read like spam: keep four and count the rest
-    local names
-    if #playerNames > 4 then
-        names = table.concat(playerNames, ", ", 1, 4) .. " +" .. (#playerNames - 4)
-    else
-        names = table.concat(playerNames, ", ")
-    end
-
-    if nameMode == "slot" then
-        return (message:gsub("{names}", names))
-    end
-
-    return message .. " " .. names
+    return Logic.AddPlayersToMessage(message, playerNames, nameMode)
 end
 
 -- Send greeting (checks cooldown and drops if blocked).
@@ -1787,14 +1672,7 @@ function Addon:SendGuildLoginGreeting(names)
 
     -- Replace {name} placeholder with member name(s), capped like every other names path -
     -- a raid-night login burst must not produce a 255-byte name wall chopped mid-name
-    local nameStr
-    if #names > 4 then
-        nameStr = table.concat({ names[1], names[2], names[3], names[4] }, ", ")
-            .. " +" .. (#names - 4)
-    else
-        nameStr = table.concat(names, ", ")
-    end
-    message = message:gsub("{name}", nameStr)
+    message = message:gsub("{name}", Logic.FormatNameList(names))
 
     self.state.lastGuildLoginGreetTime = now
     -- Reserve the budget slot before the delay timer, now that a message is certain to go out
@@ -2065,15 +1943,6 @@ function Addon:SendKeyAnnounce()
             self.state.announcedKey = { mapID = mapID, dungeon = dungeon, level = keyLevel }
         end
     end, wait)
-end
-
--- Same key twice? Map ids are locale-proof, so they decide whenever both sides have one;
--- a name comparison is the fallback and can only ever compare like with like.
-local function SameKey(a, b)
-    if not a or not b then return false end
-    if a.level ~= b.level then return false end
-    if a.mapID and b.mapID then return a.mapID == b.mapID end
-    return a.dungeon == b.dungeon
 end
 
 -- Announce the keystone that was actually inserted, at the start of the run.

@@ -10,7 +10,7 @@ local ADDON_VERSION = (C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadat
 -- Append a green "New!" while the addon version still matches the minor release the option shipped in.
 -- Auto-expires on the next minor: NewTag("Style", "1.6") stops matching once 1.7.0 ships.
 local function NewTag(name, ver)
-    if ADDON_VERSION:sub(1, #ver + 1) == ver .. "." or ADDON_VERSION == ver then
+    if AutoSay.MessageLogic.VersionMatchesMinor(ADDON_VERSION, ver) then
         return name .. " |cFF00FF00New!|r"
     end
     return name
