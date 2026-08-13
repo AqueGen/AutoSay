@@ -877,6 +877,17 @@ function Addon:SendMessageToChat(message, channel, target, keepCase)
     return true
 end
 
+-- A stripped token can leave punctuation debris in any position: "departs, " (comma before),
+-- ", here we go" (comma after a leading token), "gg, , wp" (comma on both sides). Sweep it all.
+local function CleanupAfterTokenStrip(message)
+    message = message:gsub("%s*,%s*,", ",")     -- ", ," left by a token with commas on both sides
+    message = message:gsub("^[%s,]+", "")       -- leading comma from a stripped leading token
+    message = message:gsub("[%s,]+$", "")       -- trailing comma from a stripped trailing token
+    message = message:gsub("  +", " "):gsub("%s+([!?.,])", "%1")
+    return message
+end
+AutoSay.CleanupAfterTokenStrip = CleanupAfterTokenStrip -- shared with ReplacePlaceholders
+
 -- Final polish applied to every outgoing message: {role} placeholder, leftover M+ tokens,
 -- and the optional lowercase first letter (skipped for keepCase phrases, e.g. "Lok'tar ogar!")
 -- (%a is ASCII-only on purpose, so UTF-8 custom messages are left alone)
@@ -888,7 +899,7 @@ function Addon:PolishMessage(message, keepCase)
     for _, token in ipairs(AutoSay.MPlusTokens) do
         message = message:gsub(token, "")
     end
-    message = message:gsub("  +", " "):gsub("^%s+", ""):gsub("%s+$", "")
+    message = CleanupAfterTokenStrip(message)
     if self.db.profile.social.lowercaseFirst and not keepCase then
         message = message:gsub("^%a", string.lower)
     end
@@ -1049,9 +1060,7 @@ end
 -- Names-carrying phrase with no names to carry: drop the slot instead of the phrase,
 -- so a pool of only {names} phrases still says something ("welcome {names}!" -> "welcome!")
 local function StripNameSlot(text)
-    text = text:gsub("{names}", "")
-    text = text:gsub("  +", " "):gsub("%s+([!?.,])", "%1")
-    return (text:gsub("^%s+", ""):gsub("%s+$", ""))
+    return AutoSay.CleanupAfterTokenStrip(text:gsub("{names}", ""))
 end
 
 -- How a phrase carries player names: "slot" = {names} inside the text, "append" = glued to the end
@@ -1762,7 +1771,9 @@ function Addon:ReplacePlaceholders(message, dungeon, keyLevel, extraReplacements
         message = message:gsub("{key}", "+" .. keyLevel)
     else
         -- Remove {key} together with the punctuation that introduced it, so
-        -- "the {dungeon} express departs, {key}" does not end on a dangling comma
+        -- "the {dungeon} express departs, {key}" does not end on a dangling comma;
+        -- CleanupAfterTokenStrip (inside PolishMessage below) sweeps every other
+        -- comma position ("{key}, here we go", "gg, {key}, wp")
         message = message:gsub(",?%s*{key}", "")
     end
     -- Extra replacements for completion messages ({upgrade}, {time}, etc.)
