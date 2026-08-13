@@ -918,6 +918,9 @@ local function BuildOptions()
                             get = function() return Addon.db.profile.testMode end,
                             set = function(_, val)
                                 Addon.db.profile.testMode = val
+                                -- Same invalidation as the slash toggle: delayed sends
+                                -- built under the previous mode must not fire
+                                Addon.state.sendGeneration = Addon.state.sendGeneration + 1
                                 if val then
                                     Addon:Print("|cFFFF9900Simulation:|r |cFF00FF00ON|r")
                                 else

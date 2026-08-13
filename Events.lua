@@ -378,6 +378,10 @@ function Addon:GROUP_ROSTER_UPDATE()
             -- (subsequent joiners just accumulate in pendingNewMembers)
             if not self.state.pendingGreetTimer then
                 local batchWindow = 2 -- seconds to collect rapid GROUP_ROSTER_UPDATE events
+                -- The batch belongs to THIS channel: an instance group forming (or any
+                -- group change) inside the window would otherwise re-resolve the channel
+                -- and announce these names to a different audience
+                local batchChannel = channel
                 self.state.pendingGreetTimer = self:ScheduleTimer(function()
                     local names = {}
                     for name in pairs(self.state.pendingNewMembers) do
@@ -386,6 +390,10 @@ function Addon:GROUP_ROSTER_UPDATE()
                     self.state.pendingNewMembers = {}
                     self.state.pendingGreetTimer = nil
 
+                    if self:GetChatChannel() ~= batchChannel then
+                        self:DebugPrint("Dropping newcomer batch - channel changed since it was collected")
+                        return
+                    end
                     if #names > 0 then
                         self:DebugPrint("Sending batched greeting for:", table.concat(names, ", "))
                         self:SendGreeting(names, "others_join")
@@ -402,6 +410,9 @@ function Addon:GROUP_ROSTER_UPDATE()
     -- satisfy (or reset) a 3-man listed key group's condition.
     if self.state.keyAnnounced and GetNumGroupMembers(LE_PARTY_CATEGORY_HOME) < 5 then
         self.state.keyAnnounced = false
+        -- The retry latch belongs to the announce that just became invalid: a fresh
+        -- announce after the refill deserves its own retry
+        self.state.keyAnnounceRetried = false
         self:DebugPrint("Group dropped below 5, key announce reset")
     end
 
@@ -410,7 +421,7 @@ function Addon:GROUP_ROSTER_UPDATE()
        and db.mythicplus.announceOnFull
        and not self.state.keyAnnounced
        and GetNumGroupMembers(LE_PARTY_CATEGORY_HOME) == 5
-       and UnitIsGroupLeader("player") then
+       and UnitIsGroupLeader("player", LE_PARTY_CATEGORY_HOME) then
 
         -- Check if we have cached LFG listing data for a M+ key
         if self.state.cachedLFGListing and self.state.cachedLFGListing.isMythicPlus then
@@ -445,7 +456,7 @@ function Addon:LFG_LIST_ACTIVE_ENTRY_UPDATE()
 
     -- Only cache listing data if we are the group leader (listing creator)
     -- This event can fire for non-leaders too, but the data may be unreliable
-    if not UnitIsGroupLeader("player") then
+    if not UnitIsGroupLeader("player", LE_PARTY_CATEGORY_HOME) then
         self:DebugPrint("LFG_LIST_ACTIVE_ENTRY_UPDATE: not the leader, ignoring")
         return
     end
@@ -486,7 +497,7 @@ function Addon:LFG_LIST_ENTRY_EXPIRED_TOO_MANY_PLAYERS()
     if not db.enabled then return end
     if not db.mythicplus or not db.mythicplus.enabled or not db.mythicplus.announceOnFull then return end
     if self.state.keyAnnounced then return end
-    if not UnitIsGroupLeader("player") then
+    if not UnitIsGroupLeader("player", LE_PARTY_CATEGORY_HOME) then
         self:DebugPrint("Not the leader, skipping key announce")
         return
     end

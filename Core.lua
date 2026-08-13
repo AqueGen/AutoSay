@@ -341,7 +341,8 @@ Addon.state = {
     startAnnounceTimer = nil, -- Pending key start announce (initial delay or its one retry)
     groupGoodbyeTimer = {}, -- Per-channel self-reset timers for the goodbye guard
     instanceGreeted = false, -- Instance zone-in greeting sent (mirrors db.char.instanceGreeted, see SetInstanceGreeted)
-    pendingGroupSends = {}, -- Delayed group sends in flight (handle set), cancelled on GROUP_JOINED
+    pendingGroupSends = {}, -- Delayed group sends in flight (handle -> channel), cancelled on GROUP_JOINED
+    sendGeneration = 0, -- Bumped on every test-mode toggle: delayed sends from the other mode drop
     pendingGuildLogins = {}, -- Batch guild member login names
     guildLoginTimer = nil, -- Timer for batched guild login greeting
     lastGuildLoginGreetTime = 0, -- Separate cooldown for guild member login greetings
@@ -699,6 +700,9 @@ function Addon:SlashCommand(input)
         self:Print("Debug mode:", self.db.profile.debugMode and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r")
     elseif cmd == "testmode" or cmd == "test" and not arg1 then
         self.db.profile.testMode = not self.db.profile.testMode
+        -- Invalidate every delayed send built under the previous mode: a simulated message
+        -- still sitting in a typing delay must never reach real chat (and vice versa)
+        self.state.sendGeneration = self.state.sendGeneration + 1
         if self.db.profile.testMode then
             self:Print("|cFFFF9900Test mode:|r |cFF00FF00ON|r - Messages will be printed, not sent")
             self:Print("Use |cFFFFFF00/as help|r to see test commands")
@@ -908,9 +912,16 @@ function Addon:SendMessageToChat(message, channel, target, keepCase)
         -- Guild sends are not: the guild never changes under a pending timer. GROUP_LEFT does
         -- not cancel either (the goodbye is scheduled moments before it fires).
         local handles = channel ~= "GUILD" and self.state.pendingGroupSends or nil
+        -- A message built under one test-mode state must not fire under another: toggling
+        -- test mode inside the typing delay would otherwise send a SIMULATION into real chat
+        local generation = self.state.sendGeneration
         local handle
         handle = self:ScheduleTimer(function()
             if handles then handles[handle] = nil end
+            if generation ~= self.state.sendGeneration then
+                self:DebugPrint("Dropping delayed send - test mode toggled since scheduling")
+                return
+            end
             self:DoSendMessage(message, channel, target, keepCase)
         end, delay)
         -- Tagged with the channel so GROUP_JOINED can cancel selectively (an instance
@@ -1507,8 +1518,10 @@ function Addon:SendGuildGrats(name)
     self.socialGate:Record("grats", name)
     local text = self.humanizer:Pick("guildgrats", AutoSay.GuildGrats):gsub("{name}", name)
     local pendingId = self.socialGate:AddPending("grats", "GUILD")
+    local generation = self.state.sendGeneration
     local delay = 4 + math.random() * 6 -- 4-10s listening window per spec
     self:ScheduleTimer(function()
+        if generation ~= self.state.sendGeneration then return end
         if not self.socialGate:TakePending(pendingId) then
             if self:IsTestMode() then self:TestPrint("Grats blocked: someone-answered") end
             return
@@ -1536,8 +1549,10 @@ function Addon:SendGuildWelcome(name)
     self.socialGate:Record("welcome", name)
     local text = self.humanizer:Pick("guildwelcome", AutoSay.GuildWelcome):gsub("{name}", name)
     local pendingId = self.socialGate:AddPending("welcome", "GUILD")
+    local generation = self.state.sendGeneration
     local delay = 5 + math.random() * 10 -- 5-15s per spec
     self:ScheduleTimer(function()
+        if generation ~= self.state.sendGeneration then return end
         if not self.socialGate:TakePending(pendingId) then
             if self:IsTestMode() then self:TestPrint("Welcome blocked: someone-answered") end
             return
@@ -1726,7 +1741,9 @@ function Addon:SendGuildLoginGreeting(names)
     -- Send directly, bypassing global cooldown (member login has its own cooldown above)
     local delay = db.messageDelay
     if delay and delay > 0 then
+        local generation = self.state.sendGeneration
         self:ScheduleTimer(function()
+            if generation ~= self.state.sendGeneration then return end
             self:DoSendMessage(message, "GUILD")
         end, delay)
     else
@@ -2004,6 +2021,9 @@ function Addon:SendKeyAnnounce()
     -- this retry belongs to is still valid (same full group, flag not reset meanwhile)
     self.state.keyAnnounceTimer = self:ScheduleTimer(function()
         self.state.keyAnnounceTimer = nil
+        -- Whatever happens next, this retry is spent: the latch must not outlive it and
+        -- swallow a FUTURE announce's retry (dip-refill, next listing)
+        self.state.keyAnnounceRetried = false
         if not self.state.keyAnnounced or GetNumGroupMembers(LE_PARTY_CATEGORY_HOME) ~= 5 then
             self:DebugPrint("Key announce retry no longer valid, dropping")
             return
@@ -2195,6 +2215,12 @@ function Addon:TestReset()
     if self.humanizer then
         self.humanizer.history = {}
     end
+    -- Delayed sends from an earlier simulation must not fire into the next one (the
+    -- sendGeneration bump on the test-mode toggle covers mode changes; this covers resets)
+    for handle in pairs(self.state.pendingGroupSends) do
+        self:CancelTimer(handle)
+    end
+    self.state.pendingGroupSends = {}
     self:TestPrint("Test state reset")
 end
 
