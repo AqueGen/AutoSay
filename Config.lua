@@ -81,6 +81,14 @@ end
 local function BuildMessagePicker(poolId, pool, tableFn, settingsFn)
     local args = {}
 
+    -- Greyed rows are gated elsewhere - point at the tab that re-activates them
+    if settingsFn then
+        args.tagNote = {
+            type = "description", order = 0.5, fontSize = "small",
+            name = "|cFF888888" .. L["Tag navigation note"] .. "|r",
+        }
+    end
+
     local byStyle = { classic = {} }
     for _, msg in ipairs(pool) do
         local style = msg.style or (msg.band and "timeofday") or "classic"
@@ -892,7 +900,7 @@ local options = {
                     end)(),
                 },
                 rolePhrases = {
-                    type = "toggle", order = 1.5, width = 1.6,
+                    type = "toggle", order = 1.5, width = "full",
                     name = NewTag(L["Role-based phrases"], "1.6")
                         .. " |A:roleicon-tiny-tank:14:14|a|A:roleicon-tiny-healer:14:14|a|A:roleicon-tiny-dps:14:14|a",
                     desc = L["Role-based phrases desc"],
@@ -917,7 +925,7 @@ local options = {
                     func = function() Addon:SetTaggedPhrasesEnabled("role", false) end,
                 },
                 timeOfDay = {
-                    type = "toggle", order = 2, width = 1.6,
+                    type = "toggle", order = 2, width = "full",
                     name = L["Time-of-day phrases"] .. TagSuffix("morning/evening/night"),
                     desc = L["Time-of-day phrases desc"],
                     get = function() return Addon.db.profile.social.timeOfDay end,
