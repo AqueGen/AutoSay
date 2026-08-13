@@ -82,14 +82,20 @@ local function CreateWhatsNewFrame(key, content)
     local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -6, -6)
 
-    -- Golden dialog header plate, hanging over the frame's top edge
-    local plate = frame:CreateTexture(nil, "ARTWORK")
-    plate:SetTexture("Interface\\DialogFrame\\UI-DialogBox-Header")
-    plate:SetSize(256, 64)
-    plate:SetPoint("TOP", frame, "TOP", 0, 12)
+    -- Golden dialog header plate, hanging over the frame's top edge. Mirrors Blizzard's
+    -- DialogHeaderTemplate: a child frame holding the texture, with the text anchored to
+    -- the CHILD's top (anchoring the text to the raw texture put it outside the visible
+    -- plaque band, which is why the title used to render blank).
+    local header = CreateFrame("Frame", nil, frame)
+    header:SetSize(256, 64)
+    header:SetPoint("TOP", frame, "TOP", 0, 12)
 
-    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-    title:SetPoint("CENTER", plate, "CENTER", 0, 12)
+    local plate = header:CreateTexture(nil, "ARTWORK")
+    plate:SetTexture("Interface\\DialogFrame\\UI-DialogBox-Header")
+    plate:SetAllPoints(header)
+
+    local title = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOP", header, "TOP", 0, -14)
     title:SetTextColor(1, 0.82, 0)
     frame.title = title
 
@@ -195,6 +201,8 @@ function Addon:ShowWhatsNew(minor, isPreview)
 
     frame.minorShown = minor
     frame.isPreview = isPreview or false
-    frame.title:SetText("AutoSay " .. minor)
+    -- Titled by the notes actually on display: a dev-build preview shows the newest
+    -- entry's version, not the checkout's own
+    frame.title:SetText("AutoSay " .. key)
     frame:Show()
 end
