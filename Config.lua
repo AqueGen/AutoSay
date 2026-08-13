@@ -25,6 +25,12 @@ local shownStyle = {}
 -- Word shown for a per-phrase trigger tag
 local triggerWords = { self = "self", others = "newcomers" }
 
+-- The same grey [tag] the phrase rows use, for the switches that control that tag -
+-- seeing [newcomers] on both ends makes the wiring obvious
+local function TagSuffix(word)
+    return " |cFF888888[" .. word .. "]|r"
+end
+
 -- Checkbox label for a preset message: tagged phrases carry a grey suffix, style word first,
 -- then the role/faction tag, then the trigger: [fun, tank, self].
 -- Inside its own style group the style word is redundant, so it is left out.
@@ -61,20 +67,24 @@ local ClassRoles = {
     EVOKER = { HEALER = true, DAMAGER = true },
 }
 
--- A phrase is listed only while every trigger it depends on is switched on above
--- (AND semantics): [newcomers] needs On others join, [self] needs On self join,
--- a {names} slot needs the names option, a role tag needs a class that can play it.
--- Flipping a trigger immediately grows or shrinks the visible lists, so the tags
--- explain themselves without tooltip-hunting.
+-- A class that can never play the role has no way to ever use the phrase - those rows
+-- are hidden outright. Everything else stays visible.
+local function ClassAllows(msg)
+    if not msg.role then return true end
+    local _, class = UnitClass("player")
+    local roles = class and ClassRoles[class]
+    return not roles or roles[msg.role] or false
+end
+
+-- A phrase is ACTIVE only while every tag it depends on is switched on (AND semantics):
+-- [newcomers] needs On others join, [self] needs On self join, a {names} slot needs the
+-- names option, role phrases need the master switch. An inactive phrase stays visible but
+-- greyed out - the tag on its row points at the switch that re-activates it.
 -- settingsFn is nil for pools without trigger context (goodbyes/reconnects/guild login).
-local function PhraseVisible(msg, settingsFn)
+local function PhraseActive(msg, settingsFn)
     local roleDependent = msg.role or msg.text:find("{role}", 1, true)
     if roleDependent and not Addon.db.profile.social.rolePhrases then return false end
-    if msg.role then
-        local _, class = UnitClass("player")
-        local roles = class and ClassRoles[class]
-        if roles and not roles[msg.role] then return false end
-    end
+    if msg.band and not Addon.db.profile.social.timeOfDay then return false end
     if not settingsFn then return true end
     local settings = settingsFn()
     if msg.trigger == "others" and not settings.onOthersJoin then return false end
@@ -153,17 +163,17 @@ local function BuildMessagePicker(poolId, pool, tableFn, settingsFn)
                     local active, total = 0, #entries
                     local flags = tableFn()
                     for _, msg in ipairs(entries) do
-                        if flags[msg.key] and PhraseVisible(msg, settingsFn) then
+                        if flags[msg.key] and ClassAllows(msg) and PhraseActive(msg, settingsFn) then
                             active = active + 1
                         end
                     end
                     return string.format("%s %s  |cFF888888(%d/%d)|r",
                         open[style] and "-" or "+", label, active, total)
                 end,
-                -- A section whose every phrase is trigger-hidden disappears entirely
+                -- Only a section with nothing this class could ever use disappears
                 hidden = function()
                     for _, msg in ipairs(entries) do
-                        if PhraseVisible(msg, settingsFn) then return false end
+                        if ClassAllows(msg) then return false end
                     end
                     return true
                 end,
@@ -183,9 +193,11 @@ local function BuildMessagePicker(poolId, pool, tableFn, settingsFn)
                 -- One column: tags must be readable without hovering, folding beats truncation
                 width = "full",
                 hidden = function()
-                    if not PhraseVisible(msg, settingsFn) then return true end
+                    if not ClassAllows(msg) then return true end
                     return #styles > 1 and not open[msg.style or (msg.band and "timeofday") or "classic"]
                 end,
+                -- Greyed out, not gone: the row's tag names the switch that re-activates it
+                disabled = function() return not PhraseActive(msg, settingsFn) end,
                 get = function() return tableFn()[msg.key] end,
                 set = function(_, val) tableFn()[msg.key] = val end,
             }
@@ -348,7 +360,7 @@ local function BuildGreetingToggles(channel)
             args = {
                 onSelfJoin = {
                     type = "toggle",
-                    name = selfJoinName,
+                    name = selfJoinName .. TagSuffix("self"),
                     desc = selfJoinDesc,
                     order = 1,
                     width = "full",
@@ -360,7 +372,7 @@ local function BuildGreetingToggles(channel)
                 },
                 includeGroupNames = {
                     type = "toggle",
-                    name = L["Include group member names"],
+                    name = L["Include group member names"] .. TagSuffix("{names}"),
                     desc = L["Add names of current group members to the greeting"],
                     order = 2,
                     width = "full",
@@ -396,7 +408,7 @@ local function BuildGreetingToggles(channel)
             args = {
                 onOthersJoin = {
                     type = "toggle",
-                    name = L["On others join"],
+                    name = L["On others join"] .. TagSuffix("newcomers"),
                     desc = othersJoinDesc,
                     order = 1,
                     width = "full",
@@ -418,7 +430,7 @@ local function BuildGreetingToggles(channel)
                 },
                 includeNames = {
                     type = "toggle",
-                    name = L["Include player names"],
+                    name = L["Include player names"] .. TagSuffix("{names}"),
                     desc = L["Add joined player names to the greeting"],
                     order = 3,
                     width = "full",
@@ -936,7 +948,7 @@ local options = {
                 },
                 timeOfDay = {
                     type = "toggle", order = 2, width = 1.6,
-                    name = L["Time-of-day phrases"],
+                    name = L["Time-of-day phrases"] .. TagSuffix("morning/evening/night"),
                     desc = L["Time-of-day phrases desc"],
                     get = function() return Addon.db.profile.social.timeOfDay end,
                     set = function(_, v)
