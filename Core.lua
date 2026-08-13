@@ -495,8 +495,13 @@ function Addon:OnEnable()
     -- Presence heartbeat: PLAYER_LOGOUT never fires on a hard disconnect, so the reconnect
     -- detection also compares against this once-a-minute timestamp. (SavedVariables only
     -- flush on logout/reload, so this covers a DC followed by a normal client exit - a hard
-    -- client crash loses the writes and is out of reach.) Stamped immediately: a DC inside
-    -- the first minute must not read the previous session's stale value.
+    -- client crash loses the writes and is out of reach.)
+    -- OnEnable runs at PLAYER_LOGIN, BEFORE the login classification in
+    -- PLAYER_ENTERING_WORLD reads this value - so the previous session's timestamp is
+    -- snapshotted first, or every login would look like a reconnect and the guild
+    -- greeting would never fire again. The immediate stamp then covers a DC inside the
+    -- first minute of this session.
+    self.state.lastSeenBeforeLogin = self.db.char.lastSeenTime or 0
     self.db.char.lastSeenTime = time()
     self:ScheduleRepeatingTimer(function()
         self.db.char.lastSeenTime = time()
@@ -618,8 +623,15 @@ function Addon:GoodbyeChannelForCategory(category)
     elseif category == LE_PARTY_CATEGORY_INSTANCE then
         return "INSTANCE_CHAT"
     end
-    -- Resolve live (we are still in the group at this point) so LFG groups pick up
-    -- the instance settings; cached type is the fallback if the API already dropped us
+    -- Nil category: Blizzard's plain leave button calls C_PartyInfo.LeaveParty() with no
+    -- argument and it means the HOME group - instance departure always passes the category
+    -- explicitly. Resolving "where am I now" here would prefer INSTANCE_CHAT and send the
+    -- home party's goodbye to the LFG group.
+    if IsInGroup(LE_PARTY_CATEGORY_HOME) then
+        return IsInRaid(LE_PARTY_CATEGORY_HOME) and "RAID" or "PARTY"
+    end
+    -- No home group: resolve live (we are still in the group at this point) so LFG groups
+    -- pick up the instance settings; cached type is the fallback if the API dropped us
     return self:GetChatChannel() or self.state.currentGroupType
 end
 
@@ -636,9 +648,14 @@ function Addon:SendGroupGoodbyeOnce(category)
         return
     end
 
-    self.state.groupGoodbyeSent = true
+    -- The guard is set only when a goodbye actually went out (SendGoodbye is synchronous):
+    -- a bail-out - empty pool, gate, message that polishes to nothing - must not consume
+    -- the once-per-leave slot. A double LeaveParty still cannot double-send: the first
+    -- successful send sets the flag before the second hook can run.
     self:DebugPrint("Sending goodbye to", channel, "before leaving")
-    self:SendGoodbye(channel)
+    if self:SendGoodbye(channel) then
+        self.state.groupGoodbyeSent = true
+    end
 
     -- GROUP_LEFT deliberately does not clear the flag (it fires milliseconds after this
     -- hook), and leaving an instance group while still in a home party fires no group event
@@ -1021,6 +1038,15 @@ function Addon:GetRoleWord()
     return AutoSay.RoleWords[self:GetPlayerRoleOrTest()] or AutoSay.RoleWords.DAMAGER
 end
 
+-- A custom text containing {role} obeys the same two gates as the preset role phrases
+-- (master switch on, an actual role assigned) - PolishMessage would otherwise confidently
+-- substitute "dps" for an unassigned or role-phrases-off player. Applies to EVERY custom
+-- pool: channel messages, guild login, key announce, completion.
+function Addon:CustomTextUsable(text)
+    if not text:find("{role}", 1, true) then return true end
+    return self.db.profile.social.rolePhrases and self:GetPlayerRoleOrTest() ~= "NONE"
+end
+
 -- Get channel settings table
 function Addon:GetChannelSettings(channel)
     for _, c in ipairs(AutoSay.Channels) do
@@ -1107,15 +1133,10 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
     -- A custom {role} obeys the same two gates as the preset ones (master switch, no assigned
     -- role) - otherwise "your {role} is here" announces "dps" for an unassigned tank.
     if settings[customsKey] then
-        local rolePhrases = self.db.profile.social.rolePhrases
-        local role = self:GetPlayerRoleOrTest()
         for _, entry in ipairs(settings[customsKey]) do
-            if entry.enabled and entry.text and entry.text ~= "" then
-                local hasRole = entry.text:find("{role}", 1, true)
-                if not hasRole or (rolePhrases and role ~= "NONE") then
-                    local mode = entry.text:find("{names}", 1, true) and "slot" or "append"
-                    AddCandidate(entry.text, mode)
-                end
+            if entry.enabled and entry.text and entry.text ~= "" and self:CustomTextUsable(entry.text) then
+                local mode = entry.text:find("{names}", 1, true) and "slot" or "append"
+                AddCandidate(entry.text, mode)
             end
         end
     end
@@ -1423,19 +1444,20 @@ function Addon:BuildAndSendGreeting(channel, reason, playerNames)
     return true
 end
 
--- Send goodbye
+-- Send goodbye. Returns true only when a line actually went out, so the caller's
+-- once-per-leave guard is not burned on a bail-out.
 function Addon:SendGoodbye(channel)
     local db = self.db.profile
 
-    if not db.enabled then return end
+    if not db.enabled then return false end
 
     local settings = self:GetChannelSettings(channel)
-    if not settings then return end
+    if not settings then return false end
 
     -- Check if goodbye is enabled for this channel
     if not settings.sendGoodbye then
         self:DebugPrint(channel, "goodbyes disabled")
-        return
+        return false
     end
 
     if self.socialGate then
@@ -1443,7 +1465,7 @@ function Addon:SendGoodbye(channel)
         if not ok then
             self:DebugPrint("SendGoodbye gated:", why)
             if self:IsTestMode() then self:TestPrint("Goodbye blocked: " .. why) end
-            return
+            return false
         end
     end
 
@@ -1451,14 +1473,16 @@ function Addon:SendGoodbye(channel)
     local message, _, keepCase = self:GetRandomMessageForChannel("goodbyes", channel)
     if not message then
         self:DebugPrint("No goodbyes enabled for", channel)
-        return
+        return false
     end
 
     -- Send immediately (no delay for goodbyes since we're leaving);
     -- spend the budget slot only for a message that actually went out
-    if self:DoSendMessage(message, channel, nil, keepCase) and self.socialGate then
+    local sent = self:DoSendMessage(message, channel, nil, keepCase)
+    if sent and self.socialGate then
         self.socialGate:Record("goodbye")
     end
+    return sent
 end
 
 -- Send congrats when a guildmate earns an achievement
@@ -1672,6 +1696,13 @@ function Addon:SendGuildLoginGreeting(names)
     -- a raid-night login burst must not produce a 255-byte name wall chopped mid-name
     message = message:gsub("{name}", Logic.FormatNameList(names))
 
+    -- A message that polishes to nothing must not consume the cooldown or a budget slot
+    local polished = self:PolishMessage(message)
+    if not polished or not polished:match("%S") then
+        self:DebugPrint("Guild login greeting empty after polish, dropping")
+        return
+    end
+
     self.state.lastGuildLoginGreetTime = now
     -- Reserve the budget slot before the delay timer, now that a message is certain to go out
     if self.socialGate then
@@ -1705,7 +1736,7 @@ function Addon:GetRandomGuildLoginGreeting()
     -- Add enabled custom messages
     if settings.customLoginGreetings then
         for _, entry in ipairs(settings.customLoginGreetings) do
-            if entry.enabled and entry.text and entry.text ~= "" then
+            if entry.enabled and entry.text and entry.text ~= "" and self:CustomTextUsable(entry.text) then
                 table.insert(enabled, entry.text)
             end
         end
@@ -1847,7 +1878,7 @@ function Addon:GetRandomKeyAnnounce()
     -- Add enabled custom messages
     if settings.customKeyAnnounce then
         for _, entry in ipairs(settings.customKeyAnnounce) do
-            if entry.enabled and entry.text and entry.text ~= "" then
+            if entry.enabled and entry.text and entry.text ~= "" and self:CustomTextUsable(entry.text) then
                 table.insert(enabled, entry.text)
             end
         end
@@ -2037,7 +2068,8 @@ function Addon:GetRandomCompletionMessage(onTime, upgrade)
     -- Add enabled custom messages
     if customMessages then
         for _, entry in ipairs(customMessages) do
-            if entry.enabled and entry.text and entry.text ~= "" and usable(entry.text) then
+            if entry.enabled and entry.text and entry.text ~= ""
+                and usable(entry.text) and self:CustomTextUsable(entry.text) then
                 table.insert(enabled, entry.text)
             end
         end

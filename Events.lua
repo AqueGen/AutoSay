@@ -95,27 +95,34 @@ function Addon:GROUP_JOINED(event, category)
 
     local db = self.db.profile
 
-    -- Clear stale M+ listing cache when joining a new group
-    -- (prevents announce from firing with old data when joining someone else's group)
-    self.state.cachedLFGListing = nil
-    self.state.keyAnnounced = false
-    self.state.keyAnnounceRetried = false
-    self.state.announcedKey = nil
-    self.state.startAnnounced = false
-    if self.state.keyAnnounceTimer then
-        self:CancelTimer(self.state.keyAnnounceTimer)
-        self.state.keyAnnounceTimer = nil
+    -- An instance group forming NEXT TO a live home group must not wipe that home group's
+    -- state: the M+ listing, announce guards and in-flight sends all belong to the home
+    -- party (queueing a BG while your key group is listed is exactly this)
+    local homeSurvives = category == LE_PARTY_CATEGORY_INSTANCE and IsInGroup(LE_PARTY_CATEGORY_HOME)
+
+    if not homeSurvives then
+        -- Clear stale M+ listing cache when joining a new group
+        -- (prevents announce from firing with old data when joining someone else's group)
+        self.state.cachedLFGListing = nil
+        self.state.keyAnnounced = false
+        self.state.keyAnnounceRetried = false
+        self.state.announcedKey = nil
+        self.state.startAnnounced = false
+        if self.state.keyAnnounceTimer then
+            self:CancelTimer(self.state.keyAnnounceTimer)
+            self.state.keyAnnounceTimer = nil
+        end
+        if self.state.startAnnounceTimer then
+            self:CancelTimer(self.state.startAnnounceTimer)
+            self.state.startAnnounceTimer = nil
+        end
+        -- A delayed send still in flight belongs to the previous group - typing delays reach
+        -- ~7s, long enough to leave one party and join another before the line goes out
+        for handle in pairs(self.state.pendingGroupSends) do
+            self:CancelTimer(handle)
+        end
+        self.state.pendingGroupSends = {}
     end
-    if self.state.startAnnounceTimer then
-        self:CancelTimer(self.state.startAnnounceTimer)
-        self.state.startAnnounceTimer = nil
-    end
-    -- A delayed send still in flight belongs to the previous group - typing delays reach
-    -- ~7s, long enough to leave one party and join another before the line goes out
-    for handle in pairs(self.state.pendingGroupSends) do
-        self:CancelTimer(handle)
-    end
-    self.state.pendingGroupSends = {}
     -- Join time is where the once-per-group guards reset: GROUP_LEFT fires milliseconds
     -- after the leave hook, which would make the goodbye guard useless
     self.state.groupGoodbyeSent = false
@@ -199,6 +206,13 @@ function Addon:GROUP_LEFT(event, category)
                 self.state.sentGreetings[key] = nil
             end
         end
+        -- A newcomer batch collected in the departed category must not fire into the
+        -- surviving group's chat - the batch callback re-resolves the channel live
+        if self.state.pendingGreetTimer then
+            self:CancelTimer(self.state.pendingGreetTimer)
+            self.state.pendingGreetTimer = nil
+        end
+        self.state.pendingNewMembers = {}
         return
     end
 
@@ -358,10 +372,19 @@ function Addon:GROUP_ROSTER_UPDATE()
         if self.state.cachedLFGListing and self.state.cachedLFGListing.isMythicPlus then
             self.state.keyAnnounced = true
             self:DebugPrint("Group full 5/5 with M+ listing, scheduling key announce")
-            -- Small delay to send after any greeting messages
-            self:ScheduleTimer(function()
+            -- Small delay to send after any greeting messages. Tracked so a new group
+            -- cancels it, and revalidated - someone can leave inside the two seconds.
+            local handles = self.state.pendingGroupSends
+            local handle
+            handle = self:ScheduleTimer(function()
+                handles[handle] = nil
+                if not self.state.keyAnnounced or GetNumGroupMembers() ~= 5 then
+                    self:DebugPrint("Key announce no longer valid, dropping")
+                    return
+                end
                 self:SendKeyAnnounce()
             end, 2)
+            handles[handle] = true
         else
             self:DebugPrint("Group full 5/5 but no M+ listing cached")
         end
@@ -424,10 +447,19 @@ function Addon:LFG_LIST_ENTRY_EXPIRED_TOO_MANY_PLAYERS()
     if self.state.cachedLFGListing and self.state.cachedLFGListing.isMythicPlus then
         self.state.keyAnnounced = true
         self:DebugPrint("M+ listing delisted (group full), scheduling key announce")
-        -- Small delay to send after any greeting messages
-        self:ScheduleTimer(function()
+        -- Small delay to send after any greeting messages. Tracked so a new group
+        -- cancels it, and revalidated - someone can leave inside the two seconds.
+        local handles = self.state.pendingGroupSends
+        local handle
+        handle = self:ScheduleTimer(function()
+            handles[handle] = nil
+            if not self.state.keyAnnounced or GetNumGroupMembers() ~= 5 then
+                self:DebugPrint("Key announce no longer valid, dropping")
+                return
+            end
             self:SendKeyAnnounce()
         end, 2)
+        handles[handle] = true
     else
         self:DebugPrint("Listing delisted but no M+ cache available")
     end
@@ -536,10 +568,15 @@ function Addon:CHALLENGE_MODE_COMPLETED()
     self:DebugPrint("M+ completed:", dungeonName, "+", keyLevel,
         "onTime:", tostring(onTime), "upgrade:", upgrade, "time:", timeFormatted)
 
-    -- Small delay so it doesn't overlap with Blizzard's completion UI
-    self:ScheduleTimer(function()
+    -- Small delay so it doesn't overlap with Blizzard's completion UI. Tracked so joining
+    -- a different group inside the delay cancels it instead of congratulating strangers.
+    local handles = self.state.pendingGroupSends
+    local handle
+    handle = self:ScheduleTimer(function()
+        handles[handle] = nil
         self:SendCompletionMessage(dungeonName, keyLevel, onTime, upgrade, timeFormatted)
     end, 3)
+    handles[handle] = true
 end
 
 -- Handle PLAYER_ENTERING_WORLD - for guild greeting on login and group reconnect
@@ -554,9 +591,10 @@ function Addon:PLAYER_ENTERING_WORLD(event, isInitialLogin, isReloadingUi)
         self.state.guildPresenceReady = false
         self.state.guildMemberPresence = {}
         -- A login within 5 minutes of the last logout is a reconnect, not an arrival:
-        -- guildmates saw us a moment ago, so skip the hello. lastSeenTime (heartbeat)
-        -- covers crashes and hard DCs, where PLAYER_LOGOUT never gets to run.
-        local lastSeen = math.max(self.db.char.lastLogoutTime or 0, self.db.char.lastSeenTime or 0)
+        -- guildmates saw us a moment ago, so skip the hello. lastSeenBeforeLogin is the
+        -- PREVIOUS session's heartbeat (snapshotted in OnEnable before this session starts
+        -- stamping) and covers hard DCs, where PLAYER_LOGOUT never gets to run.
+        local lastSeen = math.max(self.db.char.lastLogoutTime or 0, self.state.lastSeenBeforeLogin or 0)
         local sinceLogout = time() - lastSeen
         local isReconnect = isInitialLogin and sinceLogout < 300
         if isReconnect then
