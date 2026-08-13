@@ -965,15 +965,24 @@ local function BuildOptions()
                     confirm = true,
                     confirmText = L["Are you sure you want to reset all settings to defaults?"],
                     func = function()
+                        -- Snapshot before the reset flips it: a live simulation must be torn
+                        -- down completely (fabricated M+ listing, pending batches, flow flag),
+                        -- not just have its timers invalidated - but TestReset must NOT run
+                        -- for a user who never touched test mode, since it re-arms mid-group
+                        -- greeting/goodbye state
+                        local wasTestMode = Addon.db.profile.testMode
                         Addon.db:ResetProfile()
                         -- The reset wipes the one-shot migration stamps back to their defaults;
                         -- without re-stamping, the next login would re-run MigrateInstanceChannel
                         -- and overwrite the instance settings chosen after this reset
                         Addon.db.profile.instanceMigrated = true
                         Addon.db.profile.mythicplus.keyLevelMigrated = true
-                        -- The reset also flips testMode back to false: a simulated message
-                        -- still in a typing delay must not escape into real chat
-                        Addon.state.sendGeneration = Addon.state.sendGeneration + 1
+                        if wasTestMode then
+                            Addon:TestReset() -- bumps sendGeneration itself
+                        else
+                            -- Still invalidate delayed sends built before the reset
+                            Addon.state.sendGeneration = Addon.state.sendGeneration + 1
+                        end
                         Addon:InvalidateBundleCache()
                         LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
                         Addon:Print(L["Settings reset to defaults"])

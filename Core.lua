@@ -1684,6 +1684,8 @@ function Addon:HandleGuildMemberLogin(name)
     self.state.guildLoginTimer = self:ScheduleTimer(function()
         if generation ~= self.state.sendGeneration then
             self.state.guildLoginTimer = nil
+            -- The batch is unsendable - its names must not ride along in the next one
+            self.state.pendingGuildLogins = {}
             return
         end
         local names = {}
