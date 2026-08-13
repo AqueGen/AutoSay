@@ -25,7 +25,8 @@ function Addon:RegisterEvents()
     self:RegisterEvent("LFG_LIST_ACTIVE_ENTRY_UPDATE")
     self:RegisterEvent("LFG_LIST_ENTRY_EXPIRED_TOO_MANY_PLAYERS")
 
-    -- M+ dungeon completion
+    -- M+ keystone activated / dungeon completion
+    self:RegisterEvent("CHALLENGE_MODE_START")
     self:RegisterEvent("CHALLENGE_MODE_COMPLETED")
 
     -- Chat listening for social gate (pending-intent confirmation, welcome tracking).
@@ -97,6 +98,8 @@ function Addon:GROUP_JOINED()
     self.state.cachedLFGListing = nil
     self.state.keyAnnounced = false
     self.state.keyAnnounceRetried = false
+    self.state.announcedKey = nil
+    self.state.startAnnounced = false
     if self.state.keyAnnounceTimer then
         self:CancelTimer(self.state.keyAnnounceTimer)
         self.state.keyAnnounceTimer = nil
@@ -177,6 +180,8 @@ function Addon:GROUP_LEFT()
     end
     self.state.keyAnnounced = false
     self.state.keyAnnounceRetried = false
+    self.state.announcedKey = nil
+    self.state.startAnnounced = false
     if self.state.keyAnnounceTimer then
         self:CancelTimer(self.state.keyAnnounceTimer)
         self.state.keyAnnounceTimer = nil
@@ -388,9 +393,41 @@ function Addon:LFG_LIST_ENTRY_EXPIRED_TOO_MANY_PLAYERS()
     end
 end
 
+-- Handle CHALLENGE_MODE_START - a keystone was activated. This reads the key that actually
+-- went into the font, so it is right even after a lead swap or when someone else's key is used.
+function Addon:CHALLENGE_MODE_START()
+    self:DebugPrint("EVENT: CHALLENGE_MODE_START")
+
+    local db = self.db.profile
+    if not db.enabled then return end
+    if not db.mythicplus or not db.mythicplus.enabled or not db.mythicplus.announceOnStart then return end
+
+    if self.state.startAnnounced then
+        self:DebugPrint("Key start already announced for this run")
+        return
+    end
+
+    if not C_ChallengeMode or not C_ChallengeMode.GetActiveKeystoneInfo then return end
+
+    local level = C_ChallengeMode.GetActiveKeystoneInfo()
+    if not level or level < 2 then
+        self:DebugPrint("No valid active keystone level (", tostring(level), "), skipping start announce")
+        return
+    end
+
+    local mapID = C_ChallengeMode.GetActiveChallengeMapID and C_ChallengeMode.GetActiveChallengeMapID()
+    local localizedName = mapID and C_ChallengeMode.GetMapUIInfo and C_ChallengeMode.GetMapUIInfo(mapID) or nil
+    local dungeon = self:GetDungeonName(mapID, localizedName)
+
+    self.state.startAnnounced = true
+    self:SendKeyStartAnnounce(dungeon, db.mythicplus.includeKeyLevel and level or nil)
+end
+
 -- Handle CHALLENGE_MODE_COMPLETED - M+ dungeon finished (timed or depleted)
 function Addon:CHALLENGE_MODE_COMPLETED()
     self:DebugPrint("EVENT: CHALLENGE_MODE_COMPLETED")
+
+    self.state.startAnnounced = false
 
     local db = self.db.profile
     if not db.enabled then return end

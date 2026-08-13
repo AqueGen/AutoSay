@@ -243,6 +243,7 @@ local defaults = {
         mythicplus = {
             enabled = true,
             announceOnFull = true,      -- Announce when group fills 5/5
+            announceOnStart = true,     -- Announce the inserted keystone when the run starts
             includeKeyLevel = true,     -- Put the key level in the announce when it is known for sure
             keyLevelMigrated = false,   -- messageMode folded into includeKeyLevel (see MigrateKeyLevelMode)
             useClientLanguage = false,  -- false = English dungeon names, true = client locale
@@ -319,6 +320,8 @@ Addon.state = {
     keyAnnounced = false, -- Prevent duplicate M+ key announcements per group
     keyAnnounceRetried = false, -- Key announce was already re-scheduled once for the cooldown
     keyAnnounceTimer = nil, -- Pending key announce retry timer (one in flight at a time)
+    announcedKey = nil, -- What the last key announce actually said: { dungeon = string, level = number|nil }
+    startAnnounced = false, -- Key start announce already sent for the current run
     groupGoodbyeTimer = nil, -- Self-reset timer for the once-per-leave goodbye guard
     instanceGreeted = false, -- Instance zone-in greeting sent (mirrors db.char.instanceGreeted, see SetInstanceGreeted)
     pendingGuildLogins = {}, -- Batch guild member login names
@@ -708,6 +711,8 @@ function Addon:SlashCommand(input)
             self:TestPlayerJoins(playerName)
         elseif subcmd == "key" or subcmd == "k" then
             self:TestMythicPlusFlow()
+        elseif subcmd == "keystart" or subcmd == "ks" then
+            self:TestKeyStart()
         elseif subcmd == "role" then
             local _, _, roleArg = self:GetArgs(input, 3)
             self:TestSetRole(roleArg)
@@ -745,6 +750,7 @@ function Addon:SlashCommand(input)
             self:Print("  /as test reconnect - Simulate reconnecting to group")
             self:Print("  /as test player [name] - Simulate player joining")
             self:Print("  /as test key - Simulate full M+ flow (listing → joins → announce)")
+        self:Print("  /as test keystart - Simulate the key start announce (duplicate and new key)")
             self:Print("  /as test role tank|healer|dps - Simulate assigned role")
             self:Print("  /as test hour <0-23>|off - Simulate time-of-day band")
             self:Print("  /as test whatsnew - Preview the What's new popup")
@@ -1886,6 +1892,9 @@ function Addon:SendKeyAnnounce()
     -- keepCase so the second polish inside DoSendMessage keeps the dungeon name capitalized.
     if self:SendMessageToChat(message, channel, nil, true) then
         self.state.keyAnnounceRetried = false
+        -- Remember what was actually said, so the key start announce can stay silent
+        -- when the keystone that went in is the one this line already named
+        self.state.announcedKey = { dungeon = dungeon, level = keyLevel }
         return
     end
 
@@ -1906,8 +1915,42 @@ function Addon:SendKeyAnnounce()
             self:DebugPrint("Key announce retry no longer valid, dropping")
             return
         end
-        self:SendMessageToChat(message, channel, nil, true)
+        if self:SendMessageToChat(message, channel, nil, true) then
+            self.state.announcedKey = { dungeon = dungeon, level = keyLevel }
+        end
     end, wait)
+end
+
+-- Announce the keystone that was actually inserted, at the start of the run.
+-- Silent when the group-full announce already named this exact dungeon and level.
+-- @return boolean - true when a message was scheduled
+function Addon:SendKeyStartAnnounce(dungeon, keyLevel)
+    local announced = self.state.announcedKey
+    if announced and announced.dungeon == dungeon and announced.level == keyLevel then
+        self:DebugPrint("Key start announce skipped:", dungeon, tostring(keyLevel),
+            "was already announced when the group filled")
+        return false
+    end
+
+    local template = self:GetRandomKeyAnnounce()
+    if not template then
+        self:DebugPrint("SendKeyStartAnnounce: no key announce messages enabled")
+        return false
+    end
+
+    local message = self:ReplacePlaceholders(template, dungeon, keyLevel)
+    local channel = self:GetChatChannel() or "PARTY"
+
+    self:DebugPrint("SendKeyStartAnnounce:", message, "(dungeon:", dungeon,
+        "level:", tostring(keyLevel) .. ")")
+
+    self.state.announcedKey = { dungeon = dungeon, level = keyLevel }
+
+    -- Small delay so it lands after the start countdown noise, not in the middle of it
+    self:ScheduleTimer(function()
+        self:SendMessageToChat(message, channel, nil, true)
+    end, 2)
+    return true
 end
 
 -- Get a random completion message from enabled pool
@@ -2009,6 +2052,8 @@ function Addon:TestReset()
     self.state.cachedLFGListing = nil
     self.state.keyAnnounced = false
     self.state.keyAnnounceRetried = false
+    self.state.announcedKey = nil
+    self.state.startAnnounced = false
     if self.state.keyAnnounceTimer then
         self:CancelTimer(self.state.keyAnnounceTimer)
         self.state.keyAnnounceTimer = nil
@@ -2277,6 +2322,18 @@ function Addon:TestReconnect()
     end
 end
 
+-- Dungeon pool for the M+ simulations (Midnight Season 1, with LFG activityIDs)
+local testDungeons = {
+    { name = "Magisters' Terrace",        activityID = 1760, mapID = 558 },
+    { name = "Maisara Caverns",           activityID = 1764, mapID = 560 },
+    { name = "Nexus-Point Xenas",         activityID = 1768, mapID = 559 },
+    { name = "Windrunner Spire",          activityID = 1542, mapID = 557 },
+    { name = "Algeth'ar Academy",         activityID = 1160, mapID = 402 },
+    { name = "Seat of the Triumvirate",   activityID = 486,  mapID = 583 },
+    { name = "Skyreach",                  activityID = 182,  mapID = 161 },
+    { name = "Pit of Saron",              activityID = 1770, mapID = 556 },
+}
+
 -- Simulate full M+ flow: create listing → players join → 5/5 → announce
 function Addon:TestMythicPlusFlow()
     if not self:IsTestMode() then
@@ -2303,18 +2360,7 @@ function Addon:TestMythicPlusFlow()
     self.state.previousGroup = { [UnitName("player")] = true }
     self.testState.simulatedGroupMembers = { UnitName("player") }
 
-    -- Randomize dungeon (Midnight Season 1 pool with activityIDs)
-    local dungeons = {
-        { name = "Magisters' Terrace",        activityID = 1760, mapID = 558 },
-        { name = "Maisara Caverns",           activityID = 1764, mapID = 560 },
-        { name = "Nexus-Point Xenas",         activityID = 1768, mapID = 559 },
-        { name = "Windrunner Spire",          activityID = 1542, mapID = 557 },
-        { name = "Algeth'ar Academy",         activityID = 1160, mapID = 402 },
-        { name = "Seat of the Triumvirate",   activityID = 486,  mapID = 583 },
-        { name = "Skyreach",                  activityID = 182,  mapID = 161 },
-        { name = "Pit of Saron",              activityID = 1770, mapID = 556 },
-    }
-    local picked = dungeons[math.random(#dungeons)]
+    local picked = testDungeons[math.random(#testDungeons)]
     local keyLevel = math.random(4, 15)
     local dungeon = self:GetDungeonName(picked.mapID, picked.name)
 
@@ -2383,6 +2429,37 @@ function Addon:TestMythicPlusFlow()
     end
 end
 
+-- Simulate CHALLENGE_MODE_START: the inserted keystone gets announced, unless the
+-- group-full announce already said exactly this. Runs both paths back to back.
+function Addon:TestKeyStart()
+    if not self:IsTestMode() then
+        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
+        return
+    end
+
+    local index = math.random(#testDungeons)
+    local picked = testDungeons[index]
+    local other = testDungeons[(index % #testDungeons) + 1]
+    local keyLevel = math.random(4, 15)
+    local includeLevel = self.db.profile.mythicplus.includeKeyLevel
+    local dungeon = self:GetDungeonName(picked.mapID, picked.name)
+    local otherDungeon = self:GetDungeonName(other.mapID, other.name)
+
+    self:TestPrint("=== Simulating M+ Key Start ===")
+
+    -- Path 1: the same key the group-full announce already named
+    self.state.announcedKey = { dungeon = dungeon, level = includeLevel and keyLevel or nil }
+    self:TestPrint("Group was announced as " .. dungeon .. " +" .. keyLevel .. ", same key inserted...")
+    if not self:SendKeyStartAnnounce(dungeon, includeLevel and keyLevel or nil) then
+        self:TestPrint("Stayed silent - the group-full announce already said this")
+    end
+
+    -- Path 2: a different key went in (lead swap, someone else's key)
+    local otherLevel = keyLevel + 2
+    self:TestPrint("Now a different key is inserted: " .. otherDungeon .. " +" .. otherLevel)
+    self:SendKeyStartAnnounce(otherDungeon, includeLevel and otherLevel or nil)
+end
+
 -- Simulate timed M+ completion
 function Addon:TestCompletionTimed()
     if not self:IsTestMode() then
@@ -2390,17 +2467,7 @@ function Addon:TestCompletionTimed()
         return
     end
 
-    local dungeons = {
-        { name = "Magisters' Terrace",        mapID = 558 },
-        { name = "Maisara Caverns",           mapID = 560 },
-        { name = "Nexus-Point Xenas",         mapID = 559 },
-        { name = "Windrunner Spire",          mapID = 557 },
-        { name = "Algeth'ar Academy",         mapID = 402 },
-        { name = "Seat of the Triumvirate",   mapID = 583 },
-        { name = "Skyreach",                  mapID = 161 },
-        { name = "Pit of Saron",              mapID = 556 },
-    }
-    local picked = dungeons[math.random(#dungeons)]
+    local picked = testDungeons[math.random(#testDungeons)]
     local dungeon = self:GetDungeonName(picked.mapID, picked.name)
     local keyLevel = math.random(4, 15)
     local upgrade = math.random(1, 3)
@@ -2421,17 +2488,7 @@ function Addon:TestCompletionDepleted()
         return
     end
 
-    local dungeons = {
-        { name = "Magisters' Terrace",        mapID = 558 },
-        { name = "Maisara Caverns",           mapID = 560 },
-        { name = "Nexus-Point Xenas",         mapID = 559 },
-        { name = "Windrunner Spire",          mapID = 557 },
-        { name = "Algeth'ar Academy",         mapID = 402 },
-        { name = "Seat of the Triumvirate",   mapID = 583 },
-        { name = "Skyreach",                  mapID = 161 },
-        { name = "Pit of Saron",              mapID = 556 },
-    }
-    local picked = dungeons[math.random(#dungeons)]
+    local picked = testDungeons[math.random(#testDungeons)]
     local dungeon = self:GetDungeonName(picked.mapID, picked.name)
     local keyLevel = math.random(4, 15)
     local minutes = math.random(35, 50)
