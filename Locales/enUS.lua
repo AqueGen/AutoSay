@@ -18,6 +18,8 @@ L["Goodbyes"] = "Goodbyes"
 L["Messages"] = "Messages"
 L["Reconnects"] = "Reconnects"
 
+L["Group"] = "Group"
+
 -- Channel names
 L["Party"] = "Party"
 L["Raid"] = "Raid"
@@ -27,6 +29,12 @@ L["PARTY"] = "Party"
 L["RAID"] = "Raid"
 L["INSTANCE_CHAT"] = "Instance"
 L["GUILD"] = "Guild"
+
+-- Matrix column captions (one bare checkbox per channel has no room for a word)
+L["Column party"] = "P"
+L["Column raid"] = "R"
+L["Column instance"] = "I"
+L["%d phrases"] = "%d phrases"
 
 -- Per-channel tab names
 L["Party Settings"] = "Party Settings"
@@ -76,7 +84,6 @@ L["On self join"] = "On self join"
 L["Send greeting when you join"] = "Send greeting when you join"
 L["Send greeting when you join a party"] = "Send greeting when you join a party"
 L["Send greeting when you join a raid"] = "Send greeting when you join a raid"
-L["Greet on entering instance"] = "Greet on entering instance"
 L["Send greeting once after you zone into the instance"] = "Send greeting once after you zone into the instance, not when the group forms"
 L["On others join"] = "On others join"
 L["Send greeting when others join"] = "Send greeting when others join"
@@ -86,6 +93,7 @@ L["Send greeting when others join your instance group"] = "Send greeting when ot
 L["On reconnect"] = "On reconnect"
 L["Send greeting when you reconnect to party"] = "Send greeting when you reconnect to party"
 L["Send greeting when you reconnect to raid"] = "Send greeting when you reconnect to raid"
+L["Reconnects instance note"] = "Instance groups have no reconnect greeting - you rejoin through the queue, not the group."
 L["On login"] = "On login"
 L["Send greeting when you log in"] = "Send greeting when you log in"
 L["On member login"] = "On member login"
@@ -99,8 +107,7 @@ L["Custom login greetings"] = "Custom login greetings"
 L["On logout"] = "On logout"
 L["Send goodbye when you log out"] = "Send goodbye when you log out"
 
--- Greet newcomers group
-L["Greet newcomers"] = "Greet newcomers"
+-- Newcomer greeting options
 L["Only if leader"] = "Only if leader"
 L["Only greet newcomers when you are the party leader"] = "Only greet newcomers when you are the party leader"
 L["Only greet newcomers when you are the raid leader"] = "Only greet newcomers when you are the raid leader"
@@ -274,7 +281,7 @@ L["Greet players who join the guild (max 2 per hour, once per player)"] = "Greet
 
 -- Message style bundles
 L["Message style bundles"] = "Message style bundles"
-L["Style bundle desc"] = "A bundle enables its phrases on every channel at once. Fine-tune the selection per channel afterwards on the Party, Raid, Instance and Guild tabs."
+L["Style bundle desc"] = "A bundle enables its phrases on every channel at once. Fine-tune the selection per channel afterwards on the Group and Guild tabs."
 L["Style"] = "Style"
 L["Style fun"] = "Fun"
 L["Style fantasy"] = "Fantasy"

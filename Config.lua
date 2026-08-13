@@ -74,15 +74,91 @@ local function PhraseActive(msg, settingsFn)
     return true
 end
 
+-- Channels sharing the Group tab, in AutoSay.Channels order
+local groupChannelKeys = { "party", "raid", "instance" }
+
+local channelLabel = {
+    party = L["Party"], raid = L["Raid"], instance = L["Instance"], guild = L["Guild"],
+}
+-- Column captions: a bare checkbox has no room for a word
+local channelInitial = {
+    party = L["Column party"], raid = L["Column raid"], instance = L["Column instance"],
+}
+
+-- A matrix row is one flow row: a label cell plus one narrow checkbox per channel.
+-- The caption row and every content row share these widths - change one, change them all
+-- or the columns stop lining up (2.2 + 3*0.35 still fits the 4-wide dialog).
+local MATRIX_LABEL_WIDTH, MATRIX_COL_WIDTH = 2.2, 0.35
+
+-- Channel descriptors for a shared matrix: which profile table each column writes to
+local function MatrixChannels(keys, enabledKey, withTriggers)
+    local channels = {}
+    for _, key in ipairs(keys) do
+        channels[#channels + 1] = {
+            key = key,
+            tableFn = function() return Addon.db.profile[key][enabledKey] end,
+            settingsFn = withTriggers and function() return Addon.db.profile[key] end or nil,
+        }
+    end
+    return channels
+end
+
+-- Header row naming the columns: an empty cell under the labels, then one initial per column
+local function AddCaptionRow(args, key, order, channels, hidden)
+    args[key] = {
+        type = "description", name = " ", order = order,
+        width = MATRIX_LABEL_WIDTH, hidden = hidden,
+    }
+    for i, ch in ipairs(channels) do
+        args[key .. "_" .. ch.key] = {
+            type = "description", order = order + i * 0.1,
+            name = "|cFFFFD100" .. (channelInitial[ch.key] or "") .. "|r",
+            width = MATRIX_COL_WIDTH, hidden = hidden,
+        }
+    end
+end
+
+-- One matrix row. The cells are bare checkboxes, so each carries the column name as its
+-- tooltip. hidden applies to the whole row on purpose: hiding a single cell would slide
+-- every column right of it one place left.
+local function AddMatrixRow(args, key, order, label, hidden, channels, cellFn)
+    args[key] = {
+        type = "description", name = label, order = order, fontSize = "medium",
+        width = MATRIX_LABEL_WIDTH, hidden = hidden,
+    }
+    for i, ch in ipairs(channels) do
+        local cell = cellFn(ch)
+        cell.type = "toggle"
+        cell.name = ""
+        cell.desc = cell.desc and (channelLabel[ch.key] .. ": " .. cell.desc) or channelLabel[ch.key]
+        cell.order = order + i * 0.1
+        cell.width = MATRIX_COL_WIDTH
+        cell.hidden = hidden
+        args[key .. "_" .. ch.key] = cell
+    end
+end
+
+-- Hide a dependent row only once no channel has its parent switched on
+local function NoneOn(channels, field)
+    return function()
+        for _, ch in ipairs(channels) do
+            if Addon.db.profile[ch.key][field] then return false end
+        end
+        return true
+    end
+end
+
 -- Style-grouped preset picker for one message pool: an accordion of style sections.
--- Each section header is a full-width button that folds/unfolds its checkboxes;
+-- Each section header is a full-width button that folds/unfolds its rows;
 -- "Classic" (every untagged phrase) starts open, styles start folded.
--- poolId keys the fold state, tableFn returns the profile table of enabled keys.
-local function BuildMessagePicker(poolId, pool, tableFn, settingsFn)
+-- poolId keys the fold state; channels is a list of { key, tableFn, settingsFn } - one entry
+-- renders the plain single-column list, several render the shared checkbox matrix.
+local function BuildMessageMatrix(poolId, pool, channels)
+    local matrix = #channels > 1
     local args = {}
 
     -- Greyed rows are gated elsewhere - point at the tab that re-activates them
-    if settingsFn then
+    if channels[1].settingsFn then
         args.tagNote = {
             type = "description", order = 0.5, fontSize = "small",
             name = "|cFF888888" .. L["Tag navigation note"] .. "|r",
@@ -135,6 +211,8 @@ local function BuildMessagePicker(poolId, pool, tableFn, settingsFn)
             label = NewTag(L["Style " .. style], "1.6")
         end
 
+        local folded = function() return #styles > 1 and not open[style] end
+
         -- Pools without style phrases (guild login greetings) get a plain list, no accordion
         if #styles > 1 then
             args["head_" .. style] = {
@@ -142,19 +220,26 @@ local function BuildMessagePicker(poolId, pool, tableFn, settingsFn)
                 dialogControl = "AutoSayCollapse",
                 -- The leading "-"/"+" is the fold-state contract: AutoSayCollapse
                 -- strips it and renders it as the [-]/[+] expand icon.
-                -- Count = "active right now / whole category": active means enabled AND
-                -- currently eligible by the tag filters; the total ignores the filters,
-                -- telling what the category could hold with every tag switched on
+                -- Single channel: "active right now / whole category", active meaning enabled
+                -- AND currently eligible by the tag filters. In the matrix a summed count over
+                -- three channels would mean nothing, so it shows the category size instead -
+                -- the checkboxes already say which channel uses what.
                 name = function()
-                    local active, total = 0, #entries
-                    local flags = tableFn()
-                    for _, msg in ipairs(entries) do
-                        if flags[msg.key] and PhraseActive(msg, settingsFn) then
-                            active = active + 1
+                    local count
+                    if matrix then
+                        count = string.format(L["%d phrases"], #entries)
+                    else
+                        local active = 0
+                        local flags = channels[1].tableFn()
+                        for _, msg in ipairs(entries) do
+                            if flags[msg.key] and PhraseActive(msg, channels[1].settingsFn) then
+                                active = active + 1
+                            end
                         end
+                        count = string.format("%d/%d", active, #entries)
                     end
-                    return string.format("%s %s  |cFF888888(%d/%d)|r",
-                        open[style] and "-" or "+", label, active, total)
+                    return string.format("%s %s  |cFF888888(%s)|r",
+                        open[style] and "-" or "+", label, count)
                 end,
                 func = function()
                     open[style] = not open[style]
@@ -162,23 +247,38 @@ local function BuildMessagePicker(poolId, pool, tableFn, settingsFn)
                 end,
             }
             order = order + 1
+
+            if matrix then
+                AddCaptionRow(args, "cap_" .. style, order, channels, folded)
+                order = order + 1
+            end
         end
 
         for _, msg in ipairs(entries) do
-            args["m_" .. msg.key] = {
-                type = "toggle",
-                name = PresetLabel(msg, msg.style ~= nil),
-                order = order,
-                -- One column: tags must be readable without hovering, folding beats truncation
-                width = "full",
-                hidden = function()
-                    return #styles > 1 and not open[msg.style or (msg.band and "timeofday") or "classic"]
-                end,
-                -- Greyed out, not gone: the row's tag names the switch that re-activates it
-                disabled = function() return not PhraseActive(msg, settingsFn) end,
-                get = function() return tableFn()[msg.key] end,
-                set = function(_, val) tableFn()[msg.key] = val end,
-            }
+            local rowLabel = PresetLabel(msg, msg.style ~= nil)
+            if matrix then
+                AddMatrixRow(args, "m_" .. msg.key, order, rowLabel, folded, channels, function(ch)
+                    return {
+                        -- Greyed out, not gone: the row's tag names the switch that re-activates it
+                        disabled = function() return not PhraseActive(msg, ch.settingsFn) end,
+                        get = function() return ch.tableFn()[msg.key] end,
+                        set = function(_, val) ch.tableFn()[msg.key] = val end,
+                    }
+                end)
+            else
+                local ch = channels[1]
+                args["m_" .. msg.key] = {
+                    type = "toggle",
+                    name = rowLabel,
+                    order = order,
+                    -- One column: tags must be readable without hovering, folding beats truncation
+                    width = "full",
+                    hidden = folded,
+                    disabled = function() return not PhraseActive(msg, ch.settingsFn) end,
+                    get = function() return ch.tableFn()[msg.key] end,
+                    set = function(_, val) ch.tableFn()[msg.key] = val end,
+                }
+            end
             order = order + 1
         end
     end
@@ -291,18 +391,200 @@ local function BuildCustomMessageList(channel, customsKey, labelKey)
     return args
 end
 
--- Build greeting toggles for a specific channel
-local function BuildGreetingToggles(channel)
-    local args = {}
-    local order = 1
+-- Custom messages stay per channel - one inline list each, under the shared matrix
+local function AddCustomGroups(args, channels, customsKey, labelKey, order)
+    for i, ch in ipairs(channels) do
+        args["custom_" .. ch.key] = {
+            type = "group",
+            name = channelLabel[ch.key],
+            inline = true,
+            order = order + i,
+            args = BuildCustomMessageList(ch.key, customsKey, labelKey),
+        }
+    end
+end
 
-    -- Triggers panels
-    if channel == "guild" then
-        args.selfJoinGroup = {
+-- Group greetings: party, raid and instance share one phrase list, one column each.
+-- The trigger switches use the same grid, so a row reads "this setting, these channels".
+local function BuildGroupGreetings()
+    local channels = MatrixChannels(groupChannelKeys, "enabledGreetings", true)
+    local selfJoinDesc = {
+        party = L["Send greeting when you join a party"],
+        raid = L["Send greeting when you join a raid"],
+        -- Instance groups greet on zone-in instead of on group form
+        instance = L["Send greeting once after you zone into the instance"],
+    }
+    local othersJoinDesc = {
+        party = L["Send greeting when others join your party"],
+        raid = L["Send greeting when others join your raid"],
+        instance = L["Send greeting when others join your instance group"],
+    }
+    local leaderOnlyDesc = {
+        party = L["Only greet newcomers when you are the party leader"],
+        raid = L["Only greet newcomers when you are the raid leader"],
+        instance = L["Only greet newcomers when you are the group leader"],
+    }
+
+    local triggers = {}
+    AddCaptionRow(triggers, "captions", 1, channels)
+    AddMatrixRow(triggers, "onSelfJoin", 2,
+        L["On self join"] .. TagSuffix("self"), nil, channels, function(ch)
+            return {
+                desc = selfJoinDesc[ch.key],
+                get = function() return Addon.db.profile[ch.key].onSelfJoin end,
+                set = function(_, val)
+                    Addon.db.profile[ch.key].onSelfJoin = val
+                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
+                end,
+            }
+        end)
+    AddMatrixRow(triggers, "includeGroupNames", 3,
+        L["Include group member names"] .. TagSuffix("{names}"),
+        NoneOn(channels, "onSelfJoin"), channels, function(ch)
+            return {
+                desc = L["Add names of current group members to the greeting"],
+                disabled = function() return not Addon.db.profile[ch.key].onSelfJoin end,
+                get = function() return Addon.db.profile[ch.key].includeGroupNames end,
+                set = function(_, val)
+                    Addon.db.profile[ch.key].includeGroupNames = val
+                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
+                end,
+            }
+        end)
+    AddMatrixRow(triggers, "onOthersJoin", 4,
+        L["On others join"] .. TagSuffix("newcomers"), nil, channels, function(ch)
+            return {
+                desc = othersJoinDesc[ch.key],
+                get = function() return Addon.db.profile[ch.key].onOthersJoin end,
+                set = function(_, val)
+                    Addon.db.profile[ch.key].onOthersJoin = val
+                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
+                end,
+            }
+        end)
+    AddMatrixRow(triggers, "onOthersJoinLeaderOnly", 5,
+        L["Only if leader"], NoneOn(channels, "onOthersJoin"), channels, function(ch)
+            return {
+                desc = leaderOnlyDesc[ch.key],
+                disabled = function() return not Addon.db.profile[ch.key].onOthersJoin end,
+                get = function() return Addon.db.profile[ch.key].onOthersJoinLeaderOnly end,
+                set = function(_, val) Addon.db.profile[ch.key].onOthersJoinLeaderOnly = val end,
+            }
+        end)
+    AddMatrixRow(triggers, "includeNames", 6,
+        L["Include player names"] .. TagSuffix("{names}"),
+        NoneOn(channels, "onOthersJoin"), channels, function(ch)
+            return {
+                desc = L["Add joined player names to the greeting"],
+                disabled = function() return not Addon.db.profile[ch.key].onOthersJoin end,
+                get = function() return Addon.db.profile[ch.key].includeNames end,
+                set = function(_, val)
+                    Addon.db.profile[ch.key].includeNames = val
+                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
+                end,
+            }
+        end)
+
+    local args = {
+        triggersGroup = {
+            type = "group", name = L["Triggers"], inline = true, order = 1, args = triggers,
+        },
+        messagesGroup = {
+            type = "group", name = L["Messages"], inline = true, order = 2,
+            args = BuildMessageMatrix("groupGreetings", AutoSay.Greetings, channels),
+        },
+    }
+    AddCustomGroups(args, channels, "customGreetings", "Custom greetings", 10)
+    return args
+end
+
+-- Group goodbyes: same grid, a single trigger row
+local function BuildGroupGoodbyes()
+    local channels = MatrixChannels(groupChannelKeys, "enabledGoodbyes")
+    local goodbyeDesc = {
+        party = L["Send goodbye when leaving party"],
+        raid = L["Send goodbye when leaving raid"],
+        instance = L["Send goodbye when leaving instance group"],
+    }
+
+    local triggers = {}
+    AddCaptionRow(triggers, "captions", 1, channels)
+    AddMatrixRow(triggers, "sendGoodbye", 2,
+        L["Send goodbye on leave"], nil, channels, function(ch)
+            return {
+                desc = goodbyeDesc[ch.key],
+                get = function() return Addon.db.profile[ch.key].sendGoodbye end,
+                set = function(_, val) Addon.db.profile[ch.key].sendGoodbye = val end,
+            }
+        end)
+
+    local args = {
+        triggersGroup = {
+            type = "group", name = L["Triggers"], inline = true, order = 1, args = triggers,
+        },
+        messagesGroup = {
+            type = "group", name = L["Messages"], inline = true, order = 2,
+            args = BuildMessageMatrix("groupGoodbyes", AutoSay.Goodbyes, channels),
+        },
+    }
+    AddCustomGroups(args, channels, "customGoodbyes", "Custom goodbyes", 10)
+    return args
+end
+
+-- Group reconnects: two columns only - an instance group is rejoined through the queue,
+-- so it has no reconnect trigger and no reconnect phrases
+local function BuildGroupReconnects()
+    local channels = MatrixChannels({ "party", "raid" }, "enabledReconnects")
+    local reconnectDesc = {
+        party = L["Send greeting when you reconnect to party"],
+        raid = L["Send greeting when you reconnect to raid"],
+    }
+
+    local triggers = {}
+    AddCaptionRow(triggers, "captions", 1, channels)
+    AddMatrixRow(triggers, "onReconnect", 2, L["On reconnect"], nil, channels, function(ch)
+        return {
+            desc = reconnectDesc[ch.key],
+            get = function() return Addon.db.profile[ch.key].onReconnect end,
+            set = function(_, val) Addon.db.profile[ch.key].onReconnect = val end,
+        }
+    end)
+    triggers.instanceNote = {
+        type = "description", order = 3, fontSize = "small",
+        name = "|cFF888888" .. L["Reconnects instance note"] .. "|r",
+    }
+
+    local args = {
+        triggersGroup = {
+            type = "group", name = L["Triggers"], inline = true, order = 1, args = triggers,
+        },
+        messagesGroup = {
+            type = "group", name = L["Messages"], inline = true, order = 2,
+            args = BuildMessageMatrix("groupReconnects", AutoSay.Reconnects, channels),
+        },
+    }
+    AddCustomGroups(args, channels, "customReconnects", "Custom reconnects", 10)
+    return args
+end
+
+-- Guild keeps the single-channel layout: one trigger, one plain phrase list
+local function BuildGuildChannels(enabledKey, withTriggers)
+    return {
+        {
+            key = "guild",
+            tableFn = function() return Addon.db.profile.guild[enabledKey] end,
+            settingsFn = withTriggers and function() return Addon.db.profile.guild end or nil,
+        },
+    }
+end
+
+local function BuildGuildGreetings()
+    return {
+        selfJoinGroup = {
             type = "group",
             name = L["On login"],
             inline = true,
-            order = order,
+            order = 1,
             args = {
                 onSelfJoin = {
                     type = "toggle",
@@ -314,254 +596,60 @@ local function BuildGreetingToggles(channel)
                     set = function(_, val) Addon.db.profile.guild.onSelfJoin = val end,
                 },
             },
-        }
-        order = order + 1
-    else
-        -- Instance groups greet on zone-in instead of on group form
-        local isInstance = channel == "instance"
-        local selfJoinName = isInstance and NewTag(L["Greet on entering instance"], "1.6") or L["On self join"]
-        local selfJoinDesc
-        if isInstance then
-            selfJoinDesc = L["Send greeting once after you zone into the instance"]
-        elseif channel == "party" then
-            selfJoinDesc = L["Send greeting when you join a party"]
-        else
-            selfJoinDesc = L["Send greeting when you join a raid"]
-        end
-
-        -- Panel 1: On self join
-        args.selfJoinGroup = {
+        },
+        messagesGroup = {
             type = "group",
-            name = selfJoinName,
+            name = L["Messages"],
             inline = true,
-            order = order,
-            args = {
-                onSelfJoin = {
-                    type = "toggle",
-                    name = selfJoinName .. TagSuffix("self"),
-                    desc = selfJoinDesc,
-                    order = 1,
-                    width = "full",
-                    get = function() return Addon.db.profile[channel].onSelfJoin end,
-                    set = function(_, val)
-                        Addon.db.profile[channel].onSelfJoin = val
-                        LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
-                    end,
-                },
-                includeGroupNames = {
-                    type = "toggle",
-                    name = L["Include group member names"] .. TagSuffix("{names}"),
-                    desc = L["Add names of current group members to the greeting"],
-                    order = 2,
-                    width = "full",
-                    hidden = function() return not Addon.db.profile[channel].onSelfJoin end,
-                    get = function() return Addon.db.profile[channel].includeGroupNames end,
-                    set = function(_, val)
-                        Addon.db.profile[channel].includeGroupNames = val
-                        LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
-                    end,
-                },
-            },
-        }
-        order = order + 1
-
-        local othersJoinDesc, leaderOnlyDesc
-        if isInstance then
-            othersJoinDesc = L["Send greeting when others join your instance group"]
-            leaderOnlyDesc = L["Only greet newcomers when you are the group leader"]
-        elseif channel == "party" then
-            othersJoinDesc = L["Send greeting when others join your party"]
-            leaderOnlyDesc = L["Only greet newcomers when you are the party leader"]
-        else
-            othersJoinDesc = L["Send greeting when others join your raid"]
-            leaderOnlyDesc = L["Only greet newcomers when you are the raid leader"]
-        end
-
-        -- Panel 2: Greet newcomers
-        args.othersJoinGroup = {
+            order = 2,
+            args = BuildMessageMatrix("guildGreetings", AutoSay.Greetings,
+                BuildGuildChannels("enabledGreetings", true)),
+        },
+        customGroup = {
             type = "group",
-            name = L["Greet newcomers"],
+            name = L["Custom greetings"],
             inline = true,
-            order = order,
-            args = {
-                onOthersJoin = {
-                    type = "toggle",
-                    name = L["On others join"] .. TagSuffix("newcomers"),
-                    desc = othersJoinDesc,
-                    order = 1,
-                    width = "full",
-                    get = function() return Addon.db.profile[channel].onOthersJoin end,
-                    set = function(_, val)
-                        Addon.db.profile[channel].onOthersJoin = val
-                        LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
-                    end,
-                },
-                onOthersJoinLeaderOnly = {
-                    type = "toggle",
-                    name = L["Only if leader"],
-                    desc = leaderOnlyDesc,
-                    order = 2,
-                    width = "full",
-                    hidden = function() return not Addon.db.profile[channel].onOthersJoin end,
-                    get = function() return Addon.db.profile[channel].onOthersJoinLeaderOnly end,
-                    set = function(_, val) Addon.db.profile[channel].onOthersJoinLeaderOnly = val end,
-                },
-                includeNames = {
-                    type = "toggle",
-                    name = L["Include player names"] .. TagSuffix("{names}"),
-                    desc = L["Add joined player names to the greeting"],
-                    order = 3,
-                    width = "full",
-                    hidden = function() return not Addon.db.profile[channel].onOthersJoin end,
-                    get = function() return Addon.db.profile[channel].includeNames end,
-                    set = function(_, val)
-                        Addon.db.profile[channel].includeNames = val
-                        LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
-                    end,
-                },
-            },
-        }
-        order = order + 1
-    end
-
-    -- Messages panel (style dropdown + the selected style's phrases)
-    args.messagesGroup = {
-        type = "group",
-        name = L["Messages"],
-        inline = true,
-        order = order,
-        args = BuildMessagePicker(channel .. "Greetings", AutoSay.Greetings,
-            function() return Addon.db.profile[channel].enabledGreetings end,
-            function() return Addon.db.profile[channel] end),
-    }
-    order = order + 1
-
-    -- Custom greetings panel
-    args.customGroup = {
-        type = "group",
-        name = L["Custom greetings"],
-        inline = true,
-        order = order,
-        args = BuildCustomMessageList(channel, "customGreetings", "Custom greetings"),
-    }
-
-    return args
-end
-
--- Build reconnect toggles for a specific channel
-local function BuildReconnectToggles(channel)
-    local args = {}
-    local order = 1
-
-    -- Triggers panel
-    args.triggersGroup = {
-        type = "group",
-        name = L["Triggers"],
-        inline = true,
-        order = order,
-        args = {
-            onReconnect = {
-                type = "toggle",
-                name = L["On reconnect"],
-                desc = channel == "party" and L["Send greeting when you reconnect to party"] or L["Send greeting when you reconnect to raid"],
-                order = 1,
-                width = 1.5,
-                get = function() return Addon.db.profile[channel].onReconnect end,
-                set = function(_, val) Addon.db.profile[channel].onReconnect = val end,
-            },
+            order = 3,
+            args = BuildCustomMessageList("guild", "customGreetings", "Custom greetings"),
         },
     }
-    order = order + 1
-
-    -- Messages panel (style dropdown + the selected style's phrases)
-    args.messagesGroup = {
-        type = "group",
-        name = L["Messages"],
-        inline = true,
-        order = order,
-        args = BuildMessagePicker(channel .. "Reconnects", AutoSay.Reconnects,
-            function() return Addon.db.profile[channel].enabledReconnects end),
-    }
-    order = order + 1
-
-    -- Custom reconnects panel
-    args.customGroup = {
-        type = "group",
-        name = L["Custom reconnects"],
-        inline = true,
-        order = order,
-        args = BuildCustomMessageList(channel, "customReconnects", "Custom reconnects"),
-    }
-
-    return args
 end
 
--- Build goodbye toggles for a specific channel
-local function BuildGoodbyeToggles(channel)
-    local args = {}
-    local order = 1
-
-    -- Triggers panel
-    local triggersArgs = {}
-    if channel == "guild" then
-        triggersArgs.sendGoodbye = {
-            type = "toggle",
-            name = L["On logout"],
-            desc = L["Send goodbye when you log out"],
+local function BuildGuildGoodbyes()
+    return {
+        triggersGroup = {
+            type = "group",
+            name = L["Triggers"],
+            inline = true,
             order = 1,
-            width = 1.2,
-            get = function() return Addon.db.profile.guild.sendGoodbye end,
-            set = function(_, val) Addon.db.profile.guild.sendGoodbye = val end,
-        }
-    else
-        local goodbyeDesc
-        if channel == "instance" then
-            goodbyeDesc = L["Send goodbye when leaving instance group"]
-        elseif channel == "party" then
-            goodbyeDesc = L["Send goodbye when leaving party"]
-        else
-            goodbyeDesc = L["Send goodbye when leaving raid"]
-        end
-        triggersArgs.sendGoodbye = {
-            type = "toggle",
-            name = L["Send goodbye on leave"],
-            desc = goodbyeDesc,
-            order = 1,
-            width = 1.5,
-            get = function() return Addon.db.profile[channel].sendGoodbye end,
-            set = function(_, val) Addon.db.profile[channel].sendGoodbye = val end,
-        }
-    end
-    args.triggersGroup = {
-        type = "group",
-        name = L["Triggers"],
-        inline = true,
-        order = order,
-        args = triggersArgs,
+            args = {
+                sendGoodbye = {
+                    type = "toggle",
+                    name = L["On logout"],
+                    desc = L["Send goodbye when you log out"],
+                    order = 1,
+                    width = 1.2,
+                    get = function() return Addon.db.profile.guild.sendGoodbye end,
+                    set = function(_, val) Addon.db.profile.guild.sendGoodbye = val end,
+                },
+            },
+        },
+        messagesGroup = {
+            type = "group",
+            name = L["Messages"],
+            inline = true,
+            order = 2,
+            args = BuildMessageMatrix("guildGoodbyes", AutoSay.Goodbyes,
+                BuildGuildChannels("enabledGoodbyes")),
+        },
+        customGroup = {
+            type = "group",
+            name = L["Custom goodbyes"],
+            inline = true,
+            order = 3,
+            args = BuildCustomMessageList("guild", "customGoodbyes", "Custom goodbyes"),
+        },
     }
-    order = order + 1
-
-    -- Messages panel (style dropdown + the selected style's phrases)
-    args.messagesGroup = {
-        type = "group",
-        name = L["Messages"],
-        inline = true,
-        order = order,
-        args = BuildMessagePicker(channel .. "Goodbyes", AutoSay.Goodbyes,
-            function() return Addon.db.profile[channel].enabledGoodbyes end),
-    }
-    order = order + 1
-
-    -- Custom goodbyes panel
-    args.customGroup = {
-        type = "group",
-        name = L["Custom goodbyes"],
-        inline = true,
-        order = order,
-        args = BuildCustomMessageList(channel, "customGoodbyes", "Custom goodbyes"),
-    }
-
-    return args
 end
 
 -- Build guild member login greeting toggles
@@ -608,8 +696,8 @@ local function BuildGuildLoginToggles()
         name = L["Messages"],
         inline = true,
         order = order,
-        args = BuildMessagePicker("guildLoginGreetings", AutoSay.GuildLoginGreetings,
-            function() return Addon.db.profile.guild.enabledLoginGreetings end),
+        args = BuildMessageMatrix("guildLoginGreetings", AutoSay.GuildLoginGreetings,
+            BuildGuildChannels("enabledLoginGreetings")),
     }
     order = order + 1
 
@@ -1017,83 +1105,32 @@ local options = {
             },
         },
 
-        -- === PARTY ===
-        party = {
+        -- === GROUP (party / raid / instance share one phrase list) ===
+        -- No per-channel hiding here: the tab shows all three columns whatever the General
+        -- switches say, and those switches keep doing the only job they ever had - gating sends.
+        group = {
             type = "group",
-            name = "|cFF00FF00Party|r",
+            name = NewTag("|cFF33DDAA" .. L["Group"] .. "|r", "1.6"),
             order = 10,
             childGroups = "tab",
-            hidden = function() return not Addon.db.profile.party.enabled end,
             args = {
                 greetings = {
                     type = "group",
                     name = L["Greetings"],
                     order = 1,
-                    args = BuildGreetingToggles("party"),
+                    args = BuildGroupGreetings(),
                 },
                 goodbyes = {
                     type = "group",
                     name = L["Goodbyes"],
                     order = 2,
-                    args = BuildGoodbyeToggles("party"),
+                    args = BuildGroupGoodbyes(),
                 },
                 reconnects = {
                     type = "group",
                     name = L["Reconnects"],
                     order = 3,
-                    args = BuildReconnectToggles("party"),
-                },
-            },
-        },
-
-        -- === RAID ===
-        raid = {
-            type = "group",
-            name = "|cFFFF9900Raid|r",
-            order = 20,
-            childGroups = "tab",
-            hidden = function() return not Addon.db.profile.raid.enabled end,
-            args = {
-                greetings = {
-                    type = "group",
-                    name = L["Greetings"],
-                    order = 1,
-                    args = BuildGreetingToggles("raid"),
-                },
-                goodbyes = {
-                    type = "group",
-                    name = L["Goodbyes"],
-                    order = 2,
-                    args = BuildGoodbyeToggles("raid"),
-                },
-                reconnects = {
-                    type = "group",
-                    name = L["Reconnects"],
-                    order = 3,
-                    args = BuildReconnectToggles("raid"),
-                },
-            },
-        },
-
-        -- === INSTANCE (LFG dungeons / LFR / battlegrounds) ===
-        instance = {
-            type = "group",
-            name = NewTag("|cFF9999FF" .. L["Instance"] .. "|r", "1.6"),
-            order = 25,
-            childGroups = "tab",
-            hidden = function() return not Addon.db.profile.instance.enabled end,
-            args = {
-                greetings = {
-                    type = "group",
-                    name = L["Greetings"],
-                    order = 1,
-                    args = BuildGreetingToggles("instance"),
-                },
-                goodbyes = {
-                    type = "group",
-                    name = L["Goodbyes"],
-                    order = 2,
-                    args = BuildGoodbyeToggles("instance"),
+                    args = BuildGroupReconnects(),
                 },
             },
         },
@@ -1110,13 +1147,13 @@ local options = {
                     type = "group",
                     name = L["Greetings"],
                     order = 1,
-                    args = BuildGreetingToggles("guild"),
+                    args = BuildGuildGreetings(),
                 },
                 goodbyes = {
                     type = "group",
                     name = L["Goodbyes"],
                     order = 2,
-                    args = BuildGoodbyeToggles("guild"),
+                    args = BuildGuildGoodbyes(),
                 },
                 -- Member Login tab hidden until feature is fully working
                 -- memberLogin = {
