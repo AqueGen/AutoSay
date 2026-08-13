@@ -1306,12 +1306,14 @@ local options = {
                         },
                     },
                 },
-                -- Tab 2: Completion (timed / depleted messages)
+                -- Tab 2: Completion, itself split into On time / Depleted sub-tabs
                 completion = {
                     type = "group",
                     name = L["Completion Messages"],
                     order = 2,
+                    childGroups = "tab",
                     args = {
+                        -- Non-group args render above the sub-tab strip
                         completionEnabled = {
                             type = "toggle",
                             name = L["Send message on completion"],
@@ -1321,47 +1323,61 @@ local options = {
                             get = function() return Addon.db.profile.mythicplus.completionEnabled end,
                             set = function(_, val) Addon.db.profile.mythicplus.completionEnabled = val end,
                         },
-                        timedMessagesGroup = {
+                        timed = {
                             type = "group",
-                            name = L["Timed Messages"],
-                            inline = true,
+                            name = L["On time"],
                             order = 10,
-                            args = BuildMessageMatrix("mplusCompletionTimed", AutoSay.CompletionTimed,
-                                BuildMPlusChannels("enabledCompletionTimed")),
+                            args = {
+                                messages = {
+                                    type = "group",
+                                    name = L["Messages"],
+                                    inline = true,
+                                    order = 1,
+                                    args = BuildMessageMatrix("mplusCompletionTimed", AutoSay.CompletionTimed,
+                                        BuildMPlusChannels("enabledCompletionTimed")),
+                                },
+                                customs = {
+                                    type = "group",
+                                    name = L["Custom timed messages"],
+                                    inline = true,
+                                    order = 2,
+                                    args = BuildCustomMessageList("mythicplus", "customCompletionTimed", "Custom timed messages"),
+                                },
+                                placeholderNote = {
+                                    type = "description",
+                                    name = "\n|cFF888888" .. L["Completion placeholder hint"] .. "|r",
+                                    order = 3,
+                                    fontSize = "medium",
+                                },
+                            },
                         },
-                        customTimedGroup = {
+                        depleted = {
                             type = "group",
-                            name = L["Custom timed messages"],
-                            inline = true,
-                            order = 11,
-                            args = BuildCustomMessageList("mythicplus", "customCompletionTimed", "Custom timed messages"),
-                        },
-                        timedPlaceholderNote = {
-                            type = "description",
-                            name = "\n|cFF888888" .. L["Completion placeholder hint"] .. "|r",
-                            order = 12,
-                            fontSize = "medium",
-                        },
-                        depletedMessagesGroup = {
-                            type = "group",
-                            name = L["Depleted Messages"],
-                            inline = true,
+                            name = L["Depleted"],
                             order = 20,
-                            args = BuildMessageMatrix("mplusCompletionDepleted", AutoSay.CompletionDepleted,
-                                BuildMPlusChannels("enabledCompletionDepleted")),
-                        },
-                        customDepletedGroup = {
-                            type = "group",
-                            name = L["Custom depleted messages"],
-                            inline = true,
-                            order = 21,
-                            args = BuildCustomMessageList("mythicplus", "customCompletionDepleted", "Custom depleted messages"),
-                        },
-                        depletedPlaceholderNote = {
-                            type = "description",
-                            name = "\n|cFF888888" .. L["Completion placeholder hint"] .. "|r",
-                            order = 22,
-                            fontSize = "medium",
+                            args = {
+                                messages = {
+                                    type = "group",
+                                    name = L["Messages"],
+                                    inline = true,
+                                    order = 1,
+                                    args = BuildMessageMatrix("mplusCompletionDepleted", AutoSay.CompletionDepleted,
+                                        BuildMPlusChannels("enabledCompletionDepleted")),
+                                },
+                                customs = {
+                                    type = "group",
+                                    name = L["Custom depleted messages"],
+                                    inline = true,
+                                    order = 2,
+                                    args = BuildCustomMessageList("mythicplus", "customCompletionDepleted", "Custom depleted messages"),
+                                },
+                                placeholderNote = {
+                                    type = "description",
+                                    name = "\n|cFF888888" .. L["Completion placeholder hint"] .. "|r",
+                                    order = 3,
+                                    fontSize = "medium",
+                                },
+                            },
                         },
                     },
                 },
