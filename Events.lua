@@ -127,11 +127,18 @@ function Addon:GROUP_JOINED(event, category)
             self.state.startAnnounceTimer = nil
         end
         -- A delayed send still in flight belongs to the previous group - typing delays reach
-        -- ~7s, long enough to leave one party and join another before the line goes out
-        for handle in pairs(self.state.pendingGroupSends) do
-            self:CancelTimer(handle)
+        -- ~7s, long enough to leave one party and join another before the line goes out.
+        -- Mirror of the homeSurvives branch: a home party forming next to a live instance
+        -- group must not kill that instance group's own greeting (its greet flag is already
+        -- burned, so a cancelled send would never retry).
+        local instanceSurvives = category ~= LE_PARTY_CATEGORY_INSTANCE
+            and IsInGroup(LE_PARTY_CATEGORY_INSTANCE)
+        for handle, ch in pairs(self.state.pendingGroupSends) do
+            if not (instanceSurvives and ch == "INSTANCE_CHAT") then
+                self:CancelTimer(handle)
+                self.state.pendingGroupSends[handle] = nil
+            end
         end
-        self.state.pendingGroupSends = {}
     end
     -- Join time is where the once-per-group guards reset: GROUP_LEFT fires milliseconds
     -- after the leave hook, which would make the goodbye guard useless. Only the joined

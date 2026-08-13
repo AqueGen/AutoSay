@@ -627,18 +627,17 @@ function Addon:GoodbyeChannelForCategory(category)
     elseif category == LE_PARTY_CATEGORY_INSTANCE then
         return "INSTANCE_CHAT"
     end
-    -- Nil category: the engine's documented default for LeaveParty() is "the instance
-    -- group when one exists, otherwise home" - mirror that, or the goodbye goes to the
-    -- group that is NOT being left. (Blizzard's own UI only issues bare calls from
-    -- home-group buttons, and those hide while dual-grouped, so this mostly guards
-    -- macro/script leaves.)
-    if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
-        return "INSTANCE_CHAT"
-    end
+    -- Nil category means the HOME group in Blizzard's own UI: the raid manager offers
+    -- "Leave Group" (bare C_PartyInfo.LeaveParty()) right next to a separate "Leave
+    -- Instance Group" button (Blizzard_CompactRaidFrameManager.lua:1311, .xml:386), and
+    -- instance departures always pass LE_PARTY_CATEGORY_INSTANCE explicitly. The generated
+    -- API docs give LeaveParty's nilable category NO documented default, so the call sites
+    -- are the ground truth here.
     if IsInGroup(LE_PARTY_CATEGORY_HOME) then
         return IsInRaid(LE_PARTY_CATEGORY_HOME) and "RAID" or "PARTY"
     end
-    -- Already dropped from both by the time we run: the cached type is all that is left
+    -- No home group: resolve live (we are still in the group at this point) so LFG groups
+    -- pick up the instance settings; cached type is the fallback if the API dropped us
     return self:GetChatChannel() or self.state.currentGroupType
 end
 
@@ -711,8 +710,9 @@ function Addon:SlashCommand(input)
     -- guildjoin, resetgate) reach real guild chat / wipe real gate state when test mode is
     -- off - the per-helper RequireTestMode calls do not cover them.
     elseif cmd == "test" then
-        if not self:RequireTestMode() then return end
         local subcmd = arg1 and arg1:lower() or ""
+        -- Bare "/as test" may always show the command list; everything else needs test mode
+        if subcmd ~= "" and not self:RequireTestMode() then return end
         if subcmd == "party" or subcmd == "p" then
             self:TestJoinParty()
         elseif subcmd == "raid" or subcmd == "r" then
@@ -1976,11 +1976,9 @@ function Addon:SendKeyAnnounce()
     self:DebugPrint("SendKeyAnnounce:", message, "(dungeon:", dungeon,
         "level:", tostring(keyLevel) .. ")")
 
-    -- Determine channel
-    local channel = self:GetChatChannel()
-    if not channel then
-        channel = "PARTY" -- Default to party for M+
-    end
+    -- The announce belongs to the HOME group carrying the listing - GetChatChannel is
+    -- instance-first and would post the key line into a BG/LFR the party queued together
+    local channel = IsInRaid(LE_PARTY_CATEGORY_HOME) and "RAID" or "PARTY"
 
     -- Share the group cooldown with greetings: an announce landing in the same second as
     -- the greeting reads like a bot. One retry when the cooldown is still running, then drop.
@@ -2043,7 +2041,8 @@ function Addon:SendKeyStartAnnounce(dungeon, keyLevel, mapID)
     end
 
     local message = self:ReplacePlaceholders(template, dungeon, keyLevel)
-    local channel = self:GetChatChannel() or "PARTY"
+    -- Home-scoped like SendKeyAnnounce: a keystone run is always the home group
+    local channel = IsInRaid(LE_PARTY_CATEGORY_HOME) and "RAID" or "PARTY"
 
     self:DebugPrint("SendKeyStartAnnounce:", message, "(dungeon:", dungeon,
         "level:", tostring(keyLevel) .. ")")
