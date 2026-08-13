@@ -877,7 +877,9 @@ end
 
 -- Send a message to chat. Optional validate() runs again inside the typing delay - a send
 -- whose precondition can expire (the key announce's 5/5) re-checks right before dispatch.
-function Addon:SendMessageToChat(message, channel, target, keepCase, validate)
+-- Optional onSent() fires only when the line actually went out: state that must record
+-- "this was SAID" (announcedKey) belongs there, not on the scheduling result.
+function Addon:SendMessageToChat(message, channel, target, keepCase, validate, onSent)
     if not self.db.profile.enabled then
         self:DebugPrint("Addon disabled, not sending")
         return false
@@ -928,7 +930,9 @@ function Addon:SendMessageToChat(message, channel, target, keepCase, validate)
                 self:DebugPrint("Dropping delayed send - no longer valid")
                 return
             end
-            self:DoSendMessage(message, channel, target, keepCase)
+            if self:DoSendMessage(message, channel, target, keepCase) and onSent then
+                onSent()
+            end
         end, delay)
         -- Tagged with the channel so GROUP_JOINED can cancel selectively (an instance
         -- group forming next to a live home party only kills the INSTANCE_CHAT sends)
@@ -937,7 +941,9 @@ function Addon:SendMessageToChat(message, channel, target, keepCase, validate)
         return true
     end
     -- Immediate path: the caller's budget/flag spend must reflect what actually happened
-    return self:DoSendMessage(message, channel, target, keepCase)
+    local ok = self:DoSendMessage(message, channel, target, keepCase)
+    if ok and onSent then onSent() end
+    return ok
 end
 
 -- Final polish applied to every outgoing message: {role} placeholder, leftover M+ tokens,
@@ -2031,23 +2037,26 @@ function Addon:SendKeyAnnounce()
         return self.state.keyAnnounced
             and (self:IsTestMode() or GetNumGroupMembers(LE_PARTY_CATEGORY_HOME) == 5)
     end
-    if self:SendMessageToChat(message, channel, nil, true, stillValid) then
-        self.state.keyAnnounceRetried = false
-        -- Remember what was actually said, so the key start announce can stay silent
-        -- when the keystone that went in is the one this line already named
+    -- announcedKey records what was actually SAID: stamping it on the scheduling result
+    -- would let a validator-dropped send silence this key for good (the dip path does not
+    -- clear announcedKey, and both announce entry points dedupe against it)
+    local recordSaid = function()
         self.state.announcedKey = { mapID = mapID, dungeon = dungeon, level = keyLevel }
+    end
+    if self:SendMessageToChat(message, channel, nil, true, stillValid, recordSaid) then
+        self.state.keyAnnounceRetried = false
         return
     end
 
     if self.state.keyAnnounceRetried then
-        self:DebugPrint("Key announce still cooldown-blocked after the retry, dropping")
+        self:DebugPrint("Key announce still blocked after the retry (cooldown or chat restriction), dropping")
         return
     end
 
     self.state.keyAnnounceRetried = true
     local remaining = self.db.profile.cooldown - (GetTime() - self.state.lastGroupMessageTime)
     local wait = math.max(remaining, 0) + (self.db.profile.messageDelay or 0) + 0.5
-    self:DebugPrint("Key announce cooldown-blocked, retrying in", string.format("%.1f", wait) .. "s")
+    self:DebugPrint("Key announce blocked (cooldown or chat restriction), retrying in", string.format("%.1f", wait) .. "s")
     -- Resend the very message we built, not a fresh roll, and only while the announce
     -- this retry belongs to is still valid (same full group, flag not reset meanwhile)
     self.state.keyAnnounceTimer = self:ScheduleTimer(function()
@@ -2055,17 +2064,11 @@ function Addon:SendKeyAnnounce()
         -- Whatever happens next, this retry is spent: the latch must not outlive it and
         -- swallow a FUTURE announce's retry (dip-refill, next listing)
         self.state.keyAnnounceRetried = false
-        if not self.state.keyAnnounced or GetNumGroupMembers(LE_PARTY_CATEGORY_HOME) ~= 5 then
+        if not stillValid() then
             self:DebugPrint("Key announce retry no longer valid, dropping")
             return
         end
-        local stillValid = function()
-            return self.state.keyAnnounced
-                and (self:IsTestMode() or GetNumGroupMembers(LE_PARTY_CATEGORY_HOME) == 5)
-        end
-        if self:SendMessageToChat(message, channel, nil, true, stillValid) then
-            self.state.announcedKey = { mapID = mapID, dungeon = dungeon, level = keyLevel }
-        end
+        self:SendMessageToChat(message, channel, nil, true, stillValid, recordSaid)
     end, wait)
 end
 
@@ -2105,20 +2108,22 @@ function Addon:SendKeyStartAnnounce(dungeon, keyLevel, mapID)
     -- announcedKey is written only once the line actually went out: recording it up front
     -- would let a cooldown refusal silence this key for good. One retry, then drop.
     local retried = false
+    local recordSaid = function()
+        self.state.announcedKey = key
+    end
     local function Attempt()
         self.state.startAnnounceTimer = nil
-        if self:SendMessageToChat(message, channel, nil, true) then
-            self.state.announcedKey = key
+        if self:SendMessageToChat(message, channel, nil, true, nil, recordSaid) then
             return
         end
         if retried then
-            self:DebugPrint("Key start announce still cooldown-blocked after the retry, dropping")
+            self:DebugPrint("Key start announce still blocked after the retry (cooldown or chat restriction), dropping")
             return
         end
         retried = true
         local remaining = self.db.profile.cooldown - (GetTime() - self.state.lastGroupMessageTime)
         local wait = math.max(remaining, 0) + (self.db.profile.messageDelay or 0) + 0.5
-        self:DebugPrint("Key start announce cooldown-blocked, retrying in", string.format("%.1f", wait) .. "s")
+        self:DebugPrint("Key start announce blocked (cooldown or chat restriction), retrying in", string.format("%.1f", wait) .. "s")
         self.state.startAnnounceTimer = self:ScheduleTimer(Attempt, wait)
     end
 
