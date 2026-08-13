@@ -698,7 +698,7 @@ function Addon:SlashCommand(input)
     elseif cmd == "debug" then
         self.db.profile.debugMode = not self.db.profile.debugMode
         self:Print("Debug mode:", self.db.profile.debugMode and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r")
-    elseif cmd == "testmode" or cmd == "test" and not arg1 then
+    elseif cmd == "testmode" then
         self.db.profile.testMode = not self.db.profile.testMode
         -- Invalidate every delayed send built under the previous mode: a simulated message
         -- still sitting in a typing delay must never reach real chat (and vice versa)
@@ -771,6 +771,7 @@ function Addon:SlashCommand(input)
             self:TestStatus()
         else
             self:Print("|cFFFF9900Test commands:|r")
+            self:Print("  /as testmode - Toggle simulation mode (required for the commands below)")
             self:Print("  /as test party - Simulate joining a party")
             self:Print("  /as test raid - Simulate joining a raid")
             self:Print("  /as test instance - Simulate zoning into an instance group")
@@ -1521,8 +1522,11 @@ function Addon:SendGuildGrats(name)
     local generation = self.state.sendGeneration
     local delay = 4 + math.random() * 6 -- 4-10s listening window per spec
     self:ScheduleTimer(function()
+        -- The pending slot is consumed either way - dropping on a stale generation must
+        -- not leave a dangling intent in the social gate's listening state
+        local taken = self.socialGate:TakePending(pendingId)
         if generation ~= self.state.sendGeneration then return end
-        if not self.socialGate:TakePending(pendingId) then
+        if not taken then
             if self:IsTestMode() then self:TestPrint("Grats blocked: someone-answered") end
             return
         end
@@ -1552,8 +1556,10 @@ function Addon:SendGuildWelcome(name)
     local generation = self.state.sendGeneration
     local delay = 5 + math.random() * 10 -- 5-15s per spec
     self:ScheduleTimer(function()
+        -- Consume the pending slot before the generation check, same as the grats path
+        local taken = self.socialGate:TakePending(pendingId)
         if generation ~= self.state.sendGeneration then return end
-        if not self.socialGate:TakePending(pendingId) then
+        if not taken then
             if self:IsTestMode() then self:TestPrint("Welcome blocked: someone-answered") end
             return
         end

@@ -410,9 +410,14 @@ function Addon:GROUP_ROSTER_UPDATE()
     -- satisfy (or reset) a 3-man listed key group's condition.
     if self.state.keyAnnounced and GetNumGroupMembers(LE_PARTY_CATEGORY_HOME) < 5 then
         self.state.keyAnnounced = false
-        -- The retry latch belongs to the announce that just became invalid: a fresh
-        -- announce after the refill deserves its own retry
+        -- The retry latch and any in-flight retry belong to the announce that just became
+        -- invalid: left alive, the old timer could pass a post-refill validation and send
+        -- its stale message while blocking the fresh announce's own retry
         self.state.keyAnnounceRetried = false
+        if self.state.keyAnnounceTimer then
+            self:CancelTimer(self.state.keyAnnounceTimer)
+            self.state.keyAnnounceTimer = nil
+        end
         self:DebugPrint("Group dropped below 5, key announce reset")
     end
 

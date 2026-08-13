@@ -971,6 +971,9 @@ local function BuildOptions()
                         -- and overwrite the instance settings chosen after this reset
                         Addon.db.profile.instanceMigrated = true
                         Addon.db.profile.mythicplus.keyLevelMigrated = true
+                        -- The reset also flips testMode back to false: a simulated message
+                        -- still in a typing delay must not escape into real chat
+                        Addon.state.sendGeneration = Addon.state.sendGeneration + 1
                         Addon:InvalidateBundleCache()
                         LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
                         Addon:Print(L["Settings reset to defaults"])
