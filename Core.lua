@@ -875,8 +875,9 @@ function Addon:CanSendMessage(channelType)
     return true
 end
 
--- Send a message to chat
-function Addon:SendMessageToChat(message, channel, target, keepCase)
+-- Send a message to chat. Optional validate() runs again inside the typing delay - a send
+-- whose precondition can expire (the key announce's 5/5) re-checks right before dispatch.
+function Addon:SendMessageToChat(message, channel, target, keepCase, validate)
     if not self.db.profile.enabled then
         self:DebugPrint("Addon disabled, not sending")
         return false
@@ -923,16 +924,20 @@ function Addon:SendMessageToChat(message, channel, target, keepCase)
                 self:DebugPrint("Dropping delayed send - test mode toggled since scheduling")
                 return
             end
+            if validate and not validate() then
+                self:DebugPrint("Dropping delayed send - no longer valid")
+                return
+            end
             self:DoSendMessage(message, channel, target, keepCase)
         end, delay)
         -- Tagged with the channel so GROUP_JOINED can cancel selectively (an instance
         -- group forming next to a live home party only kills the INSTANCE_CHAT sends)
         if handles then handles[handle] = channel end
         self:DebugPrint("Scheduled message in", delay, "seconds")
-    else
-        self:DoSendMessage(message, channel, target, keepCase)
+        return true
     end
-    return true
+    -- Immediate path: the caller's budget/flag spend must reflect what actually happened
+    return self:DoSendMessage(message, channel, target, keepCase)
 end
 
 -- Final polish applied to every outgoing message: {role} placeholder, leftover M+ tokens,
@@ -2020,7 +2025,13 @@ function Addon:SendKeyAnnounce()
     -- Share the group cooldown with greetings: an announce landing in the same second as
     -- the greeting reads like a bot. One retry when the cooldown is still running, then drop.
     -- keepCase so the second polish inside DoSendMessage keeps the dungeon name capitalized.
-    if self:SendMessageToChat(message, channel, nil, true) then
+    -- The validator re-checks 5/5 inside the typing delay: a member leaving after the
+    -- announce was accepted must kill the stale key line.
+    local stillValid = function()
+        return self.state.keyAnnounced
+            and (self:IsTestMode() or GetNumGroupMembers(LE_PARTY_CATEGORY_HOME) == 5)
+    end
+    if self:SendMessageToChat(message, channel, nil, true, stillValid) then
         self.state.keyAnnounceRetried = false
         -- Remember what was actually said, so the key start announce can stay silent
         -- when the keystone that went in is the one this line already named
@@ -2048,7 +2059,11 @@ function Addon:SendKeyAnnounce()
             self:DebugPrint("Key announce retry no longer valid, dropping")
             return
         end
-        if self:SendMessageToChat(message, channel, nil, true) then
+        local stillValid = function()
+            return self.state.keyAnnounced
+                and (self:IsTestMode() or GetNumGroupMembers(LE_PARTY_CATEGORY_HOME) == 5)
+        end
+        if self:SendMessageToChat(message, channel, nil, true, stillValid) then
             self.state.announcedKey = { mapID = mapID, dungeon = dungeon, level = keyLevel }
         end
     end, wait)
