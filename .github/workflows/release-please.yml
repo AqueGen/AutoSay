@@ -36,4 +36,6 @@ jobs:
       - name: Dispatch packaging on the new tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "${{ needs.release-please.outputs.tag_name }}"
+          # Passed as an env var, not interpolated into the run script.
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
