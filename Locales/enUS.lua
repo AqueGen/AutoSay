@@ -30,10 +30,6 @@ L["RAID"] = "Raid"
 L["INSTANCE_CHAT"] = "Instance"
 L["GUILD"] = "Guild"
 
--- Matrix column captions (one bare checkbox per channel has no room for a word)
-L["Column party"] = "P"
-L["Column raid"] = "R"
-L["Column instance"] = "I"
 L["%d phrases"] = "%d phrases"
 
 -- Per-channel tab names

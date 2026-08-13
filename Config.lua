@@ -80,15 +80,12 @@ local groupChannelKeys = { "party", "raid", "instance" }
 local channelLabel = {
     party = L["Party"], raid = L["Raid"], instance = L["Instance"], guild = L["Guild"],
 }
--- Column captions: a bare checkbox has no room for a word
-local channelInitial = {
-    party = L["Column party"], raid = L["Column raid"], instance = L["Column instance"],
-}
 
 -- A matrix row is one flow row: a label cell plus one narrow checkbox per channel.
 -- The caption row and every content row share these widths - change one, change them all
--- or the columns stop lining up (2.2 + 3*0.35 still fits the 4-wide dialog).
-local MATRIX_LABEL_WIDTH, MATRIX_COL_WIDTH = 2.2, 0.35
+-- or the columns stop lining up (2.0 + 3*0.55 still fits the 4-wide dialog, and 0.55
+-- is wide enough for the full "Instance" caption).
+local MATRIX_LABEL_WIDTH, MATRIX_COL_WIDTH = 2.0, 0.55
 
 -- Channel descriptors for a shared matrix: which profile table each column writes to
 local function MatrixChannels(keys, enabledKey, withTriggers)
@@ -103,7 +100,7 @@ local function MatrixChannels(keys, enabledKey, withTriggers)
     return channels
 end
 
--- Header row naming the columns: an empty cell under the labels, then one initial per column
+-- Header row naming the columns: an empty cell under the labels, then a channel name per column
 local function AddCaptionRow(args, key, order, channels, hidden)
     args[key] = {
         type = "description", name = " ", order = order,
@@ -112,7 +109,7 @@ local function AddCaptionRow(args, key, order, channels, hidden)
     for i, ch in ipairs(channels) do
         args[key .. "_" .. ch.key] = {
             type = "description", order = order + i * 0.1,
-            name = "|cFFFFD100" .. (channelInitial[ch.key] or "") .. "|r",
+            name = "|cFFFFD100" .. (channelLabel[ch.key] or "") .. "|r",
             width = MATRIX_COL_WIDTH, hidden = hidden,
         }
     end
