@@ -10,24 +10,47 @@ local INSTANCE = "|cFFFF7F50"
 -- Invented name: the examples must not read as something the player actually said
 local EXAMPLE_NAME = "Moonberry"
 
--- One block per feature, in display order. `atlas` wins over `texture` when set.
-local features = {
-    { atlas = "roleicon-tiny-tank", title = "WN role title",
-      example = PARTY .. "[Party] " .. EXAMPLE_NAME .. ": tank here, pull respectfully|r" },
-    { texture = "Interface\\Icons\\INV_Misc_PocketWatch_01", title = "WN time title",
-      example = PARTY .. "[Party] " .. EXAMPLE_NAME .. ": night owls unite o/|r" },
-    { texture = "Interface\\Icons\\INV_Misc_Key_10", title = "WN instance title",
-      example = INSTANCE .. "[Instance] " .. EXAMPLE_NAME .. ": hi all, glhf|r" },
-    { texture = "Interface\\Icons\\INV_Mask_01", title = "WN styles title",
-      example = PARTY .. "[Party] " .. EXAMPLE_NAME .. ": well met, travelers|r  |cFF888888(Fantasy)|r" },
-    { texture = "Interface\\Icons\\INV_Letter_15", title = "WN welcome title",
-      example = PARTY .. "[Party] " .. EXAMPLE_NAME .. ": welcome Thrall!|r" },
+-- The release notes, one entry per minor release. Features render in listed order, any number
+-- of them - the frame sizes itself to whatever is here. Ship the next minor by adding its entry
+-- next to this one; old entries can be deleted freely, a minor without an entry shows no popup.
+--   icon   atlas name when `atlas` is set, otherwise a texture path
+local WHATS_NEW = {
+    ["1.6"] = {
+        subtitle = L["WhatsNew subtitle"],
+        features = {
+            { icon = "roleicon-tiny-tank", atlas = true, title = L["WN role title"],
+              example = PARTY .. "[Party] " .. EXAMPLE_NAME .. ": tank here, pull respectfully|r" },
+            { icon = "Interface\\Icons\\INV_Misc_PocketWatch_01", title = L["WN time title"],
+              example = PARTY .. "[Party] " .. EXAMPLE_NAME .. ": night owls unite o/|r" },
+            { icon = "Interface\\Icons\\INV_Misc_Key_10", title = L["WN instance title"],
+              example = INSTANCE .. "[Instance] " .. EXAMPLE_NAME .. ": hi all, glhf|r" },
+            { icon = "Interface\\Icons\\INV_Mask_01", title = L["WN styles title"],
+              example = PARTY .. "[Party] " .. EXAMPLE_NAME .. ": well met, travelers|r  |cFF888888(Fantasy)|r" },
+            { icon = "Interface\\Icons\\INV_Letter_15", title = L["WN welcome title"],
+              example = PARTY .. "[Party] " .. EXAMPLE_NAME .. ": welcome Thrall!|r" },
+        },
+        closing = L["WN group line"],
+    },
 }
 
-local frame
+-- Newest entry in the table, for the preview path on a build with no notes of its own
+local function NewestVersion()
+    local newest, newestValue
+    for version in pairs(WHATS_NEW) do
+        local major, minor = version:match("^(%d+)%.(%d+)$")
+        local value = (tonumber(major) or 0) * 1000 + (tonumber(minor) or 0)
+        if not newestValue or value > newestValue then
+            newest, newestValue = version, value
+        end
+    end
+    return newest
+end
 
-local function CreateWhatsNewFrame()
-    frame = CreateFrame("Frame", "AutoSayWhatsNewFrame", UIParent, "BackdropTemplate")
+-- One frame per version rendered, built on demand; a frame cannot be thrown away once created
+local frames = {}
+
+local function CreateWhatsNewFrame(key, content)
+    local frame = CreateFrame("Frame", "AutoSayWhatsNewFrame" .. key:gsub("%W", "_"), UIParent, "BackdropTemplate")
     frame:SetWidth(WIDTH)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("DIALOG")
@@ -73,26 +96,26 @@ local function CreateWhatsNewFrame()
     local subtitle = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     subtitle:SetPoint("TOP", frame, "TOP", 0, -34)
     subtitle:SetWidth(WIDTH - PAD * 2)
-    subtitle:SetText(L["WhatsNew subtitle"])
+    subtitle:SetText(content.subtitle)
 
     local y = -34 - subtitle:GetStringHeight() - 16
     local textWidth = WIDTH - PAD * 2 - ICON - 8
 
-    for _, feature in ipairs(features) do
+    for _, feature in ipairs(content.features) do
         local icon = frame:CreateTexture(nil, "ARTWORK")
         icon:SetSize(ICON, ICON)
         icon:SetPoint("TOPLEFT", PAD, y)
         if feature.atlas then
-            icon:SetAtlas(feature.atlas)
+            icon:SetAtlas(feature.icon)
         else
-            icon:SetTexture(feature.texture)
+            icon:SetTexture(feature.icon)
             icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         end
 
         local name = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         name:SetPoint("LEFT", icon, "RIGHT", 8, 0)
         name:SetTextColor(1, 0.82, 0)
-        name:SetText(L[feature.title])
+        name:SetText(feature.title)
 
         local example = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         example:SetPoint("TOPLEFT", PAD + ICON + 8, y - ICON - 2)
@@ -108,7 +131,7 @@ local function CreateWhatsNewFrame()
     groupLine:SetWidth(WIDTH - PAD * 2)
     groupLine:SetJustifyH("LEFT")
     groupLine:SetTextColor(0.6, 0.6, 0.6)
-    groupLine:SetText(L["WN group line"])
+    groupLine:SetText(content.closing)
     y = y - 2 - groupLine:GetStringHeight()
 
     local gotIt = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
@@ -144,13 +167,28 @@ local function CreateWhatsNewFrame()
     grow:SetScaleTo(1, 1)
     grow:SetDuration(0.25)
     frame:SetScript("OnShow", function() intro:Play() end)
+
+    frames[key] = frame
+    return frame
+end
+
+-- Whether this release has notes at all - Core asks before scheduling the popup
+function Addon:HasWhatsNew(minor)
+    return WHATS_NEW[minor] ~= nil
 end
 
 -- isPreview: show it without burning the once-per-version flag on close
 function Addon:ShowWhatsNew(minor, isPreview)
-    if not frame then
-        CreateWhatsNewFrame()
+    local key, content = minor, WHATS_NEW[minor]
+    -- No notes for this build: stay silent on the real path (and leave whatsNewSeen alone, so a
+    -- later patch that does add notes can still show them), but always give the preview something
+    if not content and isPreview then
+        key = NewestVersion()
+        content = key and WHATS_NEW[key]
     end
+    if not content then return end
+
+    local frame = frames[key] or CreateWhatsNewFrame(key, content)
 
     -- A real popup is already up: previewing must not turn it into one that closes for free
     if isPreview and frame:IsShown() then return end

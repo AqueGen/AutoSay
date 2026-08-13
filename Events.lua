@@ -215,15 +215,17 @@ function Addon:GROUP_ROSTER_UPDATE()
 
     self:DebugPrint("Group type:", self.state.currentGroupType, "Size:", GetNumGroupMembers())
 
-    -- Debug: show all units and their connection status
-    local isRaid = IsInRaid()
-    local groupSize = GetNumGroupMembers()
-    for i = 1, groupSize do
-        local unitID = isRaid and ("raid" .. i) or ("party" .. i)
-        local name = UnitName(unitID)
-        local connected = UnitIsConnected(unitID)
-        local exists = UnitExists(unitID)
-        self:DebugPrint("  Unit:", unitID, "Name:", tostring(name), "Exists:", tostring(exists), "Connected:", tostring(connected))
+    -- Debug: show all units and their connection status. Gated on the flag, not left to
+    -- DebugPrint - a 40-man raid would pay 40 rounds of tostring/concat for nothing.
+    if db.debugMode then
+        local isRaid = IsInRaid()
+        for i = 1, GetNumGroupMembers() do
+            local unitID = isRaid and ("raid" .. i) or ("party" .. i)
+            local name = UnitName(unitID)
+            local connected = UnitIsConnected(unitID)
+            local exists = UnitExists(unitID)
+            self:DebugPrint("  Unit:", unitID, "Name:", tostring(name), "Exists:", tostring(exists), "Connected:", tostring(connected))
+        end
     end
 
     -- Get current group members (presence-based; disconnected members still count as present)

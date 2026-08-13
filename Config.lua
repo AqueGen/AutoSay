@@ -262,7 +262,10 @@ local function BuildMessageMatrix(poolId, pool, channels)
                         -- Greyed out, not gone: the row's tag names the switch that re-activates it
                         disabled = function() return not PhraseActive(msg, ch.settingsFn) end,
                         get = function() return ch.tableFn()[msg.key] end,
-                        set = function(_, val) ch.tableFn()[msg.key] = val end,
+                        set = function(_, val)
+                            ch.tableFn()[msg.key] = val
+                            Addon:InvalidateBundleCache()
+                        end,
                     }
                 end)
             else
@@ -276,7 +279,10 @@ local function BuildMessageMatrix(poolId, pool, channels)
                     hidden = folded,
                     disabled = function() return not PhraseActive(msg, ch.settingsFn) end,
                     get = function() return ch.tableFn()[msg.key] end,
-                    set = function(_, val) ch.tableFn()[msg.key] = val end,
+                    set = function(_, val)
+                        ch.tableFn()[msg.key] = val
+                        Addon:InvalidateBundleCache()
+                    end,
                 }
             end
             order = order + 1
@@ -712,8 +718,41 @@ local function BuildGuildLoginToggles()
     return args
 end
 
--- Main options table
-local options = {
+-- Tooltip body of a style bundle button: its phrases, one line per AutoSay.StylePools header
+-- (both completion pools share the "Completion" header, so they merge into a single line).
+-- Cached per style - eight multi-line listings are not worth building for a tooltip nobody hovers.
+local bundleDescCache = {}
+local function BundleDesc(style)
+    local desc = bundleDescCache[style]
+    if desc then return desc end
+
+    local lines, byHeader = {}, {}
+    for _, pool in ipairs(AutoSay.StylePools) do
+        for _, msg in ipairs(AutoSay[pool.messages]) do
+            if msg.style == style then
+                local texts = byHeader[pool.header]
+                if not texts then
+                    texts = {}
+                    byHeader[pool.header] = texts
+                    lines[#lines + 1] = { header = pool.header, texts = texts }
+                end
+                texts[#texts + 1] = msg.text
+            end
+        end
+    end
+    for j, line in ipairs(lines) do
+        lines[j] = "|cFFFFD100" .. L[line.header] .. ":|r " .. table.concat(line.texts, "  |cFF555555/|r  ")
+    end
+
+    desc = table.concat(lines, "\n") .. "\n\n" .. L["Bundle button hint"]
+    bundleDescCache[style] = desc
+    return desc
+end
+
+-- Main options table. Built on first request, not at login: the tree is ~1300 closures deep and
+-- most sessions never open the settings. AceConfig re-calls the getter, hence the memo.
+local function BuildOptions()
+    return {
     type = "group",
     name = "|cFF0099FFAuto|r|cFFFFD700Say|r",
     handler = Addon,
@@ -905,6 +944,7 @@ local options = {
                     confirmText = L["Are you sure you want to reset all settings to defaults?"],
                     func = function()
                         Addon.db:ResetProfile()
+                        Addon:InvalidateBundleCache()
                         LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
                         Addon:Print(L["Settings reset to defaults"])
                     end,
@@ -936,27 +976,8 @@ local options = {
                             },
                         }
                         -- One button per bundle: click applies it; the tooltip lists its phrases,
-                        -- one line per AutoSay.StylePools header (both completion pools share
-                        -- the "Completion" header, so they merge into a single line)
+                        -- built on first hover of that button (see BundleDesc)
                         for i, style in ipairs(AutoSay.MessageStyles) do
-                            local lines, byHeader = {}, {}
-                            for _, pool in ipairs(AutoSay.StylePools) do
-                                for _, msg in ipairs(AutoSay[pool.messages]) do
-                                    if msg.style == style then
-                                        local texts = byHeader[pool.header]
-                                        if not texts then
-                                            texts = {}
-                                            byHeader[pool.header] = texts
-                                            lines[#lines + 1] = { header = pool.header, texts = texts }
-                                        end
-                                        texts[#texts + 1] = msg.text
-                                    end
-                                end
-                            end
-                            for j, line in ipairs(lines) do
-                                lines[j] = "|cFFFFD100" .. L[line.header] .. ":|r " .. table.concat(line.texts, "  |cFF555555/|r  ")
-                            end
-                            local phrasesDesc = table.concat(lines, "\n")
                             args["bundle_" .. style] = {
                                 type = "execute", order = 10 + i, width = 0.9,
                                 -- Green name = bundle fully enabled; clicking then disables it
@@ -967,7 +988,7 @@ local options = {
                                     end
                                     return label
                                 end,
-                                desc = phrasesDesc .. "\n\n" .. L["Bundle button hint"],
+                                desc = function() return BundleDesc(style) end,
                                 confirm = function()
                                     return Addon:IsStyleBundleEnabled(style)
                                         and L["Disable this bundle on all channels?"]
@@ -1682,11 +1703,16 @@ local options = {
             },
         },
     },
-}
+    }
+end
 
 -- Register options
+local options
 function Addon:SetupConfig()
-    AceConfig:RegisterOptionsTable("AutoSay", options)
+    AceConfig:RegisterOptionsTable("AutoSay", function()
+        options = options or BuildOptions()
+        return options
+    end)
     AceConfigDialog:AddToBlizOptions("AutoSay", "AutoSay")
 end
 

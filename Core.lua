@@ -526,6 +526,8 @@ end
 function Addon:CheckWhatsNew()
     local minor = self:VersionMinor()
     if not minor or self.db.global.whatsNewSeen == minor then return end
+    -- No notes written for this release: nothing to show, and nothing worth a combat retry
+    if not self:HasWhatsNew(minor) then return end
 
     -- A popup mid-fight is worse than a popup a minute later
     if InCombatLockdown() then
@@ -1109,12 +1111,29 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
     end
 
     -- Presets first, and the same text never enters twice: a custom copy of a preset must not
-    -- override the preset's keepCase/mode, nor double that text's odds of being picked
-    local candidates, seen = {}, {}
-    local function AddCandidate(c)
-        if seen[c.text] then return end
-        seen[c.text] = true
-        table.insert(candidates, c)
+    -- override the preset's keepCase/mode, nor double that text's odds of being picked.
+    -- One pass fills the pick arrays already filtered by wantNames - with names in hand prefer
+    -- the phrases built for them, without names drop the ones that would render a hole where
+    -- {names} sits. What the filter rejects is kept aside as the fallback: when it leaves
+    -- nothing, the rejects are by definition every candidate there was.
+    local texts, modes, keeps = {}, {}, {}
+    local rejects, seen = nil, {}
+    local function AddCandidate(text, mode, keepCase)
+        if seen[text] then return end
+        seen[text] = true
+        local wanted
+        if wantNames then
+            wanted = mode ~= nil
+        else
+            wanted = mode ~= "slot"
+        end
+        if wanted then
+            local n = #texts + 1
+            texts[n], modes[n], keeps[n] = text, mode, keepCase
+        else
+            rejects = rejects or {}
+            rejects[#rejects + 1] = { text = text, mode = mode, keepCase = keepCase }
+        end
     end
 
     -- Add enabled preset messages
@@ -1134,7 +1153,7 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
         local rolePhrases = self.db.profile.social.rolePhrases
         for _, msg in ipairs(messages) do
             if settings[enabledKey][msg.key] and FitsContext(msg, role, faction, band, reason, rolePhrases) then
-                AddCandidate({ text = msg.text, mode = NameMode(msg), keepCase = msg.keepCase })
+                AddCandidate(msg.text, NameMode(msg), msg.keepCase)
             end
         end
     end
@@ -1145,39 +1164,20 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
         for _, entry in ipairs(settings[customsKey]) do
             if entry.enabled and entry.text and entry.text ~= "" then
                 local mode = entry.text:find("{names}", 1, true) and "slot" or "append"
-                AddCandidate({ text = entry.text, mode = mode })
+                AddCandidate(entry.text, mode)
             end
         end
     end
 
-    -- With names in hand prefer the phrases built for them; without, drop the ones
-    -- that would render a hole where {names} sits
-    local pool = {}
-    for _, c in ipairs(candidates) do
-        if wantNames then
-            if c.mode then table.insert(pool, c) end
-        elseif c.mode ~= "slot" then
-            table.insert(pool, c)
+    if #texts == 0 then
+        -- Nothing survived the filter. With names: nothing name-capable is enabled, so send the
+        -- rest without names. Without names: only {names} phrases are enabled, so say them with
+        -- the slot stripped rather than going silent. Either way the rejects carry no name mode.
+        if not rejects then return nil end
+        for i, c in ipairs(rejects) do
+            texts[i] = wantNames and c.text or StripNameSlot(c.text)
+            keeps[i] = c.keepCase
         end
-    end
-    if wantNames and #pool == 0 then
-        pool = candidates -- nothing name-capable is enabled: send without names
-    elseif not wantNames and #pool == 0 then
-        -- Only {names} phrases are enabled and there are no names: say them without the slot
-        -- rather than going silent
-        for _, c in ipairs(candidates) do
-            if c.mode == "slot" then
-                table.insert(pool, { text = StripNameSlot(c.text), keepCase = c.keepCase })
-            end
-        end
-    end
-    if #pool == 0 then
-        return nil
-    end
-
-    local texts = {}
-    for _, c in ipairs(pool) do
-        table.insert(texts, c.text)
     end
 
     local text
@@ -1188,8 +1188,8 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
     end
 
     -- First match wins, same rule the dedupe above used
-    for _, c in ipairs(pool) do
-        if c.text == text then return text, c.mode, c.keepCase end
+    for i = 1, #texts do
+        if texts[i] == text then return text, modes[i], keeps[i] end
     end
     return text
 end
@@ -1220,20 +1220,83 @@ local function StyleFits(msg, style, faction)
     return msg.style == style and (not msg.faction or msg.faction == faction)
 end
 
--- True when every usable phrase of the style is enabled in every pool that has one
-function Addon:IsStyleBundleEnabled(style)
-    local faction = UnitFactionGroup("player")
-    for _, target in ipairs(StylePoolTargets(self.db.profile)) do
-        local enabled = target.settings and target.settings[target.pool.enabledKey]
-        if enabled then
-            for _, msg in ipairs(AutoSay[target.pool.messages]) do
-                if StyleFits(msg, style, faction) and not enabled[msg.key] then
-                    return false
+-- style -> list of { enabledKey, mplus, <msg>, <msg>, ... }: every styled phrase, bucketed by
+-- the pool it lives in. The phrase tables never change, so this is built once and the bundle
+-- state check walks one style's phrases instead of every entry of every pool.
+local styleIndex
+local function StyleIndex(style)
+    if not styleIndex then
+        styleIndex = {}
+        for _, pool in ipairs(AutoSay.StylePools) do
+            for _, msg in ipairs(AutoSay[pool.messages]) do
+                if msg.style then
+                    local buckets = styleIndex[msg.style]
+                    if not buckets then
+                        buckets = {}
+                        styleIndex[msg.style] = buckets
+                    end
+                    local bucket = buckets[pool.enabledKey]
+                    if not bucket then
+                        bucket = { enabledKey = pool.enabledKey, mplus = pool.mplus }
+                        buckets[pool.enabledKey] = bucket
+                        buckets[#buckets + 1] = bucket
+                    end
+                    bucket[#bucket + 1] = msg
                 end
             end
         end
     end
-    return true
+    return styleIndex[style]
+end
+
+-- Every settings table a pool's checkboxes live in: one per channel, or the single M+ one
+local function PoolSettings(profile, mplus)
+    if mplus then return { profile.mythicplus } end
+    local list = {}
+    for _, c in ipairs(AutoSay.Channels) do
+        list[#list + 1] = profile[c.key]
+    end
+    return list
+end
+
+-- The bundle buttons ask for their state on every redraw, once per style. Cache the answer and
+-- drop the whole cache on any write to a phrase checkbox - the addon registers no AceDB profile
+-- callbacks, so nothing else can swap the settings out from under it.
+function Addon:InvalidateBundleCache()
+    self.bundleCache = nil
+end
+
+-- True when every usable phrase of the style is enabled in every pool that has one.
+-- Phrases of the other faction can never be picked here, so they do not count.
+function Addon:IsStyleBundleEnabled(style)
+    local cache = self.bundleCache
+    if not cache then
+        cache = {}
+        self.bundleCache = cache
+    end
+    if cache[style] ~= nil then return cache[style] end
+
+    local faction = UnitFactionGroup("player")
+    local profile = self.db.profile
+    local result = true
+    for _, bucket in ipairs(StyleIndex(style) or {}) do
+        for _, settings in ipairs(PoolSettings(profile, bucket.mplus)) do
+            local enabled = settings and settings[bucket.enabledKey]
+            if enabled then
+                for _, msg in ipairs(bucket) do
+                    if (not msg.faction or msg.faction == faction) and not enabled[msg.key] then
+                        result = false
+                        break
+                    end
+                end
+            end
+            if not result then break end
+        end
+        if not result then break end
+    end
+
+    cache[style] = result
+    return result
 end
 
 -- Set every preset phrase of a style in every pool (state = true/false).
@@ -1272,6 +1335,7 @@ function Addon:ApplyStyleBundle(style, replace, state)
         end
     end
 
+    self:InvalidateBundleCache()
     LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
     local doneKey = state and "Style bundle applied" or "Style bundle removed"
     self:Print(L[doneKey] .. ": |cFFFFFF00" .. L["Style " .. style] .. "|r")
@@ -1301,6 +1365,7 @@ function Addon:SetTaggedPhrasesEnabled(kind, state)
         end
     end
 
+    self:InvalidateBundleCache()
     LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
     self:Print(L[state and "Phrases enabled on all channels" or "Phrases disabled on all channels"])
 end
