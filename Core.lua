@@ -1038,10 +1038,17 @@ function Addon:IsInGuildOrTest()
     return IsInGuild() or self.state.isInGuild
 end
 
--- Check if player is group leader (with test mode support)
-function Addon:IsGroupLeaderOrTest()
+-- Check if player is group leader (with test mode support). The optional channel scopes
+-- the check to that channel's own group: while dual-grouped, leading the home party says
+-- nothing about leading the LFR whose INSTANCE_CHAT is being greeted.
+function Addon:IsGroupLeaderOrTest(channel)
     if self:IsTestMode() and self.testState.simulatedGroupType then
         return self.testState.simulatedIsLeader
+    end
+    if channel == "INSTANCE_CHAT" then
+        return UnitIsGroupLeader("player", LE_PARTY_CATEGORY_INSTANCE)
+    elseif channel then
+        return UnitIsGroupLeader("player", LE_PARTY_CATEGORY_HOME)
     end
     return UnitIsGroupLeader("player")
 end
@@ -1673,7 +1680,12 @@ function Addon:HandleGuildMemberLogin(name)
         self:CancelTimer(self.state.guildLoginTimer)
     end
 
+    local generation = self.state.sendGeneration
     self.state.guildLoginTimer = self:ScheduleTimer(function()
+        if generation ~= self.state.sendGeneration then
+            self.state.guildLoginTimer = nil
+            return
+        end
         local names = {}
         for n in pairs(self.state.pendingGuildLogins) do
             table.insert(names, n)
@@ -1800,7 +1812,7 @@ function Addon:ShouldGreetOnOthersJoin(channel)
         return false
     end
     -- If leader-only is enabled, check if player is the group leader
-    if settings.onOthersJoinLeaderOnly and not self:IsGroupLeaderOrTest() then
+    if settings.onOthersJoinLeaderOnly and not self:IsGroupLeaderOrTest(channel) then
         self:DebugPrint("Leader-only greeting enabled but not leader, skipping")
         return false
     end
@@ -2222,11 +2234,13 @@ function Addon:TestReset()
         self.humanizer.history = {}
     end
     -- Delayed sends from an earlier simulation must not fire into the next one (the
-    -- sendGeneration bump on the test-mode toggle covers mode changes; this covers resets)
+    -- sendGeneration bump on the test-mode toggle covers mode changes; this covers resets).
+    -- The bump also invalidates untracked simulation timers (the M+ flow's join closures).
     for handle in pairs(self.state.pendingGroupSends) do
         self:CancelTimer(handle)
     end
     self.state.pendingGroupSends = {}
+    self.state.sendGeneration = self.state.sendGeneration + 1
     self:TestPrint("Test state reset")
 end
 
@@ -2504,10 +2518,14 @@ function Addon:TestMythicPlusFlow()
 
     self:TestPrint("Waiting for group to fill...")
 
-    -- Step 2: Players join with delays
+    -- Step 2: Players join with delays. Generation-stamped like every other delayed send:
+    -- turning test mode off mid-flow must kill the remaining joins, or their fabricated
+    -- names would be greeted into the player's REAL party chat.
     local fakeNames = { "Tankmaster", "HolyPala", "Shadowmage", "Hunterbro" }
+    local generation = self.state.sendGeneration
     for i, name in ipairs(fakeNames) do
         self:ScheduleTimer(function()
+            if generation ~= self.state.sendGeneration then return end
             table.insert(self.testState.simulatedGroupMembers, name)
             local count = #self.testState.simulatedGroupMembers
             self:TestPrint(name .. " joined (" .. count .. "/5)")
@@ -2530,8 +2548,9 @@ function Addon:TestMythicPlusFlow()
                         self.state.keyAnnounced = true
                         self:TestPrint("Group full 5/5! Sending key announce...")
                         self:ScheduleTimer(function()
-                            self:SendKeyAnnounce()
                             self.state.mythicPlusFlowActive = false
+                            if generation ~= self.state.sendGeneration then return end
+                            self:SendKeyAnnounce()
                         end, 2)
                     else
                         self:TestPrint("Group full 5/5 but no listing data (not the leader) — key announce skipped")

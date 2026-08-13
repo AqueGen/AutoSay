@@ -390,8 +390,12 @@ function Addon:GROUP_ROSTER_UPDATE()
                     self.state.pendingNewMembers = {}
                     self.state.pendingGreetTimer = nil
 
-                    if self:GetChatChannel() ~= batchChannel then
-                        self:DebugPrint("Dropping newcomer batch - channel changed since it was collected")
+                    -- Category compare, not string compare: a party converting to a raid
+                    -- inside the window is the same audience and must keep its batch
+                    local nowChannel = self:GetChatChannel()
+                    if not nowChannel
+                        or (nowChannel == "INSTANCE_CHAT") ~= (batchChannel == "INSTANCE_CHAT") then
+                        self:DebugPrint("Dropping newcomer batch - group category changed since it was collected")
                         return
                     end
                     if #names > 0 then
