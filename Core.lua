@@ -1171,6 +1171,37 @@ function Addon:ApplyStyleBundle(style, replace, state)
     self:Print(L[doneKey] .. ": |cFFFFFF00" .. L["Style " .. style] .. "|r")
 end
 
+-- Tag-category matchers for the bulk enable/disable buttons next to the master switches
+local TagMatchers = {
+    role = function(msg) return msg.role ~= nil or msg.text:find("{role}", 1, true) ~= nil end,
+    band = function(msg) return msg.band ~= nil end,
+}
+
+-- Bulk-set every phrase of a tag category (role/band) on all channels, bundle-style.
+-- The master switch stays the gate; this only rewrites the per-phrase checkboxes,
+-- so "master on + old selections" remains the third, untouched-by-buttons state.
+function Addon:SetTaggedPhrasesEnabled(kind, state)
+    local matches = TagMatchers[kind]
+    if not matches then return end
+
+    for _, c in ipairs(AutoSay.Channels) do
+        local settings = self.db.profile[c.key]
+        for _, pool in ipairs(stylePools) do
+            local enabled = settings and settings[pool.enabledKey]
+            if enabled then
+                for _, msg in ipairs(AutoSay[pool.messages]) do
+                    if matches(msg) then
+                        enabled[msg.key] = state
+                    end
+                end
+            end
+        end
+    end
+
+    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+    self:Print(L[state and "Phrases enabled on all channels" or "Phrases disabled on all channels"])
+end
+
 -- Render player names into a message according to the phrase's name mode
 -- ("slot" = fill the {names} placeholder, "append" = glue to the end, nil = no names at all)
 function Addon:AddPlayersToMessage(message, playerNames, nameMode)

@@ -34,7 +34,8 @@ local function PresetLabel(msg, ownStyleGroup)
     local tags = {}
     if msg.style and not ownStyleGroup then table.insert(tags, msg.style) end
     if msg.role then
-        table.insert(tags, AutoSay.RoleWords[msg.role] or msg.role)
+        -- The role reads best as its group-finder icon, not a word
+        table.insert(tags, string.format("|A:roleicon-tiny-%s:14:14|a", AutoSay.RoleWords[msg.role] or "dps"))
     elseif msg.faction then
         table.insert(tags, msg.faction:lower())
     end
@@ -890,8 +891,9 @@ local options = {
                     end)(),
                 },
                 rolePhrases = {
-                    type = "toggle", order = 1.5, width = "full",
-                    name = NewTag(L["Role-based phrases"], "1.6"),
+                    type = "toggle", order = 1.5, width = 1.6,
+                    name = NewTag(L["Role-based phrases"], "1.6")
+                        .. " |A:roleicon-tiny-tank:14:14|a|A:roleicon-tiny-healer:14:14|a|A:roleicon-tiny-dps:14:14|a",
                     desc = L["Role-based phrases desc"],
                     get = function() return Addon.db.profile.social.rolePhrases end,
                     set = function(_, v)
@@ -899,15 +901,43 @@ local options = {
                         LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
                     end,
                 },
+                roleEnableAll = {
+                    type = "execute", order = 1.6, width = 0.7,
+                    name = L["Enable all"],
+                    desc = L["Enable every role phrase on every channel"],
+                    confirm = true, confirmText = L["Enable all role phrases on every channel?"],
+                    func = function() Addon:SetTaggedPhrasesEnabled("role", true) end,
+                },
+                roleDisableAll = {
+                    type = "execute", order = 1.7, width = 0.7,
+                    name = L["Disable all"],
+                    desc = L["Disable every role phrase on every channel"],
+                    confirm = true, confirmText = L["Disable all role phrases on every channel?"],
+                    func = function() Addon:SetTaggedPhrasesEnabled("role", false) end,
+                },
                 timeOfDay = {
-                    type = "toggle", order = 2, width = "full",
-                    name = L["Time-of-day greetings"],
-                    desc = L["Time-of-day greetings desc"],
+                    type = "toggle", order = 2, width = 1.6,
+                    name = L["Time-of-day phrases"],
+                    desc = L["Time-of-day phrases desc"],
                     get = function() return Addon.db.profile.social.timeOfDay end,
                     set = function(_, v)
                         Addon.db.profile.social.timeOfDay = v
                         LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
                     end,
+                },
+                bandEnableAll = {
+                    type = "execute", order = 2.1, width = 0.7,
+                    name = L["Enable all"],
+                    desc = L["Enable every time-of-day phrase on every channel"],
+                    confirm = true, confirmText = L["Enable all time-of-day phrases on every channel?"],
+                    func = function() Addon:SetTaggedPhrasesEnabled("band", true) end,
+                },
+                bandDisableAll = {
+                    type = "execute", order = 2.2, width = 0.7,
+                    name = L["Disable all"],
+                    desc = L["Disable every time-of-day phrase on every channel"],
+                    confirm = true, confirmText = L["Disable all time-of-day phrases on every channel?"],
+                    func = function() Addon:SetTaggedPhrasesEnabled("band", false) end,
                 },
                 tone = {
                     type = "group", order = 4, inline = true,
