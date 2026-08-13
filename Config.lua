@@ -106,6 +106,24 @@ local function BuildMessagePicker(poolId, pool, tableFn, settingsFn)
         if byStyle[style] then styles[#styles + 1] = style end
     end
 
+    -- Single column reads top-to-bottom, so give it an order: untagged first, then grouped
+    -- by tag (morning/evening/night, self before newcomers, tank/healer/dps), then alphabet
+    local bandOrder = { morning = 1, evening = 2, night = 3 }
+    local triggerOrder = { self = 1, others = 2 }
+    local roleOrder = { TANK = 1, HEALER = 2, DAMAGER = 3 }
+    local function PhraseSort(a, b)
+        local av, bv = bandOrder[a.band] or 0, bandOrder[b.band] or 0
+        if av ~= bv then return av < bv end
+        av, bv = triggerOrder[a.trigger] or 0, triggerOrder[b.trigger] or 0
+        if av ~= bv then return av < bv end
+        av, bv = roleOrder[a.role] or 0, roleOrder[b.role] or 0
+        if av ~= bv then return av < bv end
+        return a.text:lower() < b.text:lower()
+    end
+    for _, bucket in pairs(byStyle) do
+        table.sort(bucket, PhraseSort)
+    end
+
     shownStyle[poolId] = shownStyle[poolId] or { classic = true }
     local open = shownStyle[poolId]
 
