@@ -50,31 +50,9 @@ local function PresetLabel(msg, ownStyleGroup)
     return msg.text .. " |cFF888888[" .. table.concat(tags, ", ") .. "]|r"
 end
 
--- Roles this class can ever queue as - a mage will never see [tank] phrases in the picker
-local ClassRoles = {
-    WARRIOR = { TANK = true, DAMAGER = true },
-    PALADIN = { TANK = true, HEALER = true, DAMAGER = true },
-    HUNTER = { DAMAGER = true },
-    ROGUE = { DAMAGER = true },
-    PRIEST = { HEALER = true, DAMAGER = true },
-    DEATHKNIGHT = { TANK = true, DAMAGER = true },
-    SHAMAN = { HEALER = true, DAMAGER = true },
-    MAGE = { DAMAGER = true },
-    WARLOCK = { DAMAGER = true },
-    MONK = { TANK = true, HEALER = true, DAMAGER = true },
-    DRUID = { TANK = true, HEALER = true, DAMAGER = true },
-    DEMONHUNTER = { TANK = true, DAMAGER = true },
-    EVOKER = { HEALER = true, DAMAGER = true },
-}
-
--- A class that can never play the role has no way to ever use the phrase - those rows
--- are hidden outright. Everything else stays visible.
-local function ClassAllows(msg)
-    if not msg.role then return true end
-    local _, class = UnitClass("player")
-    local roles = class and ClassRoles[class]
-    return not roles or roles[msg.role] or false
-end
+-- Role-tagged rows are never hidden or greyed by the character's class: the profile can be
+-- shared across characters (mage today, tank alt tomorrow), so every role stays configurable.
+-- The runtime pick already filters by the actual current role.
 
 -- A phrase is ACTIVE only while every tag it depends on is switched on (AND semantics):
 -- [newcomers] needs On others join, [self] needs On self join, a {names} slot needs the
@@ -163,19 +141,12 @@ local function BuildMessagePicker(poolId, pool, tableFn, settingsFn)
                     local active, total = 0, #entries
                     local flags = tableFn()
                     for _, msg in ipairs(entries) do
-                        if flags[msg.key] and ClassAllows(msg) and PhraseActive(msg, settingsFn) then
+                        if flags[msg.key] and PhraseActive(msg, settingsFn) then
                             active = active + 1
                         end
                     end
                     return string.format("%s %s  |cFF888888(%d/%d)|r",
                         open[style] and "-" or "+", label, active, total)
-                end,
-                -- Only a section with nothing this class could ever use disappears
-                hidden = function()
-                    for _, msg in ipairs(entries) do
-                        if ClassAllows(msg) then return false end
-                    end
-                    return true
                 end,
                 func = function()
                     open[style] = not open[style]
@@ -193,7 +164,6 @@ local function BuildMessagePicker(poolId, pool, tableFn, settingsFn)
                 -- One column: tags must be readable without hovering, folding beats truncation
                 width = "full",
                 hidden = function()
-                    if not ClassAllows(msg) then return true end
                     return #styles > 1 and not open[msg.style or (msg.band and "timeofday") or "classic"]
                 end,
                 -- Greyed out, not gone: the row's tag names the switch that re-activates it
