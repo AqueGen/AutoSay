@@ -575,6 +575,16 @@ local function BuildGuildChannels(enabledKey, withTriggers)
     }
 end
 
+-- The M+ pools have no channel and no trigger tags - one column, straight into db.profile.mythicplus
+local function BuildMPlusChannels(enabledKey)
+    return {
+        {
+            key = "mythicplus",
+            tableFn = function() return Addon.db.profile.mythicplus[enabledKey] end,
+        },
+    }
+end
+
 local function BuildGuildGreetings()
     return {
         selfJoinGroup = {
@@ -942,17 +952,23 @@ local options = {
                             },
                         }
                         -- One button per bundle: click applies it; the tooltip lists its phrases
+                        -- One header can cover several pools (both completion pools read as "Completion")
                         local pools = {
-                            { list = AutoSay.Greetings,  header = "Greetings" },
-                            { list = AutoSay.Goodbyes,   header = "Goodbyes" },
-                            { list = AutoSay.Reconnects, header = "Reconnects" },
+                            { lists = { AutoSay.Greetings },  header = "Greetings" },
+                            { lists = { AutoSay.Goodbyes },   header = "Goodbyes" },
+                            { lists = { AutoSay.Reconnects }, header = "Reconnects" },
+                            { lists = { AutoSay.KeyAnnounce }, header = "Key announce" },
+                            { lists = { AutoSay.CompletionTimed, AutoSay.CompletionDepleted },
+                              header = "Completion" },
                         }
                         for i, style in ipairs(AutoSay.MessageStyles) do
                             local lines = {}
                             for _, pool in ipairs(pools) do
                                 local texts = {}
-                                for _, msg in ipairs(pool.list) do
-                                    if msg.style == style then texts[#texts + 1] = msg.text end
+                                for _, list in ipairs(pool.lists) do
+                                    for _, msg in ipairs(list) do
+                                        if msg.style == style then texts[#texts + 1] = msg.text end
+                                    end
                                 end
                                 if #texts > 0 then
                                     lines[#lines + 1] = "|cFFFFD100" .. L[pool.header] .. ":|r " .. table.concat(texts, "  |cFF555555/|r  ")
@@ -1197,20 +1213,14 @@ local options = {
                                     order = 2,
                                     fontSize = "medium",
                                 },
-                                messageMode = {
-                                    type = "select",
-                                    name = L["Key level detection"],
-                                    desc = L["How to detect the keystone level for announcements"],
+                                includeKeyLevel = {
+                                    type = "toggle",
+                                    name = NewTag(L["Include key level"], "1.6"),
+                                    desc = L["Include key level desc"],
                                     order = 3,
-                                    width = 1.5,
-                                    values = {
-                                        basic = L["Basic (dungeon name only)"],
-                                        withlevel = L["With key level (from title)"],
-                                        smart = L["Smart (auto-detect)"],
-                                    },
-                                    sorting = { "basic", "withlevel", "smart" },
-                                    get = function() return Addon.db.profile.mythicplus.messageMode end,
-                                    set = function(_, val) Addon.db.profile.mythicplus.messageMode = val end,
+                                    width = "full",
+                                    get = function() return Addon.db.profile.mythicplus.includeKeyLevel end,
+                                    set = function(_, val) Addon.db.profile.mythicplus.includeKeyLevel = val end,
                                 },
                             },
                         },
@@ -1264,41 +1274,13 @@ local options = {
                                 },
                             },
                         },
-                        modeDescription = {
-                            type = "description",
-                            name = function()
-                                local mode = Addon.db.profile.mythicplus.messageMode
-                                if mode == "basic" then
-                                    return "|cFF888888" .. L["Basic mode desc"] .. "|r"
-                                elseif mode == "withlevel" then
-                                    return "|cFF888888" .. L["With level mode desc"] .. "|r"
-                                elseif mode == "smart" then
-                                    return "|cFFFF8800" .. L["Smart mode desc"] .. "|r"
-                                end
-                                return ""
-                            end,
-                            order = 2,
-                            fontSize = "medium",
-                        },
                         messagesGroup = {
                             type = "group",
                             name = L["Messages"],
                             inline = true,
                             order = 10,
-                            args = (function()
-                                local args = {}
-                                for i, msg in ipairs(AutoSay.KeyAnnounce) do
-                                    args[msg.key] = {
-                                        type = "toggle",
-                                        name = PresetLabel(msg),
-                                        order = i,
-                                        width = 1.5,
-                                        get = function() return Addon.db.profile.mythicplus.enabledKeyAnnounce[msg.key] end,
-                                        set = function(_, val) Addon.db.profile.mythicplus.enabledKeyAnnounce[msg.key] = val end,
-                                    }
-                                end
-                                return args
-                            end)(),
+                            args = BuildMessageMatrix("mplusKeyAnnounce", AutoSay.KeyAnnounce,
+                                BuildMPlusChannels("enabledKeyAnnounce")),
                         },
                         customGroup = {
                             type = "group",
@@ -1335,29 +1317,8 @@ local options = {
                             name = L["Timed Messages"],
                             inline = true,
                             order = 10,
-                            args = (function()
-                                local args = {}
-                                local popularCount = 4
-                                for i, msg in ipairs(AutoSay.CompletionTimed) do
-                                    args[msg.key] = {
-                                        type = "toggle",
-                                        name = PresetLabel(msg),
-                                        order = i,
-                                        width = 1.5,
-                                        get = function() return Addon.db.profile.mythicplus.enabledCompletionTimed[msg.key] end,
-                                        set = function(_, val) Addon.db.profile.mythicplus.enabledCompletionTimed[msg.key] = val end,
-                                    }
-                                    if i == popularCount then
-                                        args["_moreHeader"] = {
-                                            type = "description",
-                                            name = "\n|cFF888888" .. L["More"] .. "|r",
-                                            order = i + 0.5,
-                                            width = "full",
-                                        }
-                                    end
-                                end
-                                return args
-                            end)(),
+                            args = BuildMessageMatrix("mplusCompletionTimed", AutoSay.CompletionTimed,
+                                BuildMPlusChannels("enabledCompletionTimed")),
                         },
                         customTimedGroup = {
                             type = "group",
@@ -1377,29 +1338,8 @@ local options = {
                             name = L["Depleted Messages"],
                             inline = true,
                             order = 20,
-                            args = (function()
-                                local args = {}
-                                local popularCount = 4
-                                for i, msg in ipairs(AutoSay.CompletionDepleted) do
-                                    args[msg.key] = {
-                                        type = "toggle",
-                                        name = PresetLabel(msg),
-                                        order = i,
-                                        width = 1.5,
-                                        get = function() return Addon.db.profile.mythicplus.enabledCompletionDepleted[msg.key] end,
-                                        set = function(_, val) Addon.db.profile.mythicplus.enabledCompletionDepleted[msg.key] = val end,
-                                    }
-                                    if i == popularCount then
-                                        args["_moreHeader"] = {
-                                            type = "description",
-                                            name = "\n|cFF888888" .. L["More"] .. "|r",
-                                            order = i + 0.5,
-                                            width = "full",
-                                        }
-                                    end
-                                end
-                                return args
-                            end)(),
+                            args = BuildMessageMatrix("mplusCompletionDepleted", AutoSay.CompletionDepleted,
+                                BuildMPlusChannels("enabledCompletionDepleted")),
                         },
                         customDepletedGroup = {
                             type = "group",

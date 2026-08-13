@@ -243,7 +243,8 @@ local defaults = {
         mythicplus = {
             enabled = true,
             announceOnFull = true,      -- Announce when group fills 5/5
-            messageMode = "basic",      -- "basic" | "withlevel" | "smart"
+            includeKeyLevel = true,     -- Put the key level in the announce when it is known for sure
+            keyLevelMigrated = false,   -- messageMode folded into includeKeyLevel (see MigrateKeyLevelMode)
             useClientLanguage = false,  -- false = English dungeon names, true = client locale
             enabledKeyAnnounce = DeepCopy(defaultKeyAnnounce),
             customKeyAnnounce = {},
@@ -348,6 +349,9 @@ function Addon:OnInitialize()
 
     -- Seed the instance channel from the party settings on the first run after the upgrade
     self:MigrateInstanceChannel()
+
+    -- Fold the old three-way M+ messageMode into the includeKeyLevel toggle
+    self:MigrateKeyLevelMode()
 
     -- Wire up social gate + humanizer core
     self.socialGate = AutoSay.SocialGate.New{
@@ -457,6 +461,21 @@ function Addon:MigrateInstanceChannel()
 
     profile.instanceMigrated = true
     self:DebugPrint("Instance channel seeded from party settings")
+end
+
+-- "basic"/"withlevel"/"smart" collapsed into one toggle: only "basic" meant "no level",
+-- the other two both asked for a level, so they map to includeKeyLevel = true.
+function Addon:MigrateKeyLevelMode()
+    local mplus = self.db.profile.mythicplus
+    if mplus.keyLevelMigrated then return end
+
+    if mplus.messageMode ~= nil then
+        mplus.includeKeyLevel = mplus.messageMode ~= "basic"
+        mplus.messageMode = nil
+        self:DebugPrint("Key level mode migrated, includeKeyLevel =", tostring(mplus.includeKeyLevel))
+    end
+
+    mplus.keyLevelMigrated = true
 end
 
 function Addon:OnEnable()
@@ -1154,24 +1173,42 @@ local stylePools = {
     { messages = "Reconnects", enabledKey = "enabledReconnects" },
 }
 
+-- The M+ pools live once under db.profile.mythicplus instead of per channel
+local mplusStylePools = {
+    { messages = "KeyAnnounce",        enabledKey = "enabledKeyAnnounce" },
+    { messages = "CompletionTimed",    enabledKey = "enabledCompletionTimed" },
+    { messages = "CompletionDepleted", enabledKey = "enabledCompletionDepleted" },
+}
+
+-- Every settings table a bundle or bulk button writes to, paired with the pool it owns there
+local function StylePoolTargets(profile)
+    local targets = {}
+    for _, c in ipairs(AutoSay.Channels) do
+        for _, pool in ipairs(stylePools) do
+            targets[#targets + 1] = { settings = profile[c.key], pool = pool }
+        end
+    end
+    for _, pool in ipairs(mplusStylePools) do
+        targets[#targets + 1] = { settings = profile.mythicplus, pool = pool }
+    end
+    return targets
+end
+
 -- Phrases of the other faction can never be picked on this character, so the bundle both
 -- ignores them when deciding "fully enabled" and leaves them alone when applying.
 local function StyleFits(msg, style, faction)
     return msg.style == style and (not msg.faction or msg.faction == faction)
 end
 
--- True when every usable phrase of the style is enabled on every channel that has its pool
+-- True when every usable phrase of the style is enabled in every pool that has one
 function Addon:IsStyleBundleEnabled(style)
     local faction = UnitFactionGroup("player")
-    for _, c in ipairs(AutoSay.Channels) do
-        local settings = self.db.profile[c.key]
-        for _, pool in ipairs(stylePools) do
-            local enabled = settings and settings[pool.enabledKey]
-            if enabled then
-                for _, msg in ipairs(AutoSay[pool.messages]) do
-                    if StyleFits(msg, style, faction) and not enabled[msg.key] then
-                        return false
-                    end
+    for _, target in ipairs(StylePoolTargets(self.db.profile)) do
+        local enabled = target.settings and target.settings[target.pool.enabledKey]
+        if enabled then
+            for _, msg in ipairs(AutoSay[target.pool.messages]) do
+                if StyleFits(msg, style, faction) and not enabled[msg.key] then
+                    return false
                 end
             end
         end
@@ -1179,38 +1216,37 @@ function Addon:IsStyleBundleEnabled(style)
     return true
 end
 
--- Set every preset phrase of a style on all channels (state = true/false).
+-- Set every preset phrase of a style in every pool (state = true/false).
 -- replace = true also turns off everything that is not part of the style (custom messages are untouched).
 function Addon:ApplyStyleBundle(style, replace, state)
     if state == nil then state = true end
     local faction = UnitFactionGroup("player")
 
+    local targets = StylePoolTargets(self.db.profile)
+
     -- A pool the style has nothing usable in must be left as it is - Replace has no
     -- replacement to offer there, so wiping it would just silence the channel
     local poolHasStyle = {}
-    for _, pool in ipairs(stylePools) do
-        for _, msg in ipairs(AutoSay[pool.messages]) do
+    for _, target in ipairs(targets) do
+        for _, msg in ipairs(AutoSay[target.pool.messages]) do
             if StyleFits(msg, style, faction) then
-                poolHasStyle[pool.enabledKey] = true
+                poolHasStyle[target.pool.enabledKey] = true
                 break
             end
         end
     end
 
-    for _, c in ipairs(AutoSay.Channels) do
-        local settings = self.db.profile[c.key]
-        for _, pool in ipairs(stylePools) do
-            local enabled = settings and settings[pool.enabledKey]
-            if enabled and poolHasStyle[pool.enabledKey] then
-                for _, msg in ipairs(AutoSay[pool.messages]) do
-                    if StyleFits(msg, style, faction) then
-                        enabled[msg.key] = state
-                    elseif msg.style == style then
-                        -- other faction's phrase of this same style: untouched
-                    elseif replace and state and not msg.band then
-                        -- Band phrases are not shown in this UI - Replace must not silently kill them
-                        enabled[msg.key] = false
-                    end
+    for _, target in ipairs(targets) do
+        local enabled = target.settings and target.settings[target.pool.enabledKey]
+        if enabled and poolHasStyle[target.pool.enabledKey] then
+            for _, msg in ipairs(AutoSay[target.pool.messages]) do
+                if StyleFits(msg, style, faction) then
+                    enabled[msg.key] = state
+                elseif msg.style == style then
+                    -- other faction's phrase of this same style: untouched
+                elseif replace and state and not msg.band then
+                    -- Band phrases are not shown in this UI - Replace must not silently kill them
+                    enabled[msg.key] = false
                 end
             end
         end
@@ -1234,15 +1270,12 @@ function Addon:SetTaggedPhrasesEnabled(kind, state)
     local matches = TagMatchers[kind]
     if not matches then return end
 
-    for _, c in ipairs(AutoSay.Channels) do
-        local settings = self.db.profile[c.key]
-        for _, pool in ipairs(stylePools) do
-            local enabled = settings and settings[pool.enabledKey]
-            if enabled then
-                for _, msg in ipairs(AutoSay[pool.messages]) do
-                    if matches(msg) then
-                        enabled[msg.key] = state
-                    end
+    for _, target in ipairs(StylePoolTargets(self.db.profile)) do
+        local enabled = target.settings and target.settings[target.pool.enabledKey]
+        if enabled then
+            for _, msg in ipairs(AutoSay[target.pool.messages]) do
+                if matches(msg) then
+                    enabled[msg.key] = state
                 end
             end
         end
@@ -1722,8 +1755,9 @@ function Addon:ReplacePlaceholders(message, dungeon, keyLevel, extraReplacements
     if keyLevel then
         message = message:gsub("{key}", "+" .. keyLevel)
     else
-        -- Remove {key} and any preceding space
-        message = message:gsub(" ?{key}", "")
+        -- Remove {key} together with the punctuation that introduced it, so
+        -- "the {dungeon} express departs, {key}" does not end on a dangling comma
+        message = message:gsub(",?%s*{key}", "")
     end
     -- Extra replacements for completion messages ({upgrade}, {time}, etc.)
     if extraReplacements then
@@ -1736,56 +1770,42 @@ function Addon:ReplacePlaceholders(message, dungeon, keyLevel, extraReplacements
     return self:PolishMessage(message, true)
 end
 
--- Get key level based on message mode
+-- Key level for the announce, from the API only - a listing title is free text ("+10 or 12",
+-- "10+ exp", a guild name with digits) and guessing from it announces the wrong key.
+-- nil means "not known for sure": the announce then names the dungeon and nothing else.
 function Addon:GetKeyLevel()
-    local mode = self.db.profile.mythicplus.messageMode
+    if not self.db.profile.mythicplus.includeKeyLevel then return nil end
+
     local listing = self.state.cachedLFGListing
 
-    if mode == "basic" then
-        return nil
+    -- Test flow: the simulated listing carries the level the simulation announced
+    if self:IsTestMode() and listing and listing.keyLevel then
+        return listing.keyLevel
     end
 
-    if mode == "withlevel" then
-        -- 1. Try GetKeystoneForActivity (most reliable)
-        if listing and listing.activityID and C_LFGList.GetKeystoneForActivity then
-            local keystoneLevel = C_LFGList.GetKeystoneForActivity(listing.activityID)
-            if keystoneLevel and keystoneLevel > 0 then
-                self:DebugPrint("withlevel: GetKeystoneForActivity returned level:", keystoneLevel)
-                return keystoneLevel
-            end
-        end
-        -- 2. Fallback: parse from listing title
-        if listing and listing.title then
-            local level = tonumber(listing.title:match("%+?(%d+)"))
-            if level and level >= 2 and level <= 99 then
-                self:DebugPrint("withlevel: parsed level from title:", level)
-                return level
-            end
-        end
-        return nil
-    end
-
-    -- Smart mode: API first (most reliable), then title parsing
-    if mode == "smart" then
-        -- 1. Try GetKeystoneForActivity (returns key level only if our key matches the listed dungeon)
-        if listing and listing.activityID and C_LFGList.GetKeystoneForActivity then
-            local keystoneLevel = C_LFGList.GetKeystoneForActivity(listing.activityID)
-            if keystoneLevel and keystoneLevel > 0 then
-                self:DebugPrint("GetKeystoneForActivity returned level:", keystoneLevel)
-                return keystoneLevel
-            end
-        end
-
-        -- 2. Parse from listing title
-        if listing and listing.title then
-            local level = tonumber(listing.title:match("%+?(%d+)"))
-            if level and level >= 2 and level <= 99 then
-                self:DebugPrint("Parsed key level from title:", level)
+    -- 1. Our own keystone, but only while it is the dungeon this group is listed for
+    if C_MythicPlus and C_MythicPlus.GetOwnedKeystoneLevel and C_MythicPlus.GetOwnedKeystoneChallengeMapID then
+        local ownedMapID = C_MythicPlus.GetOwnedKeystoneChallengeMapID()
+        local listedMapID = listing and self:GetMapIDFromActivity(listing.activityID)
+        if ownedMapID and listedMapID and ownedMapID == listedMapID then
+            local level = C_MythicPlus.GetOwnedKeystoneLevel()
+            if level and level > 0 then
+                self:DebugPrint("Key level from owned keystone:", level)
                 return level
             end
         end
     end
 
+    -- 2. The level the listing itself was created with
+    if listing and listing.activityID and C_LFGList and C_LFGList.GetKeystoneForActivity then
+        local level = C_LFGList.GetKeystoneForActivity(listing.activityID)
+        if level and level > 0 then
+            self:DebugPrint("Key level from GetKeystoneForActivity:", level)
+            return level
+        end
+    end
+
+    self:DebugPrint("Key level unknown, announcing dungeon name only")
     return nil
 end
 
@@ -1852,8 +1872,8 @@ function Addon:SendKeyAnnounce()
     -- Replace placeholders
     local message = self:ReplacePlaceholders(template, dungeon, keyLevel)
 
-    self:DebugPrint("SendKeyAnnounce:", message, "(mode:", db.mythicplus.messageMode,
-        "dungeon:", dungeon, "level:", tostring(keyLevel) .. ")")
+    self:DebugPrint("SendKeyAnnounce:", message, "(dungeon:", dungeon,
+        "level:", tostring(keyLevel) .. ")")
 
     -- Determine channel
     local channel = self:GetChatChannel()
@@ -2303,6 +2323,9 @@ function Addon:TestMythicPlusFlow()
         self.state.cachedLFGListing = {
             activityID = picked.activityID,
             title = "+" .. keyLevel,
+            -- The real GetKeyLevel reads the game APIs; the simulation has none, so it
+            -- hands the level over on the fake listing instead
+            keyLevel = keyLevel,
             dungeonName = picked.name .. " (Mythic Keystone)",
             isMythicPlus = true,
         }
@@ -2461,7 +2484,7 @@ function Addon:TestStatus()
         "| Login:", db.guild.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
         "| Logout:", db.guild.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
     self:Print("M+:", db.mythicplus.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
-        "| Mode:", db.mythicplus.messageMode,
+        "| Key level:", db.mythicplus.includeKeyLevel and "|cFF00FF00Yes|r" or "|cFF888888No|r",
         "| Announced:", self.state.keyAnnounced and "|cFFFFFF00Yes|r" or "|cFF888888No|r")
     if self.state.cachedLFGListing then
         self:Print("  LFG cache:", self.state.cachedLFGListing.dungeonName or "unknown",

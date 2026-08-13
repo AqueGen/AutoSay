@@ -212,6 +212,14 @@ AutoSay.KeyAnnounce = {
     { key = "letsgo",   text = "Let's go! {dungeon} {key}" },
     { key = "ready",    text = "Ready! {dungeon} {key}" },
     { key = "gogogo",   text = "{dungeon} {key}, let's do this!" },
+    -- Style bundles (never enabled by default, activated by bundle or by hand)
+    { key = "fun_express", text = "the {dungeon} express departs, {key}", style = "fun" },
+    { key = "fantasy_gates", text = "the gates of {dungeon} await, {key}", style = "fantasy" },
+    { key = "dark_ready", text = "{dungeon} {key}, the shadows are ready", style = "dark" },
+    { key = "light_goodluck", text = "{dungeon} {key}, good luck everyone <3", style = "light" },
+    { key = "pirate_sail", text = "setting sail for {dungeon} {key}", style = "pirate" },
+    { key = "zoomer_cook", text = "{dungeon} {key} lets cook", style = "zoomer" },
+    { key = "butler_carriage", text = "your carriage to {dungeon} {key} is ready", style = "butler" },
 }
 
 -- M+ completion messages - timed (enabled by default first)
@@ -227,6 +235,14 @@ AutoSay.CompletionTimed = {
     { key = "wpall", text = "wp all" },
     { key = "timed", text = "{dungeon} {key} timed, gg!" },
     { key = "upgraded", text = "+{upgrade} upgrade, nice!" },
+    -- Style bundles (never enabled by default, activated by bundle or by hand)
+    { key = "fun_router", text = "gg, the router held up", style = "fun" },
+    { key = "fantasy_victory", text = "victory, well fought", style = "fantasy" },
+    { key = "dark_pleased", text = "the void is pleased, gg", style = "dark" },
+    { key = "light_lovely", text = "gg all, lovely run <3", style = "light" },
+    { key = "pirate_plunder", text = "fine plunder, crew", style = "pirate" },
+    { key = "zoomer_ez", text = "gg ez, we cooked", style = "zoomer" },
+    { key = "butler_splendid", text = "splendidly done, everyone", style = "butler" },
 }
 
 -- Guild member login greetings (enabled by default first)
@@ -282,4 +298,12 @@ AutoSay.CompletionDepleted = {
     { key = "wpall", text = "wp all" },
     { key = "done", text = "{dungeon} {key} done, gg" },
     { key = "tyfun", text = "ty all, was fun" },
+    -- Style bundles (never enabled by default, activated by bundle or by hand)
+    { key = "fun_blamelag", text = "gg, we blame the lag", style = "fun" },
+    { key = "fantasy_noble", text = "a noble effort, friends", style = "fantasy" },
+    { key = "dark_claims", text = "the dungeon claims this one, gg", style = "dark" },
+    { key = "light_nextone", text = "good try all, next one is ours", style = "light" },
+    { key = "pirate_roughseas", text = "rough seas, gg crew", style = "pirate" },
+    { key = "zoomer_gonext", text = "gg go next", style = "zoomer" },
+    { key = "butler_valiant", text = "a valiant attempt, thank you all", style = "butler" },
 }
