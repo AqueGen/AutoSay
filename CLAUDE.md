@@ -10,7 +10,7 @@ WoW addon: automatic greetings, goodbyes, and reconnect messages for party, raid
 
 ## Key Files
 - `Core.lua` — Main logic: event handling, message sending, cooldowns, queue, hooks
-- `Config.lua` — AceConfig UI definition (tabs: General, Party, Raid, Guild, M+, Test)
+- `Config.lua` — AceConfig UI definition (tabs: General, Style, Social, Group, Guild, M+, Test). The Group tab covers party/raid/instance with one shared phrase list and a checkbox column per channel; the db layout stays per channel (`db.profile.party/raid/instance`)
 - `Events.lua` — WoW event registration and dispatch
 - `Messages.lua` — Built-in message databases (greetings, goodbyes, reconnects)
 - `Locales/enUS.lua` — Localization strings
