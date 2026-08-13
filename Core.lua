@@ -287,6 +287,12 @@ local defaults = {
         },
     },
 
+    global = {
+        -- "major.minor" of the last release whose What's new popup was dismissed.
+        -- Account-wide on purpose: the news is the same on every character.
+        whatsNewSeen = "",
+    },
+
     char = {
         social = {},
         -- Instance zone-in greeting flag, persisted so a /reload does not re-greet
@@ -471,7 +477,34 @@ function Addon:OnEnable()
         self.db.char.lastSeenTime = time()
     end, 60)
 
+    -- What's new popup, well after the loading screen has let go
+    self:ScheduleTimer("CheckWhatsNew", 8)
+
     self:DebugPrint("Addon enabled")
+end
+
+-- "1.6" out of "1.6.2"; nil for an unpackaged build, where the TOC still holds the
+-- packager placeholder and there is no release to announce
+function Addon:VersionMinor()
+    local version = (C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata)(ADDON_NAME, "Version") or ""
+    return version:match("^(%d+%.%d+)")
+end
+
+-- Show the What's new popup once per account per minor release
+function Addon:CheckWhatsNew()
+    local minor = self:VersionMinor()
+    if not minor or self.db.global.whatsNewSeen == minor then return end
+
+    -- A popup mid-fight is worse than a popup a minute later
+    if InCombatLockdown() then
+        self:RegisterEvent("PLAYER_REGEN_ENABLED", function()
+            self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+            self:CheckWhatsNew()
+        end)
+        return
+    end
+
+    self:ShowWhatsNew(minor)
 end
 
 -- Update cached guild status

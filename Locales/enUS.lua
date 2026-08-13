@@ -306,5 +306,17 @@ L["Lowercase first letter desc"] = "Send \"hi!\" instead of \"Hi!\" - lowercase 
 L["Tone"] = "Tone"
 L["Classic"] = "Classic"
 
+-- What's new popup
+L["What's new"] = "What's new"
+L["WhatsNew subtitle"] = "greetings just got a lot more alive"
+L["WhatsNew instance"] = "Instance channel - greet your LFG dungeon, LFR and battleground groups right after the loading screen."
+L["WhatsNew styles"] = "Style bundles - one click flips your whole vocabulary: Fun, Fantasy, Dark, Wholesome, Pirate, Faction, Zoomer, Butler. |cFF888888\"a wild group appears\" - \"well met, travelers\" - \"ahoy crew o/\"|r"
+L["WhatsNew roles"] = "Role-aware phrases - your tank says |cFF888888\"tank here, pull respectfully\"|r, your healer says |cFF888888\"healer online, don't stand in fire\"|r."
+L["WhatsNew timeofday"] = "Time-of-day phrases - |cFF888888\"good morning all\"|r at breakfast, |cFF888888\"night owls unite o/\"|r after midnight, plus evening goodbyes."
+L["WhatsNew names"] = "Welcome newcomers by name - |cFF888888\"welcome Thrall!\"|r - phrases now know who they are for."
+L["WhatsNew group"] = "One Group page - configure Party, Raid and Instance side by side in a single checkbox matrix."
+L["Open settings"] = "Open settings"
+L["Got it"] = "Got it"
+
 -- Footer
 L["Made in Ukraine"] = "|cFF0057B7Made|r |cFFFFD700in Ukraine|r"
