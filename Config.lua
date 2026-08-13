@@ -67,10 +67,10 @@ local function PhraseActive(msg, settingsFn)
     local settings = settingsFn()
     if msg.trigger == "others" and not settings.onOthersJoin then return false end
     if msg.trigger == "self" and not settings.onSelfJoin then return false end
-    if msg.text:find("{names}", 1, true)
-        and not (settings.includeNames or settings.includeGroupNames) then
-        return false
-    end
+    -- {names} rows are deliberately NOT greyed when the names options are off: the runtime
+    -- still sends them with the slot stripped ("welcome {names}!" -> "welcome!"), so a grey
+    -- row would claim "unused" about a phrase that is very much in play (and on guild, which
+    -- has no names options at all, it would lock the row for good)
     return true
 end
 
@@ -336,6 +336,13 @@ local function BuildCustomMessageList(channel, customsKey, labelKey)
             width = 2.5,
             hidden = function()
                 return idx > #(Addon.db.profile[channel][customsKey] or {})
+            end,
+            -- A custom {role} text obeys the same master switch as the preset role rows -
+            -- grey it the same way, or the list would show an active row that never fires
+            disabled = function()
+                local entry = (Addon.db.profile[channel][customsKey] or {})[idx]
+                return entry and entry.text and entry.text:find("{role}", 1, true)
+                    and not Addon.db.profile.social.rolePhrases or false
             end,
             get = function()
                 local entry = (Addon.db.profile[channel][customsKey] or {})[idx]
@@ -1284,6 +1291,8 @@ local function BuildOptions()
                                                 names[#names + 1] = enName
                                             end
                                         end
+                                        -- pairs order is unstable: without a sort the rows reshuffle on every redraw
+                                        table.sort(names)
                                         -- Split into two rows of 4
                                         local half = math.ceil(#names / 2)
                                         local row1 = {}

@@ -9,7 +9,6 @@ Addon.version = "@project-version@"
 
 -- Pure string/table logic lives in MessageLogic.lua (headless-testable); alias what this file uses
 local Logic = AutoSay.MessageLogic
-local CleanupAfterTokenStrip = Logic.CleanupAfterTokenStrip
 local TruncateToChatLimit = Logic.TruncateToChatLimit
 local FitsContext = Logic.FitsContext
 local StripNameSlot = Logic.StripNameSlot
@@ -917,10 +916,12 @@ end
 local ChannelColor = {}
 for _, c in ipairs(AutoSay.Channels) do ChannelColor[c.chat] = c.color end
 
+-- Returns true when a message actually went out (or was simulated in test mode) - callers
+-- that spend a budget slot on the dispatch must not spend it on a drop
 function Addon:DoSendMessage(message, channel, target, keepCase)
     if not message then
         self:DebugPrint("No message to send")
-        return
+        return false
     end
 
     message = TruncateToChatLimit(self:PolishMessage(message, keepCase))
@@ -929,7 +930,7 @@ function Addon:DoSendMessage(message, channel, target, keepCase)
     -- and SendChatMessage("") would error - drop instead
     if not message:match("%S") then
         self:DebugPrint("Message empty after polish, dropping")
-        return
+        return false
     end
 
     -- Update appropriate cooldown based on channel type
@@ -947,7 +948,7 @@ function Addon:DoSendMessage(message, channel, target, keepCase)
         print("|cFFFF9900[AutoSay TEST]|r Would send to " .. channelColor .. "[" .. channel .. "]|r: " .. message)
         updateCooldown()
         self:DebugPrint("Test mode - simulated send to", channel, ":", message)
-        return
+        return true
     end
 
     -- WoW 12.0+ restricts SendChatMessage in certain instance contexts
@@ -956,12 +957,10 @@ function Addon:DoSendMessage(message, channel, target, keepCase)
     if ok then
         updateCooldown()
         self:DebugPrint("Sent to", channel, ":", message)
-    else
-        self:DebugPrint("Failed to send to", channel, ":", tostring(err))
-        if self:IsTestMode() then
-            self:TestPrint("Failed to send message (possible instance restriction): " .. tostring(err))
-        end
+        return true
     end
+    self:DebugPrint("Failed to send to", channel, ":", tostring(err))
+    return false
 end
 
 -- Instance zone-in greeting flag. Mirrored into db.char so a /reload inside the instance
@@ -1392,6 +1391,9 @@ function Addon:BuildAndSendGreeting(channel, reason, playerNames)
     if reason == "reconnect" then
         message, nameMode, keepCase = self:GetRandomMessageForChannel("reconnects", channel, reason, wantNames)
         if not message then
+            -- Deliberate: this fallback may pick a [self]-tagged greeting even when
+            -- "On self join" is off - a reconnect IS a self event, and going silent when the
+            -- user explicitly enabled reconnect greetings would be the worse behaviour
             self:DebugPrint("No reconnects enabled for", channel, "- falling back to greetings")
             message, nameMode, keepCase = self:GetRandomMessageForChannel("greetings", channel, reason, wantNames)
         end
@@ -1452,11 +1454,9 @@ function Addon:SendGoodbye(channel)
         return
     end
 
-    -- Send immediately (no delay for goodbyes since we're leaving)
-    self:DoSendMessage(message, channel, nil, keepCase)
-
-    -- Spend the budget slot for the message we just dispatched
-    if self.socialGate then
+    -- Send immediately (no delay for goodbyes since we're leaving);
+    -- spend the budget slot only for a message that actually went out
+    if self:DoSendMessage(message, channel, nil, keepCase) and self.socialGate then
         self.socialGate:Record("goodbye")
     end
 end
@@ -1596,11 +1596,9 @@ function Addon:SendGuildGoodbye()
     end
 
     self:DebugPrint("Sending guild goodbye:", message)
-    -- Send immediately (no delay for goodbyes)
-    self:DoSendMessage(message, "GUILD", nil, keepCase)
-
-    -- Spend the budget slot for the message we just dispatched
-    if self.socialGate then
+    -- Send immediately (no delay for goodbyes);
+    -- spend the budget slot only for a message that actually went out
+    if self:DoSendMessage(message, "GUILD", nil, keepCase) and self.socialGate then
         self.socialGate:Record("goodbye")
     end
 end
@@ -1880,14 +1878,24 @@ function Addon:SendKeyAnnounce()
     -- Resolve dungeon name (English by default, client locale if enabled). The suffix strip
     -- takes any trailing parenthesis, because "(Mythic Keystone)" is localized on non-enUS clients.
     local localizedName = listing.dungeonName and listing.dungeonName:gsub("%s*%b()%s*$", "")
-    -- The activity map can lag a season behind (the table is regenerated after each season
-    -- starts); the leader's own keystone is the key this listing is for, and its map id lives
-    -- in the same id space as C_ChallengeMode.GetActiveChallengeMapID - which is what SameKey
-    -- later compares against to keep the start announce silent for an already-announced key.
-    local mapID = self:GetMapIDFromActivity(listing.activityID)
-        or (C_MythicPlus and C_MythicPlus.GetOwnedKeystoneChallengeMapID
-            and C_MythicPlus.GetOwnedKeystoneChallengeMapID())
-    local dungeon = self:GetDungeonName(mapID, localizedName)
+    -- The displayed name only ever comes from the LISTED activity (or the listing's own text):
+    -- feeding any other map id into GetDungeonName could announce a different dungeon.
+    local listedMapID = self:GetMapIDFromActivity(listing.activityID)
+    local dungeon = self:GetDungeonName(listedMapID, localizedName)
+
+    -- Key identity for the start-announce dedupe. The activity map can lag a season behind
+    -- (the table is regenerated after each season starts); the leader's own keystone lives in
+    -- the same id space as C_ChallengeMode.GetActiveChallengeMapID, so it can stand in - but
+    -- only when its dungeon name matches the listing, otherwise it is some other key.
+    local mapID = listedMapID
+    if not mapID and C_MythicPlus and C_MythicPlus.GetOwnedKeystoneChallengeMapID then
+        local owned = C_MythicPlus.GetOwnedKeystoneChallengeMapID()
+        local ownedName = owned and C_ChallengeMode and C_ChallengeMode.GetMapUIInfo
+            and C_ChallengeMode.GetMapUIInfo(owned)
+        if ownedName and localizedName and ownedName == localizedName then
+            mapID = owned
+        end
+    end
 
     -- Get key level based on mode
     local keyLevel = self:GetKeyLevel()
@@ -2338,16 +2346,18 @@ function Addon:TestReconnect()
     end
 end
 
--- Dungeon pool for the M+ simulations (Midnight Season 1, with LFG activityIDs)
+-- Dungeon pool for the M+ simulations (Midnight Season 2, matching AutoSay.DungeonNames so
+-- the simulations exercise the shipped table; activityIDs are placeholders until the season
+-- ids exist - the test path resolves names via mapID/name, not the activity map)
 local testDungeons = {
-    { name = "Magisters' Terrace",        activityID = 1760, mapID = 558 },
-    { name = "Maisara Caverns",           activityID = 1764, mapID = 560 },
-    { name = "Nexus-Point Xenas",         activityID = 1768, mapID = 559 },
-    { name = "Windrunner Spire",          activityID = 1542, mapID = 557 },
-    { name = "Algeth'ar Academy",         activityID = 1160, mapID = 402 },
-    { name = "Seat of the Triumvirate",   activityID = 486,  mapID = 583 },
-    { name = "Skyreach",                  activityID = 182,  mapID = 161 },
-    { name = "Pit of Saron",              activityID = 1770, mapID = 556 },
+    { name = "Altar of Fangs",            activityID = 0, mapID = 588 },
+    { name = "Ruby Life Pools",           activityID = 0, mapID = 399 },
+    { name = "Kings' Rest",               activityID = 0, mapID = 249 },
+    { name = "Voidscar Arena",            activityID = 0, mapID = 585 },
+    { name = "Den of Nalorakk",           activityID = 0, mapID = 586 },
+    { name = "Murder Row",                activityID = 0, mapID = 587 },
+    { name = "Temple of Sethraliss",      activityID = 0, mapID = 250 },
+    { name = "The Blinding Vale",         activityID = 0, mapID = 584 },
 }
 
 -- Simulate full M+ flow: create listing → players join → 5/5 → announce

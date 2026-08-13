@@ -289,17 +289,12 @@ AutoSay.DungeonNames = {
     [584] = "The Blinding Vale",
 }
 
--- LFG activityID -> mapChallengeModeID mapping (Midnight Season 1)
--- Used to resolve dungeon names from Group Finder listings.
+-- LFG activityID -> mapChallengeModeID mapping. Used to resolve dungeon names from Group
+-- Finder listings. Empty until the Season 2 activity ids exist: regenerate with
+-- /as dumpdungeons (enUS client) once the season is live. The announce degrades gracefully
+-- without it (listing's own name + the owned-keystone identity check), whereas last season's
+-- ids would resolve to map ids the Season 2 DungeonNames table cannot name.
 AutoSay.ActivityToDungeon = {
-    [1760] = 558,
-    [1764] = 560,
-    [1768] = 559,
-    [1542] = 557,
-    [1160] = 402,
-    [486]  = 583,
-    [182]  = 161,
-    [1770] = 556,
 }
 
 -- M+ completion messages - depleted (enabled by default first)

@@ -191,6 +191,14 @@ function Addon:GROUP_LEFT(event, category)
         end
         self.state.previousGroup = self:GetCurrentGroupMembers()
         self.state.currentGroupType = self:GetChatChannel()
+        -- Members of the departed category are gone from previousGroup, so the roster
+        -- diff can never clear their greeted flags - prune them here or an ex-groupmate
+        -- who later joins the surviving group would never be greeted
+        for key in pairs(self.state.sentGreetings) do
+            if not self.state.previousGroup[key] then
+                self.state.sentGreetings[key] = nil
+            end
+        end
         return
     end
 
@@ -455,8 +463,10 @@ function Addon:CHALLENGE_MODE_START(event, mapID)
         return
     end
 
-    -- The event payload carries the map id; the getter is nilable and only a fallback
-    mapID = mapID or (C_ChallengeMode.GetActiveChallengeMapID and C_ChallengeMode.GetActiveChallengeMapID())
+    -- GetActiveChallengeMapID is documented to return a mapChallengeModeID - the id space
+    -- GetMapUIInfo and our DungeonNames table expect. The event payload is only declared as
+    -- an untyped "mapID", so it is the fallback, not the primary.
+    mapID = (C_ChallengeMode.GetActiveChallengeMapID and C_ChallengeMode.GetActiveChallengeMapID()) or mapID
     local localizedName = mapID and C_ChallengeMode.GetMapUIInfo and C_ChallengeMode.GetMapUIInfo(mapID) or nil
     local dungeon = self:GetDungeonName(mapID, localizedName)
 
@@ -654,11 +664,13 @@ function Addon:CollectGroupMemberNames(settings)
     if not settings or not settings.includeGroupNames then return nil end
 
     local names = {}
-    local _, connected = self:GetCurrentGroupMembers()
+    local members, connected = self:GetCurrentGroupMembers()
     local myName = UnitName("player")
-    for name in pairs(connected) do
-        if name ~= myName then
-            table.insert(names, name)
+    -- Keys are full Name-Realm (identity); the stored value is the short display name -
+    -- chat gets the display name, never the realm-suffixed key
+    for key, displayName in pairs(members) do
+        if connected[key] and key ~= myName then
+            table.insert(names, displayName)
         end
     end
     self:DebugPrint("Including group member names:", table.concat(names, ", "))
