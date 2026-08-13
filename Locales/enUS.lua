@@ -233,6 +233,25 @@ L["Simulate role desc"] = "Choose whether to simulate as the group leader (who c
 L["Leader"] = "Leader"
 L["Joined"] = "Joined"
 
+-- Simulation context (role/hour/what's new preview)
+L["Simulation context"] = "Simulation context"
+L["Simulate assigned role"] = "Simulate assigned role"
+L["Simulate assigned role desc"] = "Simulate the group role assigned to you, for role-tagged phrases and the {role} placeholder"
+L["Tank"] = "Tank"
+L["Healer"] = "Healer"
+L["DPS"] = "DPS"
+L["Use real time"] = "Use real time"
+L["Use real time desc"] = "Use the real local hour for the time-of-day band instead of the slider below"
+L["Simulate hour"] = "Simulate hour"
+L["Simulate hour desc"] = "Simulate the local hour, for the time-of-day band (morning/day/evening/night)"
+L["Preview What's new"] = "Preview What's new"
+L["Preview What's new desc"] = "Show the What's new popup without marking it as seen"
+L["Test role usage"] = "Usage: /as test role tank|healer|dps"
+L["Simulated role set"] = "Simulated role set"
+L["Test hour usage"] = "Usage: /as test hour <0-23>|off"
+L["Simulated hour set"] = "Simulated hour set"
+L["Simulated hour cleared"] = "Simulated hour cleared (using real time)"
+
 -- Reset
 L["Reset window size"] = "Reset window size"
 L["Reset settings window to default size and position"] = "Reset settings window to default size and position"

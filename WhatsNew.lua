@@ -31,8 +31,13 @@ local function CreateWhatsNewFrame(minor)
     tinsert(UISpecialFrames, frame:GetName())
 
     -- The flag is burned on close, not on show: an error before the user reads it
-    -- must not cost them the popup
+    -- must not cost them the popup. A test-mode preview must not burn the real
+    -- one-time show, so it skips the write instead.
     frame:SetScript("OnHide", function()
+        if Addon.whatsNewPreview then
+            Addon.whatsNewPreview = nil
+            return
+        end
         Addon.db.global.whatsNewSeen = minor
     end)
 

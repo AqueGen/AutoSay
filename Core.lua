@@ -335,6 +335,7 @@ Addon.testState = {
     simulatedGroupMembers = {},
     simulatedIsLeader = true, -- Simulate being group leader (default true for test)
     simulatedRole = "DAMAGER", -- Role used for role-tagged phrases while testing
+    simulatedHour = nil, -- Hour (0-23) used for time-of-day band while testing; nil = use real time
     mythicPlusRole = "leader", -- "leader" or "joined" for M+ flow simulation
 }
 
@@ -688,6 +689,14 @@ function Addon:SlashCommand(input)
             self:TestPlayerJoins(playerName)
         elseif subcmd == "key" or subcmd == "k" then
             self:TestMythicPlusFlow()
+        elseif subcmd == "role" then
+            local _, _, roleArg = self:GetArgs(input, 3)
+            self:TestSetRole(roleArg)
+        elseif subcmd == "hour" then
+            local _, _, hourArg = self:GetArgs(input, 3)
+            self:TestSetHour(hourArg)
+        elseif subcmd == "whatsnew" then
+            self:TestPreviewWhatsNew()
         elseif subcmd == "reset" then
             self:TestReset()
         elseif subcmd == "resetgate" or subcmd == "rg" then
@@ -717,6 +726,9 @@ function Addon:SlashCommand(input)
             self:Print("  /as test reconnect - Simulate reconnecting to group")
             self:Print("  /as test player [name] - Simulate player joining")
             self:Print("  /as test key - Simulate full M+ flow (listing → joins → announce)")
+            self:Print("  /as test role tank|healer|dps - Simulate assigned role")
+            self:Print("  /as test hour <0-23>|off - Simulate time-of-day band")
+            self:Print("  /as test whatsnew - Preview the What's new popup")
             self:Print("  /as test reset - Reset test state")
             self:Print("  /as test resetgate - Clear social gate counters (budget, cooldowns, welcomed list)")
             self:Print("  /as test status - Show test status")
@@ -1063,8 +1075,13 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
         local role = self:GetPlayerRoleOrTest()
         local faction = UnitFactionGroup("player")
         -- nil band = band-tagged phrases never match, i.e. the master switch is off
-        local hour = (self.humanizer and self.humanizer.hour)
-            and self.humanizer.hour() or tonumber(date("%H"))
+        local hour
+        if self:IsTestMode() and self.testState.simulatedHour ~= nil then
+            hour = self.testState.simulatedHour
+        else
+            hour = (self.humanizer and self.humanizer.hour)
+                and self.humanizer.hour() or tonumber(date("%H"))
+        end
         local band = self.db.profile.social.timeOfDay
             and AutoSay.Humanizer.BandForHour(hour) or nil
         local rolePhrases = self.db.profile.social.rolePhrases
@@ -1951,6 +1968,8 @@ function Addon:TestReset()
     self.testState.simulatedInGuild = false
     self.testState.simulatedGroupMembers = {}
     self.testState.simulatedIsLeader = true
+    self.testState.simulatedRole = "DAMAGER"
+    self.testState.simulatedHour = nil
     self.state.previousGroup = nil
     self.state.sentGreetings = {}
     self.state.currentGroupType = nil
@@ -1988,6 +2007,66 @@ function Addon:TestReset()
         self.humanizer.history = {}
     end
     self:TestPrint("Test state reset")
+end
+
+-- Role names accepted by /as test role, mapped to the UnitGroupRolesAssigned values
+local testRoleAliases = {
+    tank = "TANK", t = "TANK",
+    healer = "HEALER", h = "HEALER",
+    dps = "DAMAGER", d = "DAMAGER",
+}
+
+-- Simulate the assigned role, for role-tagged phrases and the {role} placeholder
+function Addon:TestSetRole(roleArg)
+    if not self:IsTestMode() then
+        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
+        return
+    end
+
+    local role = testRoleAliases[roleArg and roleArg:lower() or ""]
+    if not role then
+        self:Print(L["Test role usage"])
+        return
+    end
+
+    self.testState.simulatedRole = role
+    self:TestPrint(L["Simulated role set"] .. ": " .. AutoSay.RoleWords[role])
+end
+
+-- Simulate the local hour, for the time-of-day band ("off" reverts to the real clock)
+function Addon:TestSetHour(hourArg)
+    if not self:IsTestMode() then
+        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
+        return
+    end
+
+    if hourArg and hourArg:lower() == "off" then
+        self.testState.simulatedHour = nil
+        self:TestPrint(L["Simulated hour cleared"])
+        return
+    end
+
+    local hour = tonumber(hourArg)
+    if not hour or hour < 0 or hour > 23 or hour ~= math.floor(hour) then
+        self:Print(L["Test hour usage"])
+        return
+    end
+
+    self.testState.simulatedHour = hour
+    local band = AutoSay.Humanizer.BandForHour(hour)
+    self:TestPrint(L["Simulated hour set"] .. ": " .. hour .. " (" .. band .. ")")
+end
+
+-- Preview the What's new popup without burning the real one-time-per-version flag
+function Addon:TestPreviewWhatsNew()
+    if not self:IsTestMode() then
+        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
+        return
+    end
+
+    self:TestPrint("=== Previewing What's new ===")
+    self.whatsNewPreview = true
+    self:ShowWhatsNew(self:VersionMinor() or "dev")
 end
 
 -- Simulate joining a party
