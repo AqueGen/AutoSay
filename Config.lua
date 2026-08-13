@@ -103,6 +103,16 @@ local function MatrixChannels(keys, enabledKey, withTriggers)
     return channels
 end
 
+-- AceConfig numeric widths are fixed pixels while the flow layout packs a visual line
+-- until it runs out of window: on a wide window two logical rows interleave. A zero-text
+-- full-width description after each row forces the line break, whatever the window width.
+local function AddRowBreak(args, key, order, hidden)
+    args[key .. "_brk"] = {
+        type = "description", name = "", order = order,
+        width = "full", hidden = hidden,
+    }
+end
+
 -- Header row naming the columns: an empty cell under the labels, then a channel name per column
 local function AddCaptionRow(args, key, order, channels, hidden)
     args[key] = {
@@ -116,6 +126,7 @@ local function AddCaptionRow(args, key, order, channels, hidden)
             width = MATRIX_COL_WIDTH, hidden = hidden,
         }
     end
+    AddRowBreak(args, key, order + #channels * 0.1 + 0.01, hidden)
 end
 
 -- One matrix row. The cells are bare checkboxes, so each carries the column name as its
@@ -136,6 +147,7 @@ local function AddMatrixRow(args, key, order, label, hidden, channels, cellFn)
         cell.hidden = hidden
         args[key .. "_" .. ch.key] = cell
     end
+    AddRowBreak(args, key, order + #channels * 0.1 + 0.01, hidden)
 end
 
 -- Hide a dependent row only once no channel has its parent switched on
