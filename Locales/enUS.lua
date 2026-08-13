@@ -122,7 +122,7 @@ L["Send goodbye on leave"] = "Send goodbye on leave"
 L["Send goodbye when leaving"] = "Send goodbye when leaving"
 L["Send goodbye when leaving party"] = "Send goodbye when leaving party"
 L["Send goodbye when leaving raid"] = "Send goodbye when leaving raid"
-L["Send goodbye when leaving instance group"] = "Send goodbye when leaving the instance group"
+L["Send goodbye when leaving instance group"] = "Send goodbye when leaving the instance group. Note: leaving a battleground from inside it teleports you out without a leave action, so no goodbye is sent there."
 
 -- Messages
 L["Message Selection"] = "Message Selection"

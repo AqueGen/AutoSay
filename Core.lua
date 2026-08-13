@@ -329,7 +329,7 @@ Addon.state = {
     currentGroupType = nil,
     sentGreetings = {},
     isInGuild = false, -- Cached guild status (IsInGuild() returns false during logout)
-    groupGoodbyeSent = false, -- Track if group goodbye was sent (to avoid duplicates)
+    groupGoodbyeSent = {}, -- Per-channel once-per-leave goodbye guard (channel -> bool)
     pendingNewMembers = {}, -- Batch new members for others_join greeting
     pendingGreetTimer = nil, -- Timer for batched greeting
     cachedLFGListing = nil, -- Cached LFG listing data (before auto-delist)
@@ -339,7 +339,7 @@ Addon.state = {
     announcedKey = nil, -- What the last key announce actually said: { mapID = number|nil, dungeon = string, level = number|nil }
     startAnnounced = false, -- Key start announce already sent for the current run
     startAnnounceTimer = nil, -- Pending key start announce (initial delay or its one retry)
-    groupGoodbyeTimer = nil, -- Self-reset timer for the once-per-leave goodbye guard
+    groupGoodbyeTimer = {}, -- Per-channel self-reset timers for the goodbye guard
     instanceGreeted = false, -- Instance zone-in greeting sent (mirrors db.char.instanceGreeted, see SetInstanceGreeted)
     pendingGroupSends = {}, -- Delayed group sends in flight (handle set), cancelled on GROUP_JOINED
     pendingGuildLogins = {}, -- Batch guild member login names
@@ -590,7 +590,7 @@ end
 -- Hook LeaveParty to send group goodbye before leaving
 function Addon:HookLeaveGroupFunctions()
     -- Track if we already sent group goodbye to avoid duplicates
-    self.state.groupGoodbyeSent = false
+    self.state.groupGoodbyeSent = {}
 
     -- Hook C_PartyInfo.LeaveParty (retail WoW API) - use RawHook to run BEFORE the function
     if C_PartyInfo and C_PartyInfo.LeaveParty and not self:IsHooked(C_PartyInfo, "LeaveParty") then
@@ -635,16 +635,18 @@ function Addon:GoodbyeChannelForCategory(category)
     return self:GetChatChannel() or self.state.currentGroupType
 end
 
--- Send group goodbye only once per leave action
+-- Send group goodbye only once per leave action. The guard is keyed by the resolved
+-- channel: leaving the instance group and the home party back to back are two different
+-- goodbyes, and one shared boolean would swallow the second.
 function Addon:SendGroupGoodbyeOnce(category)
-    if self.state.groupGoodbyeSent then
-        self:DebugPrint("Group goodbye already sent, skipping")
-        return
-    end
-
     local channel = self:GoodbyeChannelForCategory(category)
     if not channel then
         self:DebugPrint("No current group type cached, skipping goodbye")
+        return
+    end
+
+    if self.state.groupGoodbyeSent[channel] then
+        self:DebugPrint("Group goodbye already sent to", channel, ", skipping")
         return
     end
 
@@ -654,18 +656,17 @@ function Addon:SendGroupGoodbyeOnce(category)
     -- successful send sets the flag before the second hook can run.
     self:DebugPrint("Sending goodbye to", channel, "before leaving")
     if self:SendGoodbye(channel) then
-        self.state.groupGoodbyeSent = true
+        self.state.groupGoodbyeSent[channel] = true
     end
 
     -- GROUP_LEFT deliberately does not clear the flag (it fires milliseconds after this
-    -- hook), and leaving an instance group while still in a home party fires no group event
-    -- at all - so the guard resets itself. 5s covers a double LeaveParty, nothing longer.
-    if self.state.groupGoodbyeTimer then
-        self:CancelTimer(self.state.groupGoodbyeTimer)
+    -- hook) - so the guard resets itself. 5s covers a double LeaveParty, nothing longer.
+    if self.state.groupGoodbyeTimer[channel] then
+        self:CancelTimer(self.state.groupGoodbyeTimer[channel])
     end
-    self.state.groupGoodbyeTimer = self:ScheduleTimer(function()
-        self.state.groupGoodbyeTimer = nil
-        self.state.groupGoodbyeSent = false
+    self.state.groupGoodbyeTimer[channel] = self:ScheduleTimer(function()
+        self.state.groupGoodbyeTimer[channel] = nil
+        self.state.groupGoodbyeSent[channel] = false
     end, 5)
 end
 
@@ -699,8 +700,11 @@ function Addon:SlashCommand(input)
             self:Print("|cFFFF9900Test mode:|r |cFFFF0000OFF|r")
             self:TestReset()
         end
-    -- Test simulation commands
+    -- Test simulation commands. Gated as a whole: the inline subcommands below (grats,
+    -- guildjoin, resetgate) reach real guild chat / wipe real gate state when test mode is
+    -- off - the per-helper RequireTestMode calls do not cover them.
     elseif cmd == "test" then
+        if not self:RequireTestMode() then return end
         local subcmd = arg1 and arg1:lower() or ""
         if subcmd == "party" or subcmd == "p" then
             self:TestJoinParty()
@@ -714,9 +718,6 @@ function Addon:SlashCommand(input)
             self:TestGuildGreeting()
         elseif subcmd == "guildbye" or subcmd == "gb" then
             self:TestGuildGoodbye()
-        elseif subcmd == "guildlogin" or subcmd == "gl" then
-            local _, _, playerName = self:GetArgs(input, 3)
-            self:TestGuildMemberLogin(playerName)
         elseif subcmd == "grats" then
             self:TestPrint("=== Simulating GUILD ACHIEVEMENT (TestGuildie) ===")
             self:SendGuildGrats("TestGuildie")
@@ -765,7 +766,6 @@ function Addon:SlashCommand(input)
             self:Print("  /as test leave - Simulate leaving group")
             self:Print("  /as test guild - Simulate guild login greeting")
             self:Print("  /as test guildbye - Simulate guild logout goodbye")
-            self:Print("  /as test guildlogin [name] - Simulate guild member logging in")
             self:Print("  /as test grats - Simulate guild achievement congrats")
             self:Print("  /as test guildjoin - Simulate a new member joining the guild")
             self:Print("  /as test reconnect - Simulate reconnecting to group")
@@ -906,7 +906,9 @@ function Addon:SendMessageToChat(message, channel, target, keepCase)
             if handles then handles[handle] = nil end
             self:DoSendMessage(message, channel, target, keepCase)
         end, delay)
-        if handles then handles[handle] = true end
+        -- Tagged with the channel so GROUP_JOINED can cancel selectively (an instance
+        -- group forming next to a live home party only kills the INSTANCE_CHAT sends)
+        if handles then handles[handle] = channel end
         self:DebugPrint("Scheduled message in", delay, "seconds")
     else
         self:DoSendMessage(message, channel, target, keepCase)
@@ -1542,9 +1544,13 @@ function Addon:SendGuildGreeting()
     local db = self.db.profile
 
     if not db.enabled then return end
-    if not db.guild.enabled then return end
+    if not db.guild.enabled then
+        if self:IsTestMode() then self:TestPrint("Guild greeting skipped (guild channel disabled)") end
+        return
+    end
     if not db.guild.onSelfJoin then
         self:DebugPrint("Guild greeting on login disabled")
+        if self:IsTestMode() then self:TestPrint("Guild greeting skipped (On login disabled)") end
         return
     end
     if not self:IsInGuildOrTest() then return end
@@ -1589,10 +1595,12 @@ function Addon:SendGuildGoodbye()
     end
     if not db.guild.enabled then
         self:DebugPrint("Guild channel disabled, skipping goodbye")
+        if self:IsTestMode() then self:TestPrint("Guild goodbye skipped (guild channel disabled)") end
         return
     end
     if not db.guild.sendGoodbye then
         self:DebugPrint("Guild goodbye on logout disabled")
+        if self:IsTestMode() then self:TestPrint("Guild goodbye skipped (Send goodbye disabled)") end
         return
     end
 
@@ -1798,6 +1806,22 @@ function Addon:GetMapIDFromActivity(activityID)
     return activityID and AutoSay.ActivityToDungeon[activityID] or nil
 end
 
+-- Resolve mapChallengeModeID by exact localized-name match against the live season pool -
+-- the fallback for listings whose activityID is not in ActivityToDungeon (the table can lag
+-- a season behind). Same matching trick DumpDungeons uses.
+function Addon:GetMapIDFromDungeonName(name)
+    if not name or not C_ChallengeMode or not C_ChallengeMode.GetMapTable
+        or not C_ChallengeMode.GetMapUIInfo then
+        return nil
+    end
+    for _, mapID in ipairs(C_ChallengeMode.GetMapTable() or {}) do
+        if C_ChallengeMode.GetMapUIInfo(mapID) == name then
+            return mapID
+        end
+    end
+    return nil
+end
+
 -- Replace {dungeon} and {key} placeholders in a message
 function Addon:ReplacePlaceholders(message, dungeon, keyLevel, extraReplacements)
     if not message then return nil end
@@ -1838,7 +1862,9 @@ function Addon:GetKeyLevel()
     -- 1. Our own keystone, but only while it is the dungeon this group is listed for
     if C_MythicPlus and C_MythicPlus.GetOwnedKeystoneLevel and C_MythicPlus.GetOwnedKeystoneChallengeMapID then
         local ownedMapID = C_MythicPlus.GetOwnedKeystoneChallengeMapID()
-        local listedMapID = listing and self:GetMapIDFromActivity(listing.activityID)
+        local listedMapID = listing and (self:GetMapIDFromActivity(listing.activityID)
+            or self:GetMapIDFromDungeonName(listing.dungeonName
+                and listing.dungeonName:gsub("%s*%b()%s*$", "")))
         if ownedMapID and listedMapID and ownedMapID == listedMapID then
             local level = C_MythicPlus.GetOwnedKeystoneLevel()
             if level and level > 0 then
@@ -1909,27 +1935,26 @@ function Addon:SendKeyAnnounce()
     -- Resolve dungeon name (English by default, client locale if enabled). The suffix strip
     -- takes any trailing parenthesis, because "(Mythic Keystone)" is localized on non-enUS clients.
     local localizedName = listing.dungeonName and listing.dungeonName:gsub("%s*%b()%s*$", "")
-    -- The displayed name only ever comes from the LISTED activity (or the listing's own text):
-    -- feeding any other map id into GetDungeonName could announce a different dungeon.
+    -- The displayed name only ever comes from the LISTED activity (or the listing's own
+    -- text, matched by name against the live season pool when the activity table lags a
+    -- season behind): feeding any other map id into GetDungeonName could announce a
+    -- different dungeon. The resolved map id doubles as the SameKey identity - the same id
+    -- space C_ChallengeMode.GetActiveChallengeMapID uses, which keeps the start announce
+    -- silent for an already-announced key on every client language.
     local listedMapID = self:GetMapIDFromActivity(listing.activityID)
+        or self:GetMapIDFromDungeonName(localizedName)
     local dungeon = self:GetDungeonName(listedMapID, localizedName)
-
-    -- Key identity for the start-announce dedupe. The activity map can lag a season behind
-    -- (the table is regenerated after each season starts); the leader's own keystone lives in
-    -- the same id space as C_ChallengeMode.GetActiveChallengeMapID, so it can stand in - but
-    -- only when its dungeon name matches the listing, otherwise it is some other key.
     local mapID = listedMapID
-    if not mapID and C_MythicPlus and C_MythicPlus.GetOwnedKeystoneChallengeMapID then
-        local owned = C_MythicPlus.GetOwnedKeystoneChallengeMapID()
-        local ownedName = owned and C_ChallengeMode and C_ChallengeMode.GetMapUIInfo
-            and C_ChallengeMode.GetMapUIInfo(owned)
-        if ownedName and localizedName and ownedName == localizedName then
-            mapID = owned
-        end
-    end
 
     -- Get key level based on mode
     local keyLevel = self:GetKeyLevel()
+
+    -- Already said exactly this (the group dipped below 5 and refilled inside the announce
+    -- delay, scheduling a second timer): once is enough
+    if SameKey(self.state.announcedKey, { mapID = mapID, dungeon = dungeon, level = keyLevel }) then
+        self:DebugPrint("Key announce skipped: this key was already announced")
+        return
+    end
 
     -- Get random message template
     local template = self:GetRandomKeyAnnounce()
@@ -2154,7 +2179,7 @@ function Addon:TestReset()
     self:SetInstanceGreeted(false)
     self.state.mythicPlusFlowActive = false
     self.state.goodbyeSent = false
-    self.state.groupGoodbyeSent = false
+    self.state.groupGoodbyeSent = {}
     self.state.guildMemberPresence = {}
     self.state.guildPresenceReady = true -- In test mode, always ready
     -- Clear session-only social state (persistent budget/person state intentionally kept, matches live behavior)
@@ -2405,10 +2430,11 @@ function Addon:TestMythicPlusFlow()
     local isLeader = self.testState.mythicPlusRole == "leader"
 
     self:TestPrint("=== Simulating M+ Full Flow (" .. (isLeader and "Leader" or "Joined") .. ") ===")
-    self.state.mythicPlusFlowActive = true
 
-    -- Step 1: Reset and set up party
+    -- Step 1: Reset and set up party. The overlap flag goes AFTER the reset -
+    -- TestReset clears it, so setting it first made the guard permanently dead.
     self:TestReset()
+    self.state.mythicPlusFlowActive = true
     self.testState.simulatedGroupType = "PARTY"
     self.testState.simulatedIsLeader = isLeader
     self.state.currentGroupType = "PARTY"

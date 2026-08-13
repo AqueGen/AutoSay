@@ -100,7 +100,17 @@ function Addon:GROUP_JOINED(event, category)
     -- party (queueing a BG while your key group is listed is exactly this)
     local homeSurvives = category == LE_PARTY_CATEGORY_INSTANCE and IsInGroup(LE_PARTY_CATEGORY_HOME)
 
-    if not homeSurvives then
+    if homeSurvives then
+        -- The home party's sends stay, but an INSTANCE_CHAT send still in flight belongs
+        -- to the PREVIOUS instance group (leave BG, requeue inside the typing delay) and
+        -- must not land in this one
+        for handle, ch in pairs(self.state.pendingGroupSends) do
+            if ch == "INSTANCE_CHAT" then
+                self:CancelTimer(handle)
+                self.state.pendingGroupSends[handle] = nil
+            end
+        end
+    else
         -- Clear stale M+ listing cache when joining a new group
         -- (prevents announce from firing with old data when joining someone else's group)
         self.state.cachedLFGListing = nil
@@ -124,11 +134,16 @@ function Addon:GROUP_JOINED(event, category)
         self.state.pendingGroupSends = {}
     end
     -- Join time is where the once-per-group guards reset: GROUP_LEFT fires milliseconds
-    -- after the leave hook, which would make the goodbye guard useless
-    self.state.groupGoodbyeSent = false
-    if self.state.groupGoodbyeTimer then
-        self:CancelTimer(self.state.groupGoodbyeTimer)
-        self.state.groupGoodbyeTimer = nil
+    -- after the leave hook, which would make the goodbye guard useless. Only the joined
+    -- category's channels re-arm - the other category's guard may be mid-leave right now.
+    local joinedChannels = category == LE_PARTY_CATEGORY_INSTANCE
+        and { "INSTANCE_CHAT" } or { "PARTY", "RAID" }
+    for _, ch in ipairs(joinedChannels) do
+        self.state.groupGoodbyeSent[ch] = false
+        if self.state.groupGoodbyeTimer[ch] then
+            self:CancelTimer(self.state.groupGoodbyeTimer[ch])
+            self.state.groupGoodbyeTimer[ch] = nil
+        end
     end
     -- A new instance group forming must drop the previous instance group's greet flag
     -- (IsInGroup(INSTANCE) is already true at this point, so the category payload is the
@@ -206,13 +221,17 @@ function Addon:GROUP_LEFT(event, category)
                 self.state.sentGreetings[key] = nil
             end
         end
-        -- A newcomer batch collected in the departed category must not fire into the
-        -- surviving group's chat - the batch callback re-resolves the channel live
-        if self.state.pendingGreetTimer then
-            self:CancelTimer(self.state.pendingGreetTimer)
-            self.state.pendingGreetTimer = nil
+        -- A newcomer batch collected in the departed instance group must not fire into the
+        -- surviving home chat. The reverse order is safe: while an instance group exists,
+        -- party1..N resolve to IT, so a batch collected then belongs to the SURVIVING
+        -- instance group and must live on when the home party departs.
+        if category == LE_PARTY_CATEGORY_INSTANCE then
+            if self.state.pendingGreetTimer then
+                self:CancelTimer(self.state.pendingGreetTimer)
+                self.state.pendingGreetTimer = nil
+            end
+            self.state.pendingNewMembers = {}
         end
-        self.state.pendingNewMembers = {}
         return
     end
 
@@ -384,7 +403,7 @@ function Addon:GROUP_ROSTER_UPDATE()
                 end
                 self:SendKeyAnnounce()
             end, 2)
-            handles[handle] = true
+            handles[handle] = "PARTY"
         else
             self:DebugPrint("Group full 5/5 but no M+ listing cached")
         end
@@ -459,7 +478,7 @@ function Addon:LFG_LIST_ENTRY_EXPIRED_TOO_MANY_PLAYERS()
             end
             self:SendKeyAnnounce()
         end, 2)
-        handles[handle] = true
+        handles[handle] = "PARTY"
     else
         self:DebugPrint("Listing delisted but no M+ cache available")
     end
@@ -576,7 +595,7 @@ function Addon:CHALLENGE_MODE_COMPLETED()
         handles[handle] = nil
         self:SendCompletionMessage(dungeonName, keyLevel, onTime, upgrade, timeFormatted)
     end, 3)
-    handles[handle] = true
+    handles[handle] = "PARTY"
 end
 
 -- Handle PLAYER_ENTERING_WORLD - for guild greeting on login and group reconnect
@@ -647,7 +666,7 @@ function Addon:PLAYER_ENTERING_WORLD(event, isInitialLogin, isReloadingUi)
         if IsInGroup() then
             self.state.previousGroup = self:GetCurrentGroupMembers()
             self.state.currentGroupType = self:GetChatChannel()
-            self.state.groupGoodbyeSent = false -- fresh session in this group: re-arm the goodbye guard
+            self.state.groupGoodbyeSent = {} -- fresh session in this group: re-arm the goodbye guard
 
             -- Handle reconnect to existing group (login while already in a group)
             -- This is different from GROUP_JOINED which fires when joining a NEW group
