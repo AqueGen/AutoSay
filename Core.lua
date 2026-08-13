@@ -26,6 +26,13 @@ function Addon:IsTestMode()
     return self.db and self.db.profile.testMode
 end
 
+-- Gate for every test command: off means say so once, here, and let the caller bail
+function Addon:RequireTestMode()
+    if self:IsTestMode() then return true end
+    self:Print(L["Test mode required"])
+    return false
+end
+
 -- Helper to convert table keys to string for debug output
 function Addon:TableKeysToString(tbl)
     if not tbl then return "nil" end
@@ -244,7 +251,7 @@ local defaults = {
             enabled = true,
             announceOnFull = true,      -- Announce when group fills 5/5
             announceOnStart = true,     -- Announce the inserted keystone when the run starts
-            includeKeyLevel = true,     -- Put the key level in the announce when it is known for sure
+            includeKeyLevel = false,    -- Put the key level in the announce when it is known for sure
             keyLevelMigrated = false,   -- messageMode folded into includeKeyLevel (see MigrateKeyLevelMode)
             useClientLanguage = false,  -- false = English dungeon names, true = client locale
             enabledKeyAnnounce = DeepCopy(defaultKeyAnnounce),
@@ -320,8 +327,9 @@ Addon.state = {
     keyAnnounced = false, -- Prevent duplicate M+ key announcements per group
     keyAnnounceRetried = false, -- Key announce was already re-scheduled once for the cooldown
     keyAnnounceTimer = nil, -- Pending key announce retry timer (one in flight at a time)
-    announcedKey = nil, -- What the last key announce actually said: { dungeon = string, level = number|nil }
+    announcedKey = nil, -- What the last key announce actually said: { mapID = number|nil, dungeon = string, level = number|nil }
     startAnnounced = false, -- Key start announce already sent for the current run
+    startAnnounceTimer = nil, -- Pending key start announce (initial delay or its one retry)
     groupGoodbyeTimer = nil, -- Self-reset timer for the once-per-leave goodbye guard
     instanceGreeted = false, -- Instance zone-in greeting sent (mirrors db.char.instanceGreeted, see SetInstanceGreeted)
     pendingGuildLogins = {}, -- Batch guild member login names
@@ -466,17 +474,18 @@ function Addon:MigrateInstanceChannel()
     self:DebugPrint("Instance channel seeded from party settings")
 end
 
--- "basic"/"withlevel"/"smart" collapsed into one toggle: only "basic" meant "no level",
--- the other two both asked for a level, so they map to includeKeyLevel = true.
+-- "basic"/"withlevel"/"smart" collapsed into one toggle. Only "withlevel"/"smart" asked for
+-- a level, so only those lift the (now false) default. A missing messageMode means "basic":
+-- AceDB strips values equal to the default, and "basic" was that default.
 function Addon:MigrateKeyLevelMode()
     local mplus = self.db.profile.mythicplus
     if mplus.keyLevelMigrated then return end
 
-    if mplus.messageMode ~= nil then
-        mplus.includeKeyLevel = mplus.messageMode ~= "basic"
-        mplus.messageMode = nil
-        self:DebugPrint("Key level mode migrated, includeKeyLevel =", tostring(mplus.includeKeyLevel))
+    if mplus.messageMode == "withlevel" or mplus.messageMode == "smart" then
+        mplus.includeKeyLevel = true
+        self:DebugPrint("Key level mode migrated from", mplus.messageMode, "- includeKeyLevel = true")
     end
+    mplus.messageMode = nil
 
     mplus.keyLevelMigrated = true
 end
@@ -750,7 +759,7 @@ function Addon:SlashCommand(input)
             self:Print("  /as test reconnect - Simulate reconnecting to group")
             self:Print("  /as test player [name] - Simulate player joining")
             self:Print("  /as test key - Simulate full M+ flow (listing → joins → announce)")
-        self:Print("  /as test keystart - Simulate the key start announce (duplicate and new key)")
+            self:Print("  /as test keystart - Simulate the key start announce (duplicate and new key)")
             self:Print("  /as test role tank|healer|dps - Simulate assigned role")
             self:Print("  /as test hour <0-23>|off - Simulate time-of-day band")
             self:Print("  /as test whatsnew - Preview the What's new popup")
@@ -880,13 +889,17 @@ end
 -- A stripped token can leave punctuation debris in any position: "departs, " (comma before),
 -- ", here we go" (comma after a leading token), "gg, , wp" (comma on both sides). Sweep it all.
 local function CleanupAfterTokenStrip(message)
-    message = message:gsub("%s*,%s*,", ",")     -- ", ," left by a token with commas on both sides
+    -- Adjacent stripped tokens leave a run of commas, and one pass only halves it
+    -- ("a, , , b"), so collapse until there is nothing left to collapse
+    local n = 1
+    while n > 0 do
+        message, n = message:gsub("%s*,%s*,", ",")
+    end
     message = message:gsub("^[%s,]+", "")       -- leading comma from a stripped leading token
     message = message:gsub("[%s,]+$", "")       -- trailing comma from a stripped trailing token
     message = message:gsub("  +", " "):gsub("%s+([!?.,])", "%1")
     return message
 end
-AutoSay.CleanupAfterTokenStrip = CleanupAfterTokenStrip -- shared with ReplacePlaceholders
 
 -- Final polish applied to every outgoing message: {role} placeholder, leftover M+ tokens,
 -- and the optional lowercase first letter (skipped for keepCase phrases, e.g. "Lok'tar ogar!")
@@ -1060,7 +1073,7 @@ end
 -- Names-carrying phrase with no names to carry: drop the slot instead of the phrase,
 -- so a pool of only {names} phrases still says something ("welcome {names}!" -> "welcome!")
 local function StripNameSlot(text)
-    return AutoSay.CleanupAfterTokenStrip(text:gsub("{names}", ""))
+    return CleanupAfterTokenStrip(text:gsub("{names}", ""))
 end
 
 -- How a phrase carries player names: "slot" = {names} inside the text, "append" = glued to the end
@@ -1181,30 +1194,22 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
     return text
 end
 
--- Pools a style bundle can toggle (channels without a pool are skipped)
-local stylePools = {
-    { messages = "Greetings",  enabledKey = "enabledGreetings" },
-    { messages = "Goodbyes",   enabledKey = "enabledGoodbyes" },
-    { messages = "Reconnects", enabledKey = "enabledReconnects" },
-}
-
--- The M+ pools live once under db.profile.mythicplus instead of per channel
-local mplusStylePools = {
-    { messages = "KeyAnnounce",        enabledKey = "enabledKeyAnnounce" },
-    { messages = "CompletionTimed",    enabledKey = "enabledCompletionTimed" },
-    { messages = "CompletionDepleted", enabledKey = "enabledCompletionDepleted" },
-}
-
--- Every settings table a bundle or bulk button writes to, paired with the pool it owns there
+-- Every settings table a bundle or bulk button writes to, paired with the pool it owns there.
+-- Channel pools repeat once per channel (channels without that pool are skipped by the nil
+-- settings check downstream); M+ pools exist once, under db.profile.mythicplus.
 local function StylePoolTargets(profile)
     local targets = {}
     for _, c in ipairs(AutoSay.Channels) do
-        for _, pool in ipairs(stylePools) do
-            targets[#targets + 1] = { settings = profile[c.key], pool = pool }
+        for _, pool in ipairs(AutoSay.StylePools) do
+            if not pool.mplus then
+                targets[#targets + 1] = { settings = profile[c.key], pool = pool }
+            end
         end
     end
-    for _, pool in ipairs(mplusStylePools) do
-        targets[#targets + 1] = { settings = profile.mythicplus, pool = pool }
+    for _, pool in ipairs(AutoSay.StylePools) do
+        if pool.mplus then
+            targets[#targets + 1] = { settings = profile.mythicplus, pool = pool }
+        end
     end
     return targets
 end
@@ -1905,7 +1910,7 @@ function Addon:SendKeyAnnounce()
         self.state.keyAnnounceRetried = false
         -- Remember what was actually said, so the key start announce can stay silent
         -- when the keystone that went in is the one this line already named
-        self.state.announcedKey = { dungeon = dungeon, level = keyLevel }
+        self.state.announcedKey = { mapID = mapID, dungeon = dungeon, level = keyLevel }
         return
     end
 
@@ -1927,17 +1932,29 @@ function Addon:SendKeyAnnounce()
             return
         end
         if self:SendMessageToChat(message, channel, nil, true) then
-            self.state.announcedKey = { dungeon = dungeon, level = keyLevel }
+            self.state.announcedKey = { mapID = mapID, dungeon = dungeon, level = keyLevel }
         end
     end, wait)
+end
+
+-- Same key twice? Map ids are locale-proof, so they decide whenever both sides have one;
+-- a name comparison is the fallback and can only ever compare like with like.
+local function SameKey(a, b)
+    if not a or not b then return false end
+    if a.level ~= b.level then return false end
+    if a.mapID and b.mapID then return a.mapID == b.mapID end
+    return a.dungeon == b.dungeon
 end
 
 -- Announce the keystone that was actually inserted, at the start of the run.
 -- Silent when the group-full announce already named this exact dungeon and level.
 -- @return boolean - true when a message was scheduled
 function Addon:SendKeyStartAnnounce(dungeon, keyLevel)
-    local announced = self.state.announcedKey
-    if announced and announced.dungeon == dungeon and announced.level == keyLevel then
+    local mapID = C_ChallengeMode and C_ChallengeMode.GetActiveChallengeMapID
+        and C_ChallengeMode.GetActiveChallengeMapID() or nil
+    local key = { mapID = mapID, dungeon = dungeon, level = keyLevel }
+
+    if SameKey(self.state.announcedKey, key) then
         self:DebugPrint("Key start announce skipped:", dungeon, tostring(keyLevel),
             "was already announced when the group filled")
         return false
@@ -1955,12 +1972,28 @@ function Addon:SendKeyStartAnnounce(dungeon, keyLevel)
     self:DebugPrint("SendKeyStartAnnounce:", message, "(dungeon:", dungeon,
         "level:", tostring(keyLevel) .. ")")
 
-    self.state.announcedKey = { dungeon = dungeon, level = keyLevel }
+    -- announcedKey is written only once the line actually went out: recording it up front
+    -- would let a cooldown refusal silence this key for good. One retry, then drop.
+    local retried = false
+    local function Attempt()
+        self.state.startAnnounceTimer = nil
+        if self:SendMessageToChat(message, channel, nil, true) then
+            self.state.announcedKey = key
+            return
+        end
+        if retried then
+            self:DebugPrint("Key start announce still cooldown-blocked after the retry, dropping")
+            return
+        end
+        retried = true
+        local remaining = self.db.profile.cooldown - (GetTime() - self.state.lastGroupMessageTime)
+        local wait = math.max(remaining, 0) + (self.db.profile.messageDelay or 0) + 0.5
+        self:DebugPrint("Key start announce cooldown-blocked, retrying in", string.format("%.1f", wait) .. "s")
+        self.state.startAnnounceTimer = self:ScheduleTimer(Attempt, wait)
+    end
 
     -- Small delay so it lands after the start countdown noise, not in the middle of it
-    self:ScheduleTimer(function()
-        self:SendMessageToChat(message, channel, nil, true)
-    end, 2)
+    self.state.startAnnounceTimer = self:ScheduleTimer(Attempt, 2)
     return true
 end
 
@@ -2069,6 +2102,10 @@ function Addon:TestReset()
         self:CancelTimer(self.state.keyAnnounceTimer)
         self.state.keyAnnounceTimer = nil
     end
+    if self.state.startAnnounceTimer then
+        self:CancelTimer(self.state.startAnnounceTimer)
+        self.state.startAnnounceTimer = nil
+    end
     self:SetInstanceGreeted(false)
     self.state.mythicPlusFlowActive = false
     self.state.goodbyeSent = false
@@ -2094,10 +2131,7 @@ local testRoleAliases = {
 
 -- Simulate the assigned role, for role-tagged phrases and the {role} placeholder
 function Addon:TestSetRole(roleArg)
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     local role = testRoleAliases[roleArg and roleArg:lower() or ""]
     if not role then
@@ -2111,10 +2145,7 @@ end
 
 -- Simulate the local hour, for the time-of-day band ("off" reverts to the real clock)
 function Addon:TestSetHour(hourArg)
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     if hourArg and hourArg:lower() == "off" then
         self.testState.simulatedHour = nil
@@ -2135,22 +2166,15 @@ end
 
 -- Preview the What's new popup without burning the real one-time-per-version flag
 function Addon:TestPreviewWhatsNew()
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     self:TestPrint("=== Previewing What's new ===")
-    self.whatsNewPreview = true
-    self:ShowWhatsNew(self:VersionMinor() or "dev")
+    self:ShowWhatsNew(self:VersionMinor() or "dev", true)
 end
 
 -- Simulate joining a party
 function Addon:TestJoinParty()
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     self:TestPrint("=== Simulating JOIN PARTY ===")
     self.testState.simulatedGroupType = "PARTY"
@@ -2168,10 +2192,7 @@ end
 
 -- Simulate joining a raid
 function Addon:TestJoinRaid()
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     self:TestPrint("=== Simulating JOIN RAID ===")
     self.testState.simulatedGroupType = "RAID"
@@ -2189,10 +2210,7 @@ end
 
 -- Simulate zoning into an instance group (LFG dungeon/LFR/battleground)
 function Addon:TestJoinInstance()
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     self:TestPrint("=== Simulating ENTER INSTANCE GROUP ===")
     self.testState.simulatedGroupType = "INSTANCE_CHAT"
@@ -2213,10 +2231,7 @@ end
 
 -- Simulate leaving current group
 function Addon:TestLeaveGroup()
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     if not self.testState.simulatedGroupType then
         self:TestPrint("Not in a simulated group!")
@@ -2239,10 +2254,7 @@ end
 
 -- Simulate player joining the group
 function Addon:TestPlayerJoins(playerName)
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     if not self.testState.simulatedGroupType then
         self:TestPrint("Not in a simulated group! Join a party or raid first.")
@@ -2267,10 +2279,7 @@ end
 
 -- Simulate guild login greeting
 function Addon:TestGuildGreeting()
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     self:TestPrint("=== Simulating GUILD LOGIN greeting ===")
     self.testState.simulatedInGuild = true
@@ -2280,10 +2289,7 @@ end
 
 -- Simulate guild logout goodbye
 function Addon:TestGuildGoodbye()
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     self:TestPrint("=== Simulating GUILD LOGOUT goodbye ===")
     self.testState.simulatedInGuild = true
@@ -2293,10 +2299,7 @@ end
 
 -- Simulate guild member login
 function Addon:TestGuildMemberLogin(playerName)
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     local testNames = { "Thrall", "Jaina", "Sylvanas", "Anduin", "Tyrande", "Velen", "Baine", "Lor'themar" }
     local name = playerName or testNames[math.random(#testNames)]
@@ -2313,10 +2316,7 @@ end
 
 -- Simulate reconnecting to group
 function Addon:TestReconnect()
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     if not self.testState.simulatedGroupType then
         self:TestPrint("Not in a simulated group! Join a party or raid first.")
@@ -2347,10 +2347,7 @@ local testDungeons = {
 
 -- Simulate full M+ flow: create listing → players join → 5/5 → announce
 function Addon:TestMythicPlusFlow()
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     -- Prevent overlapping simulations
     if self.state.mythicPlusFlowActive then
@@ -2443,10 +2440,7 @@ end
 -- Simulate CHALLENGE_MODE_START: the inserted keystone gets announced, unless the
 -- group-full announce already said exactly this. Runs both paths back to back.
 function Addon:TestKeyStart()
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     local index = math.random(#testDungeons)
     local picked = testDungeons[index]
@@ -2473,10 +2467,7 @@ end
 
 -- Simulate timed M+ completion
 function Addon:TestCompletionTimed()
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     local picked = testDungeons[math.random(#testDungeons)]
     local dungeon = self:GetDungeonName(picked.mapID, picked.name)
@@ -2494,10 +2485,7 @@ end
 
 -- Simulate depleted M+ completion
 function Addon:TestCompletionDepleted()
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     local picked = testDungeons[math.random(#testDungeons)]
     local dungeon = self:GetDungeonName(picked.mapID, picked.name)

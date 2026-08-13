@@ -74,8 +74,11 @@ local function PhraseActive(msg, settingsFn)
     return true
 end
 
--- Channels sharing the Group tab, in AutoSay.Channels order
-local groupChannelKeys = { "party", "raid", "instance" }
+-- Channels sharing the Group tab, in AutoSay.Channels order (guild keeps its own tab)
+local groupChannelKeys = {}
+for _, c in ipairs(AutoSay.Channels) do
+    if c.key ~= "guild" then groupChannelKeys[#groupChannelKeys + 1] = c.key end
+end
 
 local channelLabel = {
     party = L["Party"], raid = L["Raid"], instance = L["Instance"], guild = L["Guild"],
@@ -564,27 +567,8 @@ local function BuildGroupReconnects()
     return args
 end
 
--- Guild keeps the single-channel layout: one trigger, one plain phrase list
-local function BuildGuildChannels(enabledKey, withTriggers)
-    return {
-        {
-            key = "guild",
-            tableFn = function() return Addon.db.profile.guild[enabledKey] end,
-            settingsFn = withTriggers and function() return Addon.db.profile.guild end or nil,
-        },
-    }
-end
-
--- The M+ pools have no channel and no trigger tags - one column, straight into db.profile.mythicplus
-local function BuildMPlusChannels(enabledKey)
-    return {
-        {
-            key = "mythicplus",
-            tableFn = function() return Addon.db.profile.mythicplus[enabledKey] end,
-        },
-    }
-end
-
+-- Guild keeps the single-channel layout: one trigger, one plain phrase list.
+-- The M+ pools have no channel and no trigger tags - one column, straight into db.profile.mythicplus.
 local function BuildGuildGreetings()
     return {
         selfJoinGroup = {
@@ -610,7 +594,7 @@ local function BuildGuildGreetings()
             inline = true,
             order = 2,
             args = BuildMessageMatrix("guildGreetings", AutoSay.Greetings,
-                BuildGuildChannels("enabledGreetings", true)),
+                MatrixChannels({ "guild" }, "enabledGreetings", true)),
         },
         customGroup = {
             type = "group",
@@ -647,7 +631,7 @@ local function BuildGuildGoodbyes()
             inline = true,
             order = 2,
             args = BuildMessageMatrix("guildGoodbyes", AutoSay.Goodbyes,
-                BuildGuildChannels("enabledGoodbyes")),
+                MatrixChannels({ "guild" }, "enabledGoodbyes")),
         },
         customGroup = {
             type = "group",
@@ -704,7 +688,7 @@ local function BuildGuildLoginToggles()
         inline = true,
         order = order,
         args = BuildMessageMatrix("guildLoginGreetings", AutoSay.GuildLoginGreetings,
-            BuildGuildChannels("enabledLoginGreetings")),
+            MatrixChannels({ "guild" }, "enabledLoginGreetings")),
     }
     order = order + 1
 
@@ -951,28 +935,26 @@ local options = {
                                 set = function(_, v) replaceOnApply = v end,
                             },
                         }
-                        -- One button per bundle: click applies it; the tooltip lists its phrases
-                        -- One header can cover several pools (both completion pools read as "Completion")
-                        local pools = {
-                            { lists = { AutoSay.Greetings },  header = "Greetings" },
-                            { lists = { AutoSay.Goodbyes },   header = "Goodbyes" },
-                            { lists = { AutoSay.Reconnects }, header = "Reconnects" },
-                            { lists = { AutoSay.KeyAnnounce }, header = "Key announce" },
-                            { lists = { AutoSay.CompletionTimed, AutoSay.CompletionDepleted },
-                              header = "Completion" },
-                        }
+                        -- One button per bundle: click applies it; the tooltip lists its phrases,
+                        -- one line per AutoSay.StylePools header (both completion pools share
+                        -- the "Completion" header, so they merge into a single line)
                         for i, style in ipairs(AutoSay.MessageStyles) do
-                            local lines = {}
-                            for _, pool in ipairs(pools) do
-                                local texts = {}
-                                for _, list in ipairs(pool.lists) do
-                                    for _, msg in ipairs(list) do
-                                        if msg.style == style then texts[#texts + 1] = msg.text end
+                            local lines, byHeader = {}, {}
+                            for _, pool in ipairs(AutoSay.StylePools) do
+                                for _, msg in ipairs(AutoSay[pool.messages]) do
+                                    if msg.style == style then
+                                        local texts = byHeader[pool.header]
+                                        if not texts then
+                                            texts = {}
+                                            byHeader[pool.header] = texts
+                                            lines[#lines + 1] = { header = pool.header, texts = texts }
+                                        end
+                                        texts[#texts + 1] = msg.text
                                     end
                                 end
-                                if #texts > 0 then
-                                    lines[#lines + 1] = "|cFFFFD100" .. L[pool.header] .. ":|r " .. table.concat(texts, "  |cFF555555/|r  ")
-                                end
+                            end
+                            for j, line in ipairs(lines) do
+                                lines[j] = "|cFFFFD100" .. L[line.header] .. ":|r " .. table.concat(line.texts, "  |cFF555555/|r  ")
                             end
                             local phrasesDesc = table.concat(lines, "\n")
                             args["bundle_" .. style] = {
@@ -1289,7 +1271,7 @@ local options = {
                             inline = true,
                             order = 10,
                             args = BuildMessageMatrix("mplusKeyAnnounce", AutoSay.KeyAnnounce,
-                                BuildMPlusChannels("enabledKeyAnnounce")),
+                                MatrixChannels({ "mythicplus" }, "enabledKeyAnnounce")),
                         },
                         customGroup = {
                             type = "group",
@@ -1334,7 +1316,7 @@ local options = {
                                     inline = true,
                                     order = 1,
                                     args = BuildMessageMatrix("mplusCompletionTimed", AutoSay.CompletionTimed,
-                                        BuildMPlusChannels("enabledCompletionTimed")),
+                                        MatrixChannels({ "mythicplus" }, "enabledCompletionTimed")),
                                 },
                                 customs = {
                                     type = "group",
@@ -1362,7 +1344,7 @@ local options = {
                                     inline = true,
                                     order = 1,
                                     args = BuildMessageMatrix("mplusCompletionDepleted", AutoSay.CompletionDepleted,
-                                        BuildMPlusChannels("enabledCompletionDepleted")),
+                                        MatrixChannels({ "mythicplus" }, "enabledCompletionDepleted")),
                                 },
                                 customs = {
                                     type = "group",
@@ -1562,7 +1544,7 @@ local options = {
                     args = {
                         simulateAssignedRole = {
                             type = "select",
-                            name = L["Simulate assigned role"],
+                            name = NewTag(L["Simulate assigned role"], "1.6"),
                             desc = L["Simulate assigned role desc"],
                             order = 1,
                             width = 0.8,
@@ -1578,19 +1560,23 @@ local options = {
                         },
                         simulateRealTime = {
                             type = "toggle",
-                            name = L["Use real time"],
+                            name = NewTag(L["Use real time"], "1.6"),
                             desc = L["Use real time desc"],
                             order = 2,
                             width = 0.8,
                             get = function() return Addon.testState.simulatedHour == nil end,
                             set = function(_, val)
-                                Addon.testState.simulatedHour = val and nil or tonumber(date("%H"))
+                                if val then
+                                    Addon.testState.simulatedHour = nil
+                                else
+                                    Addon.testState.simulatedHour = tonumber(date("%H"))
+                                end
                             end,
                             disabled = function() return not Addon.db.profile.testMode end,
                         },
                         simulateHour = {
                             type = "range",
-                            name = L["Simulate hour"],
+                            name = NewTag(L["Simulate hour"], "1.6"),
                             desc = L["Simulate hour desc"],
                             order = 3,
                             width = 1.5,
@@ -1601,7 +1587,7 @@ local options = {
                         },
                         simulatePreviewWhatsNew = {
                             type = "execute",
-                            name = L["Preview What's new"],
+                            name = NewTag(L["Preview What's new"], "1.6"),
                             desc = L["Preview What's new desc"],
                             order = 4,
                             width = 1.2,

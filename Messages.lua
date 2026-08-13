@@ -200,6 +200,21 @@ AutoSay.MessageStyles = {
     "fun", "fantasy", "dark", "light", "pirate", "faction", "zoomer", "butler",
 }
 
+-- Every phrase pool a style bundle can toggle, in UI order. One inventory, three consumers:
+-- the bundle apply/state logic, the tag bulk buttons, and the bundle tooltip in Config.
+--   messages    name of the AutoSay.<name> phrase table
+--   enabledKey  settings key of that pool's per-phrase checkbox table
+--   mplus       the pool lives once under db.profile.mythicplus instead of per channel
+--   header      tooltip section title; pools sharing one are listed under a single header
+AutoSay.StylePools = {
+    { messages = "Greetings",          enabledKey = "enabledGreetings",          header = "Greetings" },
+    { messages = "Goodbyes",           enabledKey = "enabledGoodbyes",           header = "Goodbyes" },
+    { messages = "Reconnects",         enabledKey = "enabledReconnects",         header = "Reconnects" },
+    { messages = "KeyAnnounce",        enabledKey = "enabledKeyAnnounce",        header = "Key announce", mplus = true },
+    { messages = "CompletionTimed",    enabledKey = "enabledCompletionTimed",    header = "Completion",   mplus = true },
+    { messages = "CompletionDepleted", enabledKey = "enabledCompletionDepleted", header = "Completion",   mplus = true },
+}
+
 -- Role token used by the {role} placeholder and by the config labels
 AutoSay.RoleWords = {
     TANK = "tank",

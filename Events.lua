@@ -27,6 +27,7 @@ function Addon:RegisterEvents()
 
     -- M+ keystone activated / dungeon completion
     self:RegisterEvent("CHALLENGE_MODE_START")
+    self:RegisterEvent("CHALLENGE_MODE_RESET")
     self:RegisterEvent("CHALLENGE_MODE_COMPLETED")
 
     -- Chat listening for social gate (pending-intent confirmation, welcome tracking).
@@ -103,6 +104,10 @@ function Addon:GROUP_JOINED()
     if self.state.keyAnnounceTimer then
         self:CancelTimer(self.state.keyAnnounceTimer)
         self.state.keyAnnounceTimer = nil
+    end
+    if self.state.startAnnounceTimer then
+        self:CancelTimer(self.state.startAnnounceTimer)
+        self.state.startAnnounceTimer = nil
     end
     -- Join time is where the once-per-group guards reset: GROUP_LEFT fires milliseconds
     -- after the leave hook, which would make the goodbye guard useless
@@ -185,6 +190,10 @@ function Addon:GROUP_LEFT()
     if self.state.keyAnnounceTimer then
         self:CancelTimer(self.state.keyAnnounceTimer)
         self.state.keyAnnounceTimer = nil
+    end
+    if self.state.startAnnounceTimer then
+        self:CancelTimer(self.state.startAnnounceTimer)
+        self.state.startAnnounceTimer = nil
     end
     self.state.cachedLFGListing = nil
     -- Same HOME-category guard as GROUP_JOINED: a surviving instance group keeps its flag
@@ -423,11 +432,20 @@ function Addon:CHALLENGE_MODE_START()
     self:SendKeyStartAnnounce(dungeon, db.mythicplus.includeKeyLevel and level or nil)
 end
 
+-- Handle CHALLENGE_MODE_RESET - the run was reset and can start again, so it earns
+-- another start announce
+function Addon:CHALLENGE_MODE_RESET()
+    self:DebugPrint("EVENT: CHALLENGE_MODE_RESET")
+    self.state.startAnnounced = false
+end
+
 -- Handle CHALLENGE_MODE_COMPLETED - M+ dungeon finished (timed or depleted)
 function Addon:CHALLENGE_MODE_COMPLETED()
     self:DebugPrint("EVENT: CHALLENGE_MODE_COMPLETED")
 
+    -- The next run may be the very same key, and that one deserves its own announce
     self.state.startAnnounced = false
+    self.state.announcedKey = nil
 
     local db = self.db.profile
     if not db.enabled then return end

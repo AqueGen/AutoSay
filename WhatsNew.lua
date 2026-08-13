@@ -26,7 +26,7 @@ local features = {
 
 local frame
 
-local function CreateWhatsNewFrame(minor)
+local function CreateWhatsNewFrame()
     frame = CreateFrame("Frame", "AutoSayWhatsNewFrame", UIParent, "BackdropTemplate")
     frame:SetWidth(WIDTH)
     frame:SetPoint("CENTER")
@@ -48,14 +48,12 @@ local function CreateWhatsNewFrame(minor)
     tinsert(UISpecialFrames, frame:GetName())
 
     -- The flag is burned on close, not on show: an error before the user reads it
-    -- must not cost them the popup. A test-mode preview must not burn the real
-    -- one-time show, so it skips the write instead.
+    -- must not cost them the popup. Both the version and the preview flag are read off
+    -- the frame, which ShowWhatsNew rewrites per call - the closure would otherwise keep
+    -- whatever the very first show happened to pass. A preview skips the write.
     frame:SetScript("OnHide", function()
-        if Addon.whatsNewPreview then
-            Addon.whatsNewPreview = nil
-            return
-        end
-        Addon.db.global.whatsNewSeen = minor
+        if frame.isPreview then return end
+        Addon.db.global.whatsNewSeen = frame.minorShown
     end)
 
     local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
@@ -70,7 +68,7 @@ local function CreateWhatsNewFrame(minor)
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
     title:SetPoint("CENTER", plate, "CENTER", 0, 12)
     title:SetTextColor(1, 0.82, 0)
-    title:SetText("AutoSay " .. minor)
+    frame.title = title
 
     local subtitle = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     subtitle:SetPoint("TOP", frame, "TOP", 0, -34)
@@ -148,9 +146,17 @@ local function CreateWhatsNewFrame(minor)
     frame:SetScript("OnShow", function() intro:Play() end)
 end
 
-function Addon:ShowWhatsNew(minor)
+-- isPreview: show it without burning the once-per-version flag on close
+function Addon:ShowWhatsNew(minor, isPreview)
     if not frame then
-        CreateWhatsNewFrame(minor)
+        CreateWhatsNewFrame()
     end
+
+    -- A real popup is already up: previewing must not turn it into one that closes for free
+    if isPreview and frame:IsShown() then return end
+
+    frame.minorShown = minor
+    frame.isPreview = isPreview or false
+    frame.title:SetText("AutoSay " .. minor)
     frame:Show()
 end
