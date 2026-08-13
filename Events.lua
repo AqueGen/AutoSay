@@ -231,6 +231,22 @@ function Addon:GROUP_LEFT(event, category)
                 self.state.pendingGreetTimer = nil
             end
             self.state.pendingNewMembers = {}
+        else
+            -- The home party is what carried the M+ listing: departing it invalidates
+            -- the listing cache, announce guards and any announce timer still pending
+            self.state.cachedLFGListing = nil
+            self.state.keyAnnounced = false
+            self.state.keyAnnounceRetried = false
+            self.state.announcedKey = nil
+            self.state.startAnnounced = false
+            if self.state.keyAnnounceTimer then
+                self:CancelTimer(self.state.keyAnnounceTimer)
+                self.state.keyAnnounceTimer = nil
+            end
+            if self.state.startAnnounceTimer then
+                self:CancelTimer(self.state.startAnnounceTimer)
+                self.state.startAnnounceTimer = nil
+            end
         end
         return
     end
@@ -374,8 +390,10 @@ function Addon:GROUP_ROSTER_UPDATE()
         end
     end
 
-    -- M+ key announce: reset flag when group drops below 5
-    if self.state.keyAnnounced and GetNumGroupMembers() < 5 then
+    -- M+ key announce: reset flag when group drops below 5. The listing is a HOME-group
+    -- thing, so the count is category-scoped - a 5-man battleground roster must not
+    -- satisfy (or reset) a 3-man listed key group's condition.
+    if self.state.keyAnnounced and GetNumGroupMembers(LE_PARTY_CATEGORY_HOME) < 5 then
         self.state.keyAnnounced = false
         self:DebugPrint("Group dropped below 5, key announce reset")
     end
@@ -384,7 +402,7 @@ function Addon:GROUP_ROSTER_UPDATE()
     if db.mythicplus and db.mythicplus.enabled
        and db.mythicplus.announceOnFull
        and not self.state.keyAnnounced
-       and GetNumGroupMembers() == 5
+       and GetNumGroupMembers(LE_PARTY_CATEGORY_HOME) == 5
        and UnitIsGroupLeader("player") then
 
         -- Check if we have cached LFG listing data for a M+ key
@@ -397,7 +415,11 @@ function Addon:GROUP_ROSTER_UPDATE()
             local handle
             handle = self:ScheduleTimer(function()
                 handles[handle] = nil
-                if not self.state.keyAnnounced or GetNumGroupMembers() ~= 5 then
+                if not self.state.keyAnnounced
+                    or GetNumGroupMembers(LE_PARTY_CATEGORY_HOME) ~= 5 then
+                    -- Un-latch, or a refill after this failed validation could never
+                    -- schedule another announce for the same group
+                    self.state.keyAnnounced = false
                     self:DebugPrint("Key announce no longer valid, dropping")
                     return
                 end
@@ -472,7 +494,11 @@ function Addon:LFG_LIST_ENTRY_EXPIRED_TOO_MANY_PLAYERS()
         local handle
         handle = self:ScheduleTimer(function()
             handles[handle] = nil
-            if not self.state.keyAnnounced or GetNumGroupMembers() ~= 5 then
+            if not self.state.keyAnnounced
+                or GetNumGroupMembers(LE_PARTY_CATEGORY_HOME) ~= 5 then
+                -- Un-latch, or a refill after this failed validation could never
+                -- schedule another announce for the same group
+                self.state.keyAnnounced = false
                 self:DebugPrint("Key announce no longer valid, dropping")
                 return
             end

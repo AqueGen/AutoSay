@@ -592,7 +592,11 @@ function Addon:HookLeaveGroupFunctions()
     -- Track if we already sent group goodbye to avoid duplicates
     self.state.groupGoodbyeSent = {}
 
-    -- Hook C_PartyInfo.LeaveParty (retail WoW API) - use RawHook to run BEFORE the function
+    -- Hook C_PartyInfo.LeaveParty (retail WoW API) - use RawHook to run BEFORE the function.
+    -- Known limitation: rare confirmation flows (Party Sync's LEAVE_PARTY_CONFIRMATION) can
+    -- cancel the leave AFTER the goodbye already went out - a stray "bye" while staying
+    -- grouped. Deferring to ConfirmLeaveParty would miss every normal leave, so the common
+    -- case wins.
     if C_PartyInfo and C_PartyInfo.LeaveParty and not self:IsHooked(C_PartyInfo, "LeaveParty") then
         self:RawHook(C_PartyInfo, "LeaveParty", function(category)
             self:DebugPrint("C_PartyInfo.LeaveParty() intercepted - sending goodbye BEFORE leaving")
@@ -623,15 +627,18 @@ function Addon:GoodbyeChannelForCategory(category)
     elseif category == LE_PARTY_CATEGORY_INSTANCE then
         return "INSTANCE_CHAT"
     end
-    -- Nil category: Blizzard's plain leave button calls C_PartyInfo.LeaveParty() with no
-    -- argument and it means the HOME group - instance departure always passes the category
-    -- explicitly. Resolving "where am I now" here would prefer INSTANCE_CHAT and send the
-    -- home party's goodbye to the LFG group.
+    -- Nil category: the engine's documented default for LeaveParty() is "the instance
+    -- group when one exists, otherwise home" - mirror that, or the goodbye goes to the
+    -- group that is NOT being left. (Blizzard's own UI only issues bare calls from
+    -- home-group buttons, and those hide while dual-grouped, so this mostly guards
+    -- macro/script leaves.)
+    if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
+        return "INSTANCE_CHAT"
+    end
     if IsInGroup(LE_PARTY_CATEGORY_HOME) then
         return IsInRaid(LE_PARTY_CATEGORY_HOME) and "RAID" or "PARTY"
     end
-    -- No home group: resolve live (we are still in the group at this point) so LFG groups
-    -- pick up the instance settings; cached type is the fallback if the API dropped us
+    -- Already dropped from both by the time we run: the cached type is all that is left
     return self:GetChatChannel() or self.state.currentGroupType
 end
 
@@ -1999,7 +2006,7 @@ function Addon:SendKeyAnnounce()
     -- this retry belongs to is still valid (same full group, flag not reset meanwhile)
     self.state.keyAnnounceTimer = self:ScheduleTimer(function()
         self.state.keyAnnounceTimer = nil
-        if not self.state.keyAnnounced or GetNumGroupMembers() ~= 5 then
+        if not self.state.keyAnnounced or GetNumGroupMembers(LE_PARTY_CATEGORY_HOME) ~= 5 then
             self:DebugPrint("Key announce retry no longer valid, dropping")
             return
         end
