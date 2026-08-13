@@ -60,6 +60,10 @@ local function CreateWhatsNewFrame(key, content)
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", frame.StartMoving)
     frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+    -- A fresh frame is visible by default: without this, the first Show() is a no-op for
+    -- OnShow (no animation) and a first-call preview trips the "already shown" guard
+    -- before its state is even assigned
+    frame:Hide()
     frame:SetBackdrop({
         bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
         edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",

@@ -88,9 +88,10 @@ function Addon:OnSystemMessage(event, message)
     self:SendGuildWelcome(name)
 end
 
--- Handle GROUP_JOINED - we joined a group
-function Addon:GROUP_JOINED()
-    self:DebugPrint("EVENT: GROUP_JOINED - We joined a group")
+-- Handle GROUP_JOINED - we joined a group. Fires once per category (home/instance);
+-- the payload says which one this event is about.
+function Addon:GROUP_JOINED(event, category)
+    self:DebugPrint("EVENT: GROUP_JOINED - We joined a group, category:", tostring(category))
 
     local db = self.db.profile
 
@@ -109,6 +110,12 @@ function Addon:GROUP_JOINED()
         self:CancelTimer(self.state.startAnnounceTimer)
         self.state.startAnnounceTimer = nil
     end
+    -- A delayed send still in flight belongs to the previous group - typing delays reach
+    -- ~7s, long enough to leave one party and join another before the line goes out
+    for handle in pairs(self.state.pendingGroupSends) do
+        self:CancelTimer(handle)
+    end
+    self.state.pendingGroupSends = {}
     -- Join time is where the once-per-group guards reset: GROUP_LEFT fires milliseconds
     -- after the leave hook, which would make the goodbye guard useless
     self.state.groupGoodbyeSent = false
@@ -116,9 +123,11 @@ function Addon:GROUP_JOINED()
         self:CancelTimer(self.state.groupGoodbyeTimer)
         self.state.groupGoodbyeTimer = nil
     end
-    -- GROUP_JOINED/GROUP_LEFT also fire for the HOME category while an already-greeted
-    -- instance group lives on - only reset the zone-in guard when no instance group remains
-    if not IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
+    -- A new instance group forming must drop the previous instance group's greet flag
+    -- (IsInGroup(INSTANCE) is already true at this point, so the category payload is the
+    -- only way to tell "this instance group is new" from "a home party joined alongside
+    -- an already-greeted instance group" - the latter must keep the flag)
+    if category == LE_PARTY_CATEGORY_INSTANCE or not IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
         self:SetInstanceGreeted(false)
     end
 
@@ -164,12 +173,26 @@ function Addon:GROUP_JOINED()
     end, 1) -- 1 second delay for group state to initialize
 end
 
--- Handle GROUP_LEFT - we left a group
-function Addon:GROUP_LEFT()
-    self:DebugPrint("EVENT: GROUP_LEFT - We left the group")
+-- Handle GROUP_LEFT - we left a group. Fires once per category (home/instance).
+function Addon:GROUP_LEFT(event, category)
+    self:DebugPrint("EVENT: GROUP_LEFT - We left the group, category:", tostring(category))
 
     -- Note: Goodbye is now sent via HookLeaveGroupFunctions() BEFORE leaving
     -- This event fires AFTER we've already left, so we just reset state here
+
+    -- Leaving one category while the other survives (left the LFR while keeping the home
+    -- party, or vice versa): the surviving group keeps its roster and M+ state - a full
+    -- reset here would wipe greeting tracking for people still grouped with us
+    local otherCategory = category == LE_PARTY_CATEGORY_INSTANCE
+        and LE_PARTY_CATEGORY_HOME or LE_PARTY_CATEGORY_INSTANCE
+    if category and IsInGroup(otherCategory) then
+        if category == LE_PARTY_CATEGORY_INSTANCE then
+            self:SetInstanceGreeted(false)
+        end
+        self.state.previousGroup = self:GetCurrentGroupMembers()
+        self.state.currentGroupType = self:GetChatChannel()
+        return
+    end
 
     -- Reset state
     self.state.previousGroup = nil
@@ -196,10 +219,7 @@ function Addon:GROUP_LEFT()
         self.state.startAnnounceTimer = nil
     end
     self.state.cachedLFGListing = nil
-    -- Same HOME-category guard as GROUP_JOINED: a surviving instance group keeps its flag
-    if not IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
-        self:SetInstanceGreeted(false)
-    end
+    self:SetInstanceGreeted(false)
 end
 
 -- Handle GROUP_ROSTER_UPDATE - group composition changed
@@ -242,12 +262,13 @@ function Addon:GROUP_ROSTER_UPDATE()
         return
     end
 
-    -- Find members who left (to clear their greeting status for re-join)
-    for name in pairs(self.state.previousGroup) do
-        if not currentGroup[name] and name ~= playerName then
-            self:DebugPrint("Member left group:", name)
+    -- Find members who left (to clear their greeting status for re-join).
+    -- Keys are full Name-Realm; the stored value is the short display name.
+    for key in pairs(self.state.previousGroup) do
+        if not currentGroup[key] and key ~= playerName then
+            self:DebugPrint("Member left group:", key)
             -- Clear greeting status so they get greeted if they rejoin
-            self.state.sentGreetings[name] = nil
+            self.state.sentGreetings[key] = nil
         end
     end
 
@@ -256,20 +277,20 @@ function Addon:GROUP_ROSTER_UPDATE()
     -- with them connected can still greet them once)
     local newMembers = {}
     local newPrevious = {}
-    for name in pairs(currentGroup) do
-        local known = self.state.previousGroup[name] or name == playerName
+    for key, displayName in pairs(currentGroup) do
+        local known = self.state.previousGroup[key] or key == playerName
         if known then
-            newPrevious[name] = true
-        elseif not connected[name] then
-            self:DebugPrint("New member seen but not connected yet, deferring:", name)
+            newPrevious[key] = displayName
+        elseif not connected[key] then
+            self:DebugPrint("New member seen but not connected yet, deferring:", key)
         else
-            newPrevious[name] = true
-            self:DebugPrint("Detected new member:", name, "Already greeted:", tostring(self.state.sentGreetings[name]))
+            newPrevious[key] = displayName
+            self:DebugPrint("Detected new member:", key, "Already greeted:", tostring(self.state.sentGreetings[key]))
             -- Check if we already greeted this player
-            if not self.state.sentGreetings[name] then
-                table.insert(newMembers, name)
-                self.state.sentGreetings[name] = true
-                self:DebugPrint("Added to newMembers:", name)
+            if not self.state.sentGreetings[key] then
+                table.insert(newMembers, displayName)
+                self.state.sentGreetings[key] = true
+                self:DebugPrint("Added to newMembers:", key)
             end
         end
     end
@@ -406,12 +427,20 @@ end
 
 -- Handle CHALLENGE_MODE_START - a keystone was activated. This reads the key that actually
 -- went into the font, so it is right even after a lead swap or when someone else's key is used.
-function Addon:CHALLENGE_MODE_START()
+function Addon:CHALLENGE_MODE_START(event, mapID)
     self:DebugPrint("EVENT: CHALLENGE_MODE_START")
 
     local db = self.db.profile
     if not db.enabled then return end
     if not db.mythicplus or not db.mythicplus.enabled or not db.mythicplus.announceOnStart then return end
+
+    -- The event fires on all five clients. Without this gate every party member running
+    -- AutoSay would post the same line - the SameKey dedupe is client-local and cannot
+    -- see what another client announced. Same gate as the two group-full announce paths.
+    if not UnitIsGroupLeader("player") and not self:IsTestMode() then
+        self:DebugPrint("Not the leader, skipping key start announce")
+        return
+    end
 
     if self.state.startAnnounced then
         self:DebugPrint("Key start already announced for this run")
@@ -426,19 +455,25 @@ function Addon:CHALLENGE_MODE_START()
         return
     end
 
-    local mapID = C_ChallengeMode.GetActiveChallengeMapID and C_ChallengeMode.GetActiveChallengeMapID()
+    -- The event payload carries the map id; the getter is nilable and only a fallback
+    mapID = mapID or (C_ChallengeMode.GetActiveChallengeMapID and C_ChallengeMode.GetActiveChallengeMapID())
     local localizedName = mapID and C_ChallengeMode.GetMapUIInfo and C_ChallengeMode.GetMapUIInfo(mapID) or nil
     local dungeon = self:GetDungeonName(mapID, localizedName)
 
     self.state.startAnnounced = true
-    self:SendKeyStartAnnounce(dungeon, db.mythicplus.includeKeyLevel and level or nil)
+    self:SendKeyStartAnnounce(dungeon, db.mythicplus.includeKeyLevel and level or nil, mapID)
 end
 
 -- Handle CHALLENGE_MODE_RESET - the run was reset and can start again, so it earns
--- another start announce
+-- another start announce. A key already announced stays deduped via announcedKey: the
+-- same key re-inserted after a reset is not news.
 function Addon:CHALLENGE_MODE_RESET()
     self:DebugPrint("EVENT: CHALLENGE_MODE_RESET")
     self.state.startAnnounced = false
+    if self.state.startAnnounceTimer then
+        self:CancelTimer(self.state.startAnnounceTimer)
+        self.state.startAnnounceTimer = nil
+    end
 end
 
 -- Handle CHALLENGE_MODE_COMPLETED - M+ dungeon finished (timed or depleted)
@@ -448,6 +483,10 @@ function Addon:CHALLENGE_MODE_COMPLETED()
     -- The next run may be the very same key, and that one deserves its own announce
     self.state.startAnnounced = false
     self.state.announcedKey = nil
+    if self.state.startAnnounceTimer then
+        self:CancelTimer(self.state.startAnnounceTimer)
+        self.state.startAnnounceTimer = nil
+    end
 
     local db = self.db.profile
     if not db.enabled then return end
@@ -538,12 +577,11 @@ function Addon:PLAYER_ENTERING_WORLD(event, isInitialLogin, isReloadingUi)
     -- a /reload (or a relog into the same group) must not greet the same group a second time,
     -- and leaving the group behind must not carry the flag into the next one
     if isInitialLogin or isReloadingUi then
-        if IsInGroup() then
-            self.state.instanceGreeted = self.db.char.instanceGreeted.done or false
-            self:DebugPrint("Restored instance greeted flag:", tostring(self.state.instanceGreeted))
-        else
-            self:SetInstanceGreeted(false)
-        end
+        -- Restore unconditionally: on initial login IsInGroup() can still be false while the
+        -- group data loads, and clearing here would re-greet a group we already greeted before
+        -- the disconnect. A genuinely left-behind group clears the flag via GROUP_JOINED/LEFT.
+        self.state.instanceGreeted = self.db.char.instanceGreeted.done or false
+        self:DebugPrint("Restored instance greeted flag:", tostring(self.state.instanceGreeted))
     end
 
     -- Greet the instance group once after zoning in (covers reconnects too, since a login
@@ -669,20 +707,24 @@ function Addon:GetCurrentGroupMembers()
 
     for i = 1, groupSize do
         local unitID = isRaid and ("raid" .. i) or ("party" .. i)
-        local name = UnitName(unitID)
+        local name, realm = UnitName(unitID)
 
         if UnitExists(unitID) and name and name ~= "" and name ~= "Unknown" then
-            members[name] = true
+            -- Keyed by full name: two cross-realm members can share a short name, and a
+            -- short-name key would collapse them into one (second one never greeted, first
+            -- one re-greeted when the other leaves). The value is the short display name.
+            local key = (realm and realm ~= "") and (name .. "-" .. realm) or name
+            members[key] = name
             if UnitIsConnected(unitID) then
-                connected[name] = true
+                connected[key] = true
             end
         end
     end
 
-    -- Always include player
+    -- Always include player (same-realm, so the short name is the key)
     local playerName = UnitName("player")
     if playerName and playerName ~= "Unknown" then
-        members[playerName] = true
+        members[playerName] = playerName
         connected[playerName] = true
     end
 

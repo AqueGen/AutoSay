@@ -332,6 +332,7 @@ Addon.state = {
     startAnnounceTimer = nil, -- Pending key start announce (initial delay or its one retry)
     groupGoodbyeTimer = nil, -- Self-reset timer for the once-per-leave goodbye guard
     instanceGreeted = false, -- Instance zone-in greeting sent (mirrors db.char.instanceGreeted, see SetInstanceGreeted)
+    pendingGroupSends = {}, -- Delayed group sends in flight (handle set), cancelled on GROUP_JOINED
     pendingGuildLogins = {}, -- Batch guild member login names
     guildLoginTimer = nil, -- Timer for batched guild login greeting
     lastGuildLoginGreetTime = 0, -- Separate cooldown for guild member login greetings
@@ -469,6 +470,21 @@ function Addon:MigrateInstanceChannel()
     instance.includeNames = party.includeNames
     instance.includeGroupNames = party.includeGroupNames
     instance.sendGoodbye = party.sendGoodbye
+    -- The phrase selection too: LFG groups used to speak with the party phrases, so a user
+    -- who narrowed those down (or lives off custom lines) must not get the stock set back.
+    -- Entry tables are cloned, not shared - an edit on one channel must not leak into the other.
+    if party.enabledGreetings then instance.enabledGreetings = DeepCopy(party.enabledGreetings) end
+    if party.enabledGoodbyes then instance.enabledGoodbyes = DeepCopy(party.enabledGoodbyes) end
+    local function CloneCustoms(list)
+        if not list then return nil end
+        local copy = {}
+        for i, entry in ipairs(list) do
+            copy[i] = { text = entry.text, enabled = entry.enabled }
+        end
+        return copy
+    end
+    instance.customGreetings = CloneCustoms(party.customGreetings)
+    instance.customGoodbyes = CloneCustoms(party.customGoodbyes)
 
     profile.instanceMigrated = true
     self:DebugPrint("Instance channel seeded from party settings")
@@ -503,8 +519,12 @@ function Addon:OnEnable()
     -- Hook leave group functions to send farewell before leaving
     self:HookLeaveGroupFunctions()
 
-    -- Presence heartbeat: PLAYER_LOGOUT never fires on a crash or hard disconnect, so the
-    -- reconnect detection also compares against this once-a-minute timestamp
+    -- Presence heartbeat: PLAYER_LOGOUT never fires on a hard disconnect, so the reconnect
+    -- detection also compares against this once-a-minute timestamp. (SavedVariables only
+    -- flush on logout/reload, so this covers a DC followed by a normal client exit - a hard
+    -- client crash loses the writes and is out of reach.) Stamped immediately: a DC inside
+    -- the first minute must not read the previous session's stale value.
+    self.db.char.lastSeenTime = time()
     self:ScheduleRepeatingTimer(function()
         self.db.char.lastSeenTime = time()
     end, 60)
@@ -860,6 +880,14 @@ function Addon:SendMessageToChat(message, channel, target, keepCase)
         return false
     end
 
+    -- A message that polishes down to nothing (custom text of only "{dungeon} {key}") must be
+    -- refused here, before the caller burns its once-per-group flag, cooldown or budget slot on it
+    local polished = self:PolishMessage(message, keepCase)
+    if not polished or not polished:match("%S") then
+        self:DebugPrint("Message empty after polish, refusing")
+        return false
+    end
+
     if not self:CanSendMessage(channel) then
         return false
     end
@@ -878,9 +906,17 @@ function Addon:SendMessageToChat(message, channel, target, keepCase)
     end
 
     if delay and delay > 0 then
-        self:ScheduleTimer(function()
+        -- Group sends are tracked so that joining a NEW group can cancel anything still in
+        -- flight for the old one - a greeting built for group A must not land in group B.
+        -- Guild sends are not: the guild never changes under a pending timer. GROUP_LEFT does
+        -- not cancel either (the goodbye is scheduled moments before it fires).
+        local handles = channel ~= "GUILD" and self.state.pendingGroupSends or nil
+        local handle
+        handle = self:ScheduleTimer(function()
+            if handles then handles[handle] = nil end
             self:DoSendMessage(message, channel, target, keepCase)
         end, delay)
+        if handles then handles[handle] = true end
         self:DebugPrint("Scheduled message in", delay, "seconds")
     else
         self:DoSendMessage(message, channel, target, keepCase)
@@ -910,9 +946,12 @@ function Addon:PolishMessage(message, keepCase)
     if not message then return nil end
     message = message:gsub("{role}", self:GetRoleWord())
     -- M+ placeholders only the M+ path can resolve - a custom greeting/goodbye using them
-    -- would otherwise ship the raw token to chat
+    -- would otherwise ship the raw token to chat. A leading token takes its trailing
+    -- punctuation with it ("{key}! here we go" -> "here we go", not "! here we go"),
+    -- elsewhere the introducing comma goes with the token.
     for _, token in ipairs(AutoSay.MPlusTokens) do
-        message = message:gsub(token, "")
+        message = message:gsub("^%s*" .. token .. "[%s!?.,]*", "")
+        message = message:gsub(",?%s*" .. token, "")
     end
     message = CleanupAfterTokenStrip(message)
     if self.db.profile.social.lowercaseFirst and not keepCase then
@@ -1075,7 +1114,9 @@ end
 -- Names-carrying phrase with no names to carry: drop the slot instead of the phrase,
 -- so a pool of only {names} phrases still says something ("welcome {names}!" -> "welcome!")
 local function StripNameSlot(text)
-    return CleanupAfterTokenStrip(text:gsub("{names}", ""))
+    -- The comma introducing the slot goes with it: "welcome, {names} <3" -> "welcome <3",
+    -- not "welcome, <3" (CleanupAfterTokenStrip only sweeps commas left ADJACENT to debris)
+    return CleanupAfterTokenStrip(text:gsub(",?%s*{names}", ""))
 end
 
 -- How a phrase carries player names: "slot" = {names} inside the text, "append" = glued to the end
@@ -1159,12 +1200,19 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
     end
 
     -- Add enabled custom messages: a {names} placeholder makes them slot phrases (and thus
-    -- droppable when there are no names), everything else keeps the append-if-asked behaviour
+    -- droppable when there are no names), everything else keeps the append-if-asked behaviour.
+    -- A custom {role} obeys the same two gates as the preset ones (master switch, no assigned
+    -- role) - otherwise "your {role} is here" announces "dps" for an unassigned tank.
     if settings[customsKey] then
+        local rolePhrases = self.db.profile.social.rolePhrases
+        local role = self:GetPlayerRoleOrTest()
         for _, entry in ipairs(settings[customsKey]) do
             if entry.enabled and entry.text and entry.text ~= "" then
-                local mode = entry.text:find("{names}", 1, true) and "slot" or "append"
-                AddCandidate(entry.text, mode)
+                local hasRole = entry.text:find("{role}", 1, true)
+                if not hasRole or (rolePhrases and role ~= "NONE") then
+                    local mode = entry.text:find("{names}", 1, true) and "slot" or "append"
+                    AddCandidate(entry.text, mode)
+                end
             end
         end
     end
@@ -1323,10 +1371,12 @@ function Addon:ApplyStyleBundle(style, replace, state)
         local enabled = target.settings and target.settings[target.pool.enabledKey]
         if enabled and poolHasStyle[target.pool.enabledKey] then
             for _, msg in ipairs(AutoSay[target.pool.messages]) do
-                if StyleFits(msg, style, faction) then
+                if msg.style == style then
+                    -- Both factions on purpose: the profile is shared by every character on
+                    -- the account, and FitsContext already filters by faction at send time.
+                    -- Skipping the other faction here + Replace would leave a Horde alt with
+                    -- an all-false pool and no goodbye at all.
                     enabled[msg.key] = state
-                elseif msg.style == style then
-                    -- other faction's phrase of this same style: untouched
                 elseif replace and state and not msg.band then
                     -- Band phrases are not shown in this UI - Replace must not silently kill them
                     enabled[msg.key] = false
@@ -1596,8 +1646,9 @@ function Addon:SendGuildGreeting()
         return
     end
 
-    -- Get random greeting for guild
-    local message, _, keepCase = self:GetRandomMessageForChannel("greetings", "GUILD")
+    -- Get random greeting for guild. Logging in IS a self join: without the reason,
+    -- FitsContext rejects every [self]-tagged phrase the guild tab shows as active.
+    local message, _, keepCase = self:GetRandomMessageForChannel("greetings", "GUILD", "self_join")
     if not message then
         self:DebugPrint("No greetings enabled for GUILD")
         return
@@ -1734,8 +1785,15 @@ function Addon:SendGuildLoginGreeting(names)
         return
     end
 
-    -- Replace {name} placeholder with member name(s)
-    local nameStr = table.concat(names, ", ")
+    -- Replace {name} placeholder with member name(s), capped like every other names path -
+    -- a raid-night login burst must not produce a 255-byte name wall chopped mid-name
+    local nameStr
+    if #names > 4 then
+        nameStr = table.concat({ names[1], names[2], names[3], names[4] }, ", ")
+            .. " +" .. (#names - 4)
+    else
+        nameStr = table.concat(names, ", ")
+    end
     message = message:gsub("{name}", nameStr)
 
     self.state.lastGuildLoginGreetTime = now
@@ -1941,9 +1999,16 @@ function Addon:SendKeyAnnounce()
         return
     end
 
-    -- Resolve dungeon name (English by default, client locale if enabled)
-    local localizedName = listing.dungeonName and listing.dungeonName:gsub(" %(Mythic Keystone%)", "")
+    -- Resolve dungeon name (English by default, client locale if enabled). The suffix strip
+    -- takes any trailing parenthesis, because "(Mythic Keystone)" is localized on non-enUS clients.
+    local localizedName = listing.dungeonName and listing.dungeonName:gsub("%s*%b()%s*$", "")
+    -- The activity map can lag a season behind (the table is regenerated after each season
+    -- starts); the leader's own keystone is the key this listing is for, and its map id lives
+    -- in the same id space as C_ChallengeMode.GetActiveChallengeMapID - which is what SameKey
+    -- later compares against to keep the start announce silent for an already-announced key.
     local mapID = self:GetMapIDFromActivity(listing.activityID)
+        or (C_MythicPlus and C_MythicPlus.GetOwnedKeystoneChallengeMapID
+            and C_MythicPlus.GetOwnedKeystoneChallengeMapID())
     local dungeon = self:GetDungeonName(mapID, localizedName)
 
     -- Get key level based on mode
@@ -2014,9 +2079,15 @@ end
 -- Announce the keystone that was actually inserted, at the start of the run.
 -- Silent when the group-full announce already named this exact dungeon and level.
 -- @return boolean - true when a message was scheduled
-function Addon:SendKeyStartAnnounce(dungeon, keyLevel)
-    local mapID = C_ChallengeMode and C_ChallengeMode.GetActiveChallengeMapID
-        and C_ChallengeMode.GetActiveChallengeMapID() or nil
+function Addon:SendKeyStartAnnounce(dungeon, keyLevel, mapID)
+    -- A pending attempt from a previous insert (reset-then-restart within the retry window)
+    -- must not survive into this one - it would post its stale message alongside ours
+    if self.state.startAnnounceTimer then
+        self:CancelTimer(self.state.startAnnounceTimer)
+        self.state.startAnnounceTimer = nil
+    end
+    mapID = mapID or (C_ChallengeMode and C_ChallengeMode.GetActiveChallengeMapID
+        and C_ChallengeMode.GetActiveChallengeMapID()) or nil
     local key = { mapID = mapID, dungeon = dungeon, level = keyLevel }
 
     if SameKey(self.state.announcedKey, key) then

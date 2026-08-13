@@ -390,7 +390,7 @@ local function BuildCustomMessageList(channel, customsKey, labelKey)
                 end
                 if channel ~= "mythicplus" and not Addon.mplusTokenHintShown and hasMPlusToken then
                     Addon.mplusTokenHintShown = true
-                    Addon:Print(L["{dungeon} and {key} only work in Mythic+ messages - they are removed from other messages."])
+                    Addon:Print(L["Mythic+ placeholders ({dungeon}, {key}, {upgrade}, {time}) only work in Mythic+ messages - they are removed from other messages."])
                 end
 
                 local list = Addon.db.profile[channel][customsKey]
@@ -956,6 +956,11 @@ local function BuildOptions()
                     confirmText = L["Are you sure you want to reset all settings to defaults?"],
                     func = function()
                         Addon.db:ResetProfile()
+                        -- The reset wipes the one-shot migration stamps back to their defaults;
+                        -- without re-stamping, the next login would re-run MigrateInstanceChannel
+                        -- and overwrite the instance settings chosen after this reset
+                        Addon.db.profile.instanceMigrated = true
+                        Addon.db.profile.mythicplus.keyLevelMigrated = true
                         Addon:InvalidateBundleCache()
                         LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
                         Addon:Print(L["Settings reset to defaults"])

@@ -82,6 +82,8 @@ AutoSay.Greetings = {
     { key = "fun_shield", text = "your shield has arrived", style = "fun", role = "TANK", trigger = "self" },
     { key = "fun_healeronline", text = "healer online, don't stand in fire", style = "fun", role = "HEALER", trigger = "self" },
     { key = "fun_pocketheals", text = "pocket heals reporting in", style = "fun", role = "HEALER", trigger = "self" },
+    { key = "fun_dpsarrived", text = "dps here, numbers incoming", style = "fun", role = "DAMAGER", trigger = "self" },
+    { key = "fun_pewpew", text = "pew pew department reporting in", style = "fun", role = "DAMAGER", trigger = "self" },
     { key = "fun_reinforcements", text = "reinforcements have arrived, welcome {names}", style = "fun", trigger = "others" },
     { key = "fun_freshrecruits", text = "fresh recruits, welcome o/", style = "fun", trigger = "others" },
     { key = "fantasy_wellmet", text = "well met, travelers", style = "fantasy", trigger = "self" },
