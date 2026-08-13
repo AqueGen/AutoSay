@@ -162,7 +162,8 @@ local function BuildMessagePicker(poolId, pool, tableFn, settingsFn)
                 type = "toggle",
                 name = PresetLabel(msg, msg.style ~= nil),
                 order = order,
-                width = 1.0,
+                -- One column: tags must be readable without hovering, folding beats truncation
+                width = "full",
                 hidden = function()
                     if not PhraseVisible(msg, settingsFn) then return true end
                     return #styles > 1 and not open[msg.style or (msg.band and "timeofday") or "classic"]
