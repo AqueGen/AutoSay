@@ -300,6 +300,7 @@ L["Style bundle desc"] = "A bundle enables its phrases on every channel at once.
 L["Style"] = "Style"
 L["Class flavour"] = "Class flavour"
 L["Class neutral"] = "Suit any class"
+L["channel off"] = "(off)"
 L["Class flavour desc"] = "Every style works for every class. These four just have an extra thematic fit."
 L["Style classic"] = "Classic"
 L["Style naturewarden"] = "Naturewarden"

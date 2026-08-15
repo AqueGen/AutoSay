@@ -131,6 +131,13 @@ local function MatrixChannels(keys, enabledKey, poolKind)
     return channels
 end
 
+--- A channel switched off on the General tab. Its triggers and phrases change nothing
+--- until it is switched back on, so both are shown as inactive rather than merely ignored.
+local function ChannelIsOff(ch)
+    local settings = ch.settingsFn and ch.settingsFn()
+    return settings ~= nil and settings.enabled == false
+end
+
 -- AceConfig numeric widths are fixed pixels while the flow layout packs a visual line
 -- until it runs out of window: on a wide window two logical rows interleave. A zero-text
 -- full-width description after each row forces the line break, whatever the window width.
@@ -150,7 +157,13 @@ local function AddCaptionRow(args, key, order, channels, hidden)
     for i, ch in ipairs(channels) do
         args[key .. "_" .. ch.key] = {
             type = "description", order = order + i * 0.1,
-            name = "|cFFFFD100" .. (channelLabel[ch.key] or "") .. "|r",
+            name = function()
+                local label = channelLabel[ch.key] or ""
+                if ChannelIsOff(ch) then
+                    return "|cFF7F7F7F" .. label .. "\n" .. L["channel off"] .. "|r"
+                end
+                return "|cFFFFD100" .. label .. "|r"
+            end,
             width = MATRIX_COL_WIDTH, hidden = hidden,
         }
     end
@@ -492,6 +505,7 @@ local function BuildGroupGreetings()
     AddMatrixRow(triggers, "onSelfJoin", 2,
         L["On self join"] .. TagSuffix("self"), nil, channels, function(ch)
             return {
+                disabled = function() return ChannelIsOff(ch) end,
                 desc = selfJoinDesc[ch.key],
                 get = function() return Addon.db.profile[ch.key].onSelfJoin end,
                 set = function(_, val)
@@ -504,6 +518,7 @@ local function BuildGroupGreetings()
         L["Include group member names"] .. TagSuffix("{names}"),
         NoneOn(channels, "onSelfJoin"), channels, function(ch)
             return {
+                disabled = function() return ChannelIsOff(ch) end,
                 desc = L["Add names of current group members to the greeting"],
                 disabled = function() return not Addon.db.profile[ch.key].onSelfJoin end,
                 get = function() return Addon.db.profile[ch.key].includeGroupNames end,
@@ -516,6 +531,7 @@ local function BuildGroupGreetings()
     AddMatrixRow(triggers, "onOthersJoin", 4,
         L["On others join"] .. TagSuffix("newcomers"), nil, channels, function(ch)
             return {
+                disabled = function() return ChannelIsOff(ch) end,
                 desc = othersJoinDesc[ch.key],
                 get = function() return Addon.db.profile[ch.key].onOthersJoin end,
                 set = function(_, val)
@@ -527,6 +543,7 @@ local function BuildGroupGreetings()
     AddMatrixRow(triggers, "onOthersJoinLeaderOnly", 5,
         L["Only if leader"], NoneOn(channels, "onOthersJoin"), channels, function(ch)
             return {
+                disabled = function() return ChannelIsOff(ch) end,
                 desc = leaderOnlyDesc[ch.key],
                 disabled = function() return not Addon.db.profile[ch.key].onOthersJoin end,
                 get = function() return Addon.db.profile[ch.key].onOthersJoinLeaderOnly end,
@@ -537,6 +554,7 @@ local function BuildGroupGreetings()
         L["Include player names"] .. TagSuffix("{names}"),
         NoneOn(channels, "onOthersJoin"), channels, function(ch)
             return {
+                disabled = function() return ChannelIsOff(ch) end,
                 desc = L["Add joined player names to the greeting"],
                 disabled = function() return not Addon.db.profile[ch.key].onOthersJoin end,
                 get = function() return Addon.db.profile[ch.key].includeNames end,
@@ -574,6 +592,7 @@ local function BuildGroupGoodbyes()
     AddMatrixRow(triggers, "sendGoodbye", 2,
         L["Send goodbye on leave"], nil, channels, function(ch)
             return {
+                disabled = function() return ChannelIsOff(ch) end,
                 desc = goodbyeDesc[ch.key],
                 get = function() return Addon.db.profile[ch.key].sendGoodbye end,
                 set = function(_, val) Addon.db.profile[ch.key].sendGoodbye = val end,
@@ -606,6 +625,7 @@ local function BuildGroupReconnects()
     AddCaptionRow(triggers, "captions", 1, channels)
     AddMatrixRow(triggers, "onReconnect", 2, L["On reconnect"], nil, channels, function(ch)
         return {
+            disabled = function() return ChannelIsOff(ch) end,
             desc = reconnectDesc[ch.key],
             get = function() return Addon.db.profile[ch.key].onReconnect end,
             set = function(_, val) Addon.db.profile[ch.key].onReconnect = val end,
