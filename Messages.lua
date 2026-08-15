@@ -197,6 +197,7 @@ AutoSay.Goodbyes = {
     { key = "bye", text = "Bye!" },
     { key = "goodbye", text = "Goodbye!" },
     { key = "gtg", text = "GTG, bye!", keepCase = true },
+    { key = "gn", text = "GN!", keepCase = true },
     { key = "takecare", text = "Take care!" },
     { key = "peace", text = "Peace!" },
     -- Disabled by default
@@ -205,7 +206,6 @@ AutoSay.Goodbyes = {
     { key = "cheers", text = "Cheers!" },
         -- Time-of-day phrases: only picked while the local hour is in their band
     { key = "eveningbye", text = "have a good evening", band = "evening" },
-    { key = "gn", text = "GN!", band = "night", keepCase = true },
     { key = "gnall", text = "gn all", band = "night" },
     { key = "goodnightall", text = "good night everyone", band = "night" },
     { key = "sleepwell", text = "gn, sleep well", band = "night" },

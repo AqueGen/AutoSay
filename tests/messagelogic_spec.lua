@@ -272,6 +272,27 @@ describe("StyleFits with the classic bundle", function()
   end)
 end)
 
+describe("PoolIsSilent", function()
+  local f = Logic.PoolIsSilent
+  local valid = { hi = true, bye = true }
+  it("is silent when every enabled preset was retired", function()
+    assert.is_true(f({ seeya = true, yoyo = true }, valid, {}))
+  end)
+  it("is not silent while a live preset is on", function()
+    assert.is_false(f({ seeya = true, hi = true }, valid, {}))
+  end)
+  it("counts an enabled custom line", function()
+    assert.is_false(f({ seeya = true }, valid, { { text = "o/", enabled = true } }))
+  end)
+  it("ignores a blank or disabled custom line", function()
+    assert.is_true(f({}, valid, { { text = "   ", enabled = true }, { text = "hi", enabled = false } }))
+  end)
+  it("is silent on an empty pool", function()
+    assert.is_true(f({}, valid, nil))
+    assert.is_true(f(nil, valid, nil))
+  end)
+end)
+
 describe("MigrateInstanceChannel", function()
   local function freshProfile()
     return {

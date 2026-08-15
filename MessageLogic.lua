@@ -159,6 +159,24 @@ end
 -- seed it from them once (toggles, phrase selections and custom lists - a user who narrowed
 -- the party phrases down must not get the stock set back in LFG). Entry tables are cloned,
 -- not shared. Returns true when the migration ran.
+-- A pool that can no longer say anything: every preset the user had ticked is gone from the
+-- inventory (phrases do get retired between versions) and no custom line fills the gap.
+-- Restoring the defaults there is the difference between "my list changed" and "the addon
+-- went quiet". validKeys is the set of keys the current build still ships for that pool.
+function MessageLogic.PoolIsSilent(enabled, validKeys, customs)
+    if customs then
+        for _, entry in ipairs(customs) do
+            if entry.enabled and entry.text and entry.text:match("%S") then return false end
+        end
+    end
+    if enabled then
+        for key, on in pairs(enabled) do
+            if on and validKeys[key] then return false end
+        end
+    end
+    return true
+end
+
 function MessageLogic.MigrateInstanceChannel(profile)
     if profile.instanceMigrated then return false end
 

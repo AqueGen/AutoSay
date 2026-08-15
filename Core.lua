@@ -100,9 +100,10 @@ local defaultGoodbyes = {
     later = false,
     cya = false,
     cheers = false,
-    -- Time-of-day phrases: enabled like the band greetings. Nothing reaches chat until the
-    -- Style tab master switch is on, so an upgrader who muted every goodbye stays muted
-    gn = true,
+    gn = false,
+    -- Time-of-day phrases: enabled like the band greetings, and silent until the Style tab
+    -- master switch is on. An upgrader who muted every goodbye and never touched that
+    -- switch stays muted; flipping it on is what opts them back in
     eveningbye = true,
     gnall = true,
     goodnightall = true,
@@ -190,6 +191,8 @@ local defaults = {
         debugMode = false,
         testMode = false,
         instanceMigrated = false, -- Instance channel seeded from the party settings (see MigrateInstanceChannel)
+        masterSwitchesMigrated = false, -- Time-of-day switch carried over from 1.5.x (see MigrateMasterSwitches)
+        retiredPhrasesMigrated = false, -- Stock set restored where every chosen phrase was retired
 
         -- Minimap icon
         minimap = {
@@ -365,6 +368,18 @@ Addon.testState = {
 }
 
 function Addon:OnInitialize()
+    -- Snapshot taken before AceDB fills the store with defaults: afterwards an explicit
+    -- "off" from 1.5.x is indistinguishable from the new default of the same value, and
+    -- the profile this character uses is only known once the database exists
+    self.isUpgradeInstall = AutoSayDB ~= nil
+    local priorTimeOfDay = {}
+    if AutoSayDB and AutoSayDB.profiles then
+        for name, stored in pairs(AutoSayDB.profiles) do
+            priorTimeOfDay[name] = stored.social and stored.social.timeOfDay
+        end
+    end
+    self.priorTimeOfDay = priorTimeOfDay
+
     -- Initialize database
     self.db = LibStub("AceDB-3.0"):New("AutoSayDB", defaults, true)
 
@@ -376,6 +391,12 @@ function Addon:OnInitialize()
 
     -- Fold the old three-way M+ messageMode into the includeKeyLevel toggle
     self:MigrateKeyLevelMode()
+
+    -- Keep the time-of-day phrases an upgrade already had
+    self:MigrateMasterSwitches()
+
+    -- Give a channel its stock phrases back if this build retired every one it had
+    self:MigrateRetiredPhrases()
 
     -- Wire up social gate + humanizer core
     self.socialGate = AutoSay.SocialGate.New{
@@ -475,6 +496,59 @@ end
 function Addon:MigrateInstanceChannel()
     if Logic.MigrateInstanceChannel(self.db.profile) then
         self:DebugPrint("Instance channel seeded from party settings")
+    end
+end
+
+-- Phrases do get retired between versions. Someone whose whole selection was retired would
+-- otherwise go quiet on that channel with no hint why, so a pool left with nothing to say
+-- gets the stock set back. Only pools that are actually empty are touched.
+local RETIRED_POOLS = {
+    { messages = "Greetings", enabledKey = "enabledGreetings", customsKey = "customGreetings" },
+    { messages = "Goodbyes", enabledKey = "enabledGoodbyes", customsKey = "customGoodbyes" },
+    { messages = "Reconnects", enabledKey = "enabledReconnects", customsKey = "customReconnects" },
+}
+
+function Addon:MigrateRetiredPhrases()
+    local profile = self.db.profile
+    if profile.retiredPhrasesMigrated then return end
+    profile.retiredPhrasesMigrated = true
+    if not self.isUpgradeInstall then return end
+
+    local defaults = {
+        enabledGreetings = defaultGreetings,
+        enabledGoodbyes = defaultGoodbyes,
+        enabledReconnects = defaultReconnects,
+    }
+    for _, channel in ipairs(AutoSay.Channels) do
+        local settings = profile[channel.key]
+        for _, pool in ipairs(RETIRED_POOLS) do
+            local enabled = settings and settings[pool.enabledKey]
+            if enabled then
+                local live = {}
+                for _, msg in ipairs(AutoSay[pool.messages]) do live[msg.key] = true end
+                if Logic.PoolIsSilent(enabled, live, settings[pool.customsKey]) then
+                    for key, on in pairs(defaults[pool.enabledKey]) do enabled[key] = on end
+                    self:DebugPrint("Restored stock", pool.messages, "for", channel.key)
+                end
+            end
+        end
+    end
+end
+
+-- The master switches are new, and they ship off. 1.5.x had no switch and spoke its
+-- time-of-day phrases for everyone, so defaulting an upgrade to off would read as "the
+-- morning greetings broke", not as a setting. Roles are genuinely new, so they stay off.
+function Addon:MigrateMasterSwitches()
+    local profile = self.db.profile
+    if profile.masterSwitchesMigrated then return end
+    profile.masterSwitchesMigrated = true
+    if not self.isUpgradeInstall then return end
+    -- Only for a profile that never stored a choice. A stored false is someone who turned
+    -- the phrases off back when the switch defaulted to on, and turning them back on for
+    -- that person would undo a decision they made by hand.
+    if self.priorTimeOfDay[self.db:GetCurrentProfile()] == nil then
+        profile.social.timeOfDay = true
+        self:DebugPrint("Kept time-of-day phrases on for an upgraded profile")
     end
 end
 
@@ -781,7 +855,7 @@ function Addon:SlashCommand(input)
             self:Print("  /as test party - Simulate joining a party")
             self:Print("  /as test raid - Simulate joining a raid")
             self:Print("  /as test instance - Simulate zoning into a 5-player instance group")
-            self:Print("  /as test lfr - Simulate zoning into an LFR or battleground")
+            self:Print("  /as test lfr (or bg) - Simulate zoning into an LFR or battleground")
             self:Print("  /as test leave - Simulate leaving group")
             self:Print("  /as test guild - Simulate guild login greeting")
             self:Print("  /as test guildbye - Simulate guild logout goodbye")
@@ -1198,7 +1272,10 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
         end
         local band = self.db.profile.social.timeOfDay
             and AutoSay.Humanizer.BandForHour(hour) or nil
-        local rolePhrases = self.db.profile.social.rolePhrases
+        -- Never in guild chat: "tank here o/" is addressed to the four people you are about
+        -- to pull for, not to a guild reading it over breakfast
+        local rolePhrases = self.db.profile.social.rolePhrases and channel ~= "GUILD"
+
         for _, msg in ipairs(messages) do
             if settings[enabledKey][msg.key] and FitsContext(msg, role, faction, band, reason, rolePhrases) then
                 AddCandidate(msg.text, NameMode(msg), msg.keepCase)
