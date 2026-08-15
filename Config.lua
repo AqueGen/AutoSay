@@ -17,7 +17,6 @@ local function NewTag(name, ver)
 end
 
 -- Style bundle picker state (UI only, deliberately not saved to the profile)
-local replaceOnApply = false
 
 -- Per-pool accordion fold state: shownStyle[poolId][style] = open (UI only, not saved)
 local shownStyle = {}
@@ -1214,13 +1213,6 @@ local function BuildOptions()
                                 type = "description", order = 1,
                                 name = L["Style bundle desc"],
                             },
-                            replace = {
-                                type = "toggle", order = 2, width = "full",
-                                name = NewTag(L["Replace current selection"], "1.6"),
-                                desc = L["Replace current selection desc"],
-                                get = function() return replaceOnApply end,
-                                set = function(_, v) replaceOnApply = v end,
-                            },
                         }
                         -- One row per bundle rather than a grid of buttons: a button could
                         -- only say "all on" or "not all on", and half-enabled bundles were
@@ -1259,20 +1251,12 @@ local function BuildOptions()
                             args["on_" .. style] = {
                                 type = "execute", order = order + 2, width = 0.7,
                                 name = L["Enable all"],
-                                desc = function()
-                                    if replaceOnApply then
-                                        return BundleDesc(style) .. "\n\n|cFFFF7F3F"
-                                            .. L["Replace warning"] .. "|r"
-                                    end
-                                    return BundleDesc(style)
-                                end,
+                                desc = function() return BundleDesc(style) end,
                                 disabled = function()
                                     local _, _, _, full = StyleCounts(style)
-                                    -- With Replace on there is still work to do on a full
-                                    -- set: switching off every phrase that is not part of it
-                                    return full and not replaceOnApply
+                                    return full
                                 end,
-                                func = function() Addon:ApplyStyleBundle(style, replaceOnApply, true) end,
+                                func = function() Addon:ApplyStyleBundle(style, false, true) end,
                             }
                             args["off_" .. style] = {
                                 type = "execute", order = order + 3, width = 0.7,
