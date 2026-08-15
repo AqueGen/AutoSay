@@ -139,11 +139,19 @@ end
 -- seed it from them once (toggles, phrase selections and custom lists - a user who narrowed
 -- the party phrases down must not get the stock set back in LFG). Entry tables are cloned,
 -- not shared. Returns true when the migration ran.
-function MessageLogic.MigrateInstanceChannel(profile)
+-- isUpgrade means the saved variables predate this channel. Those users only ever greeted
+-- their party, so the channel starts off: inheriting party.enabled would drop them into an
+-- LFR or a battleground greeting 25 to 40 strangers they never agreed to greet. Everything
+-- else is still seeded, so turning it on gives them their own phrases.
+function MessageLogic.MigrateInstanceChannel(profile, isUpgrade)
     if profile.instanceMigrated then return false end
 
     local party, instance = profile.party, profile.instance
-    instance.enabled = party.enabled
+    if isUpgrade then
+        instance.enabled = false
+    else
+        instance.enabled = party.enabled
+    end
     instance.onSelfJoin = party.onSelfJoin
     instance.onOthersJoin = party.onOthersJoin
     instance.onOthersJoinLeaderOnly = party.onOthersJoinLeaderOnly

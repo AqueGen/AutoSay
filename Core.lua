@@ -363,6 +363,10 @@ Addon.testState = {
 }
 
 function Addon:OnInitialize()
+    -- Read before AceDB creates the store: no saved variables means a fresh install rather
+    -- than an upgrade from a version that had no instance channel (see MigrateInstanceChannel)
+    self.isUpgradeInstall = AutoSayDB ~= nil
+
     -- Initialize database
     self.db = LibStub("AceDB-3.0"):New("AutoSayDB", defaults, true)
 
@@ -465,11 +469,12 @@ function Addon:MigrateCustomMessages()
 end
 
 -- The instance channel is new: before it existed LFG groups used the party settings, so seed
--- it from them once. On a fresh install the party values are the defaults, so this is a no-op.
+-- it from them once, leaving the channel off for an upgrade so nobody starts greeting an LFR
+-- by surprise. On a fresh install the party values are the defaults, so this is a no-op.
 -- Only the active profile is migrated - the addon registers no AceDB profile callbacks, so a
 -- profile switched to later keeps its own (defaults-equal) instance settings.
 function Addon:MigrateInstanceChannel()
-    if Logic.MigrateInstanceChannel(self.db.profile) then
+    if Logic.MigrateInstanceChannel(self.db.profile, self.isUpgradeInstall) then
         self:DebugPrint("Instance channel seeded from party settings")
     end
 end
