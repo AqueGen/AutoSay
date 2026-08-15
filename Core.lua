@@ -67,6 +67,14 @@ local defaultGreetings = {
     welcomenames = false,
     hinames = false,
     welcomeaboard = false,
+    -- Role phrases: enabled, silent until the Style tab master switch is on (same deal as
+    -- the time-of-day set). Styled role phrases stay off, like every other styled phrase
+    classic_tank1 = true,
+    classic_tank2 = true,
+    classic_heal1 = true,
+    classic_heal2 = true,
+    classic_dps1 = true,
+    classic_dps2 = true,
     -- Time-of-day phrases: enabled, but silent until the Style tab master switch is on.
     -- The switch is the feature; the phrases under it are ready so one click is enough
     morning = true,
