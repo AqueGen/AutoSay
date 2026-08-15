@@ -198,8 +198,10 @@ AutoSay.Reconnects = {
 }
 
 -- Style bundle ids, in UI order
+-- "classic" is not a style tag on any phrase: it stands for the untagged pool, so the
+-- stock phrases can be switched on and off as fast as a style bundle (see StyleMatches)
 AutoSay.MessageStyles = {
-    "fun", "fantasy", "dark", "light", "pirate", "faction", "zoomer", "butler",
+    "classic", "fun", "fantasy", "dark", "light", "pirate", "faction", "zoomer", "butler",
 }
 
 -- Every phrase pool a style bundle can toggle, in UI order. One inventory, three consumers:

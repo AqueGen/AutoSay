@@ -243,6 +243,7 @@ local defaults = {
         -- Instance group settings (LFG dungeons/LFR/battlegrounds, INSTANCE_CHAT)
         instance = {
             enabled = true,
+            skipRaidGroups = true,      -- Stay silent in LFR and battlegrounds (see SkipsRaidInstanceGroup)
             onSelfJoin = true,          -- Greet once after zoning into the instance
             onOthersJoin = false,
             onOthersJoinLeaderOnly = false,
@@ -354,6 +355,7 @@ Addon.state = {
 -- Test mode simulation state
 Addon.testState = {
     simulatedGroupType = nil, -- "PARTY", "RAID", or nil
+    simulatedRaidInstance = false, -- Simulated instance group is raid-sized (LFR/battleground)
     simulatedInGuild = false,
     simulatedGroupMembers = {},
     simulatedIsLeader = true, -- Simulate being group leader (default true for test)
@@ -363,10 +365,6 @@ Addon.testState = {
 }
 
 function Addon:OnInitialize()
-    -- Read before AceDB creates the store: no saved variables means a fresh install rather
-    -- than an upgrade from a version that had no instance channel (see MigrateInstanceChannel)
-    self.isUpgradeInstall = AutoSayDB ~= nil
-
     -- Initialize database
     self.db = LibStub("AceDB-3.0"):New("AutoSayDB", defaults, true)
 
@@ -469,12 +467,13 @@ function Addon:MigrateCustomMessages()
 end
 
 -- The instance channel is new: before it existed LFG groups used the party settings, so seed
--- it from them once, leaving the channel off for an upgrade so nobody starts greeting an LFR
--- by surprise. On a fresh install the party values are the defaults, so this is a no-op.
+-- it from them once. On a fresh install the party values are the defaults, so this is a no-op.
+-- Nobody is dropped into an LFR by the upgrade: 1.5.x routed a raid-sized instance group to
+-- the raid settings (off by default), and skipRaidGroups keeps that same silence.
 -- Only the active profile is migrated - the addon registers no AceDB profile callbacks, so a
 -- profile switched to later keeps its own (defaults-equal) instance settings.
 function Addon:MigrateInstanceChannel()
-    if Logic.MigrateInstanceChannel(self.db.profile, self.isUpgradeInstall) then
+    if Logic.MigrateInstanceChannel(self.db.profile) then
         self:DebugPrint("Instance channel seeded from party settings")
     end
 end
@@ -728,6 +727,8 @@ function Addon:SlashCommand(input)
             self:TestJoinRaid()
         elseif subcmd == "instance" or subcmd == "i" then
             self:TestJoinInstance()
+        elseif subcmd == "lfr" or subcmd == "bg" then
+            self:TestJoinInstance(true)
         elseif subcmd == "leave" or subcmd == "l" then
             self:TestLeaveGroup()
         elseif subcmd == "guild" or subcmd == "g" then
@@ -779,7 +780,8 @@ function Addon:SlashCommand(input)
             self:Print("  /as testmode - Toggle simulation mode (required for the commands below)")
             self:Print("  /as test party - Simulate joining a party")
             self:Print("  /as test raid - Simulate joining a raid")
-            self:Print("  /as test instance - Simulate zoning into an instance group")
+            self:Print("  /as test instance - Simulate zoning into a 5-player instance group")
+            self:Print("  /as test lfr - Simulate zoning into an LFR or battleground")
             self:Print("  /as test leave - Simulate leaving group")
             self:Print("  /as test guild - Simulate guild login greeting")
             self:Print("  /as test guildbye - Simulate guild logout goodbye")
@@ -857,6 +859,16 @@ end
 
 -- Check if cooldown has passed for a specific channel type
 function Addon:CanSendMessage(channelType)
+    -- Checked here rather than per greeting: the toggle means "say nothing in an LFR or a
+    -- battleground", so goodbyes and reconnects have to obey it too
+    if Logic.SkipsRaidInstanceGroup(channelType, self.db.profile.instance, self:IsRaidInstanceGroupOrTest()) then
+        self:DebugPrint("Raid-sized instance group, skipping message")
+        if self:IsTestMode() then
+            self:TestPrint("Message blocked: LFR and battlegrounds are skipped (Group tab)")
+        end
+        return false
+    end
+
     local now = GetTime()
     local cooldown = self.db.profile.cooldown
 
@@ -1041,6 +1053,16 @@ function Addon:GetChatChannel()
         return "PARTY"
     end
     return nil
+end
+
+-- LFR and battlegrounds are raid-sized instance groups; a 5-player LFG run never is.
+-- Asked about the group, not the head count: a raid group is raid-sized from the moment
+-- it forms, before it fills up.
+function Addon:IsRaidInstanceGroupOrTest()
+    if self:IsTestMode() and self.testState.simulatedGroupType then
+        return self.testState.simulatedRaidInstance and true or false
+    end
+    return IsInRaid(LE_PARTY_CATEGORY_INSTANCE) and true or false
 end
 
 -- Check if in guild (with test mode support and cached fallback for logout)
@@ -1242,11 +1264,13 @@ local function StyleIndex(style)
         styleIndex = {}
         for _, pool in ipairs(AutoSay.StylePools) do
             for _, msg in ipairs(AutoSay[pool.messages]) do
-                if msg.style then
-                    local buckets = styleIndex[msg.style]
+                -- Untagged phrases index under "classic", the bundle the phrase lists show first
+                local id = msg.style or (msg.band == nil and "classic" or nil)
+                if id then
+                    local buckets = styleIndex[id]
                     if not buckets then
                         buckets = {}
-                        styleIndex[msg.style] = buckets
+                        styleIndex[id] = buckets
                     end
                     local bucket = buckets[pool.enabledKey]
                     if not bucket then
@@ -1336,7 +1360,7 @@ function Addon:ApplyStyleBundle(style, replace, state)
         local enabled = target.settings and target.settings[target.pool.enabledKey]
         if enabled and poolHasStyle[target.pool.enabledKey] then
             for _, msg in ipairs(AutoSay[target.pool.messages]) do
-                if msg.style == style then
+                if Logic.StyleMatches(msg, style) then
                     -- Both factions on purpose: the profile is shared by every character on
                     -- the account, and FitsContext already filters by faction at send time.
                     -- Skipping the other faction here + Replace would leave a Horde alt with
@@ -2213,6 +2237,7 @@ end
 -- Reset test state
 function Addon:TestReset()
     self.testState.simulatedGroupType = nil
+    self.testState.simulatedRaidInstance = false
     self.testState.simulatedInGuild = false
     self.testState.simulatedGroupMembers = {}
     self.testState.simulatedIsLeader = true
@@ -2357,12 +2382,14 @@ function Addon:TestJoinRaid()
     end
 end
 
--- Simulate zoning into an instance group (LFG dungeon/LFR/battleground)
-function Addon:TestJoinInstance()
+-- Simulate zoning into an instance group. raidSized simulates an LFR or a battleground,
+-- which the skipRaidGroups toggle silences; without it this is a 5-player LFG run.
+function Addon:TestJoinInstance(raidSized)
     if not self:RequireTestMode() then return end
 
-    self:TestPrint("=== Simulating ENTER INSTANCE GROUP ===")
+    self:TestPrint(raidSized and "=== Simulating ENTER LFR/BATTLEGROUND ===" or "=== Simulating ENTER INSTANCE GROUP ===")
     self.testState.simulatedGroupType = "INSTANCE_CHAT"
+    self.testState.simulatedRaidInstance = raidSized and true or false
     self.state.previousGroup = { [UnitName("player")] = true }
     self.state.sentGreetings = {}
     self.state.currentGroupType = "INSTANCE_CHAT"
@@ -2395,6 +2422,7 @@ function Addon:TestLeaveGroup()
 
     -- Reset simulated group state
     self.testState.simulatedGroupType = nil
+    self.testState.simulatedRaidInstance = false
     self.state.previousGroup = nil
     self.state.sentGreetings = {}
     self.state.currentGroupType = nil

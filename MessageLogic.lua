@@ -111,8 +111,28 @@ end
 -- Whether a styled phrase belongs to this style. Faction is deliberately NOT part of the
 -- bundle-apply decision (the profile is account-shared and FitsContext filters at send
 -- time), but the "fully enabled" check uses it to ignore phrases this character can never say.
+-- "classic" is the untagged pool the phrase lists show first: no style of its own, and no
+-- time-of-day band either (those are their own section, and the Style tab has a master
+-- switch for them, so a bundle must not reach in and flip them).
+function MessageLogic.StyleMatches(msg, style)
+    if style == "classic" then
+        return msg.style == nil and msg.band == nil
+    end
+    return msg.style == style
+end
+
 function MessageLogic.StyleFits(msg, style, faction)
-    return msg.style == style and (not msg.faction or msg.faction == faction)
+    return MessageLogic.StyleMatches(msg, style)
+        and (not msg.faction or msg.faction == faction)
+end
+
+-- LFR and battlegrounds share INSTANCE_CHAT with a 5-player dungeon run, but talking to 25
+-- or 40 strangers is a different thing than talking to your 4 group mates. The channel is
+-- on by default, this keeps it to the small groups people actually queue together for.
+function MessageLogic.SkipsRaidInstanceGroup(channel, settings, isRaidInstanceGroup)
+    if channel ~= "INSTANCE_CHAT" then return false end
+    if not settings or not settings.skipRaidGroups then return false end
+    return isRaidInstanceGroup and true or false
 end
 
 -- "1.6" matches "1.6" and "1.6.2" but not "1.60.x", "11.6.x" or "2.0.x"
@@ -139,19 +159,11 @@ end
 -- seed it from them once (toggles, phrase selections and custom lists - a user who narrowed
 -- the party phrases down must not get the stock set back in LFG). Entry tables are cloned,
 -- not shared. Returns true when the migration ran.
--- isUpgrade means the saved variables predate this channel. Those users only ever greeted
--- their party, so the channel starts off: inheriting party.enabled would drop them into an
--- LFR or a battleground greeting 25 to 40 strangers they never agreed to greet. Everything
--- else is still seeded, so turning it on gives them their own phrases.
-function MessageLogic.MigrateInstanceChannel(profile, isUpgrade)
+function MessageLogic.MigrateInstanceChannel(profile)
     if profile.instanceMigrated then return false end
 
     local party, instance = profile.party, profile.instance
-    if isUpgrade then
-        instance.enabled = false
-    else
-        instance.enabled = party.enabled
-    end
+    instance.enabled = party.enabled
     instance.onSelfJoin = party.onSelfJoin
     instance.onOthersJoin = party.onOthersJoin
     instance.onOthersJoinLeaderOnly = party.onOthersJoinLeaderOnly

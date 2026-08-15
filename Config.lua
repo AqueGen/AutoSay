@@ -187,7 +187,8 @@ local function BuildMessageMatrix(poolId, pool, channels)
     local styles = { "classic" }
     if byStyle.timeofday then styles[#styles + 1] = "timeofday" end
     for _, style in ipairs(AutoSay.MessageStyles) do
-        if byStyle[style] then styles[#styles + 1] = style end
+        -- classic is already the first section: it is a bundle id, not a phrase tag
+        if style ~= "classic" and byStyle[style] then styles[#styles + 1] = style end
     end
 
     -- Single column reads top-to-bottom, so give it an order: untagged first, then grouped
@@ -748,7 +749,7 @@ local function BundleDesc(style)
     local lines, byHeader = {}, {}
     for _, pool in ipairs(AutoSay.StylePools) do
         for _, msg in ipairs(AutoSay[pool.messages]) do
-            if msg.style == style then
+            if AutoSay.MessageLogic.StyleMatches(msg, style) then
                 local texts = byHeader[pool.header]
                 if not texts then
                     texts = {}
@@ -759,8 +760,19 @@ local function BundleDesc(style)
             end
         end
     end
+    -- Classic holds every untagged phrase, far too many to read in a tooltip: list a
+    -- sample and say how many are left rather than covering half the screen
+    local PREVIEW = 8
     for j, line in ipairs(lines) do
-        lines[j] = "|cFFFFD100" .. L[line.header] .. ":|r " .. table.concat(line.texts, "  |cFF555555/|r  ")
+        local shown, extra = line.texts, #line.texts - PREVIEW
+        if extra > 0 then
+            shown = {}
+            for k = 1, PREVIEW do shown[k] = line.texts[k] end
+        end
+        lines[j] = "|cFFFFD100" .. L[line.header] .. ":|r " .. table.concat(shown, "  |cFF555555/|r  ")
+        if extra > 0 then
+            lines[j] = lines[j] .. "  |cFF888888" .. string.format(L["+%d more"], extra) .. "|r"
+        end
     end
 
     desc = table.concat(lines, "\n") .. "\n\n" .. L["Bundle button hint"]
@@ -1177,6 +1189,15 @@ local function BuildOptions()
             order = 10,
             childGroups = "tab",
             args = {
+                -- Above the tabs on purpose: it silences the instance channel outright,
+                -- so it is not a greeting setting any more than a goodbye one
+                skipRaidGroups = {
+                    type = "toggle", order = 0, width = "full",
+                    name = NewTag(L["Skip LFR and battlegrounds"], "1.6"),
+                    desc = L["Skip LFR and battlegrounds desc"],
+                    get = function() return Addon.db.profile.instance.skipRaidGroups end,
+                    set = function(_, v) Addon.db.profile.instance.skipRaidGroups = v end,
+                },
                 greetings = {
                     type = "group",
                     name = L["Greetings"],
