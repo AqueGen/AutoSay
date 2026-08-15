@@ -1372,9 +1372,10 @@ local function BuildOptions()
                 timingGroup = {
                     type = "group", name = L["Timing"], inline = true, order = 1,
                     args = {
+                        -- Left at the default width so this pair sits side by side, the
+                        -- same way the two sliders under Limits do
                         messageDelay = {
                             type = "range", order = 1, min = 0, max = 10, step = 0.5,
-                            width = "full",
                             name = L["Message delay"],
                             desc = L["Delay before sending message (seconds)"],
                             get = function() return Addon.db.profile.messageDelay end,
@@ -1382,7 +1383,6 @@ local function BuildOptions()
                         },
                         cooldown = {
                             type = "range", order = 2, min = 0, max = 60, step = 1,
-                            width = "full",
                             name = L["Cooldown"],
                             desc = L["Minimum time between messages (seconds)"],
                             get = function() return Addon.db.profile.cooldown end,
