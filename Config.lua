@@ -59,6 +59,22 @@ end
 -- greyed out - the tag on its row points at the switch that re-activates it.
 -- settingsFn always resolves to the channel's settings; poolKind says which switch of that
 -- table governs this list.
+-- A reconnect draws from the Reconnects list and only falls back to the greetings when that
+-- list has nothing to say. So "On reconnect" keeps a greeting row live only while the
+-- channel's reconnect list is silent: with any reconnect phrase ticked the fallback never
+-- runs, and a greeting row that no join trigger can reach is dead however it looks.
+local function ReconnectFallsBackToGreetings(settings)
+    if not settings.onReconnect then return false end
+    local social = Addon.db.profile.social
+    local live = {}
+    for _, msg in ipairs(AutoSay.Reconnects) do
+        live[msg.key] = (msg.band == nil or social.timeOfDay == true)
+            and (msg.role == nil or social.rolePhrases == true)
+    end
+    return AutoSay.MessageLogic.PoolIsSilent(settings.enabledReconnects, live,
+        settings.customReconnects)
+end
+
 local function PhraseActive(msg, settingsFn, poolKind, channelKey)
     -- Nothing is sent at all while the addon is off, so nothing in any list is live
     if not Addon.db.profile.enabled then return false end
@@ -94,13 +110,14 @@ local function PhraseActive(msg, settingsFn, poolKind, channelKey)
         elseif poolKind == "greetings" then
             -- A greeting can be triggered by joining, by someone else joining, or by a
             -- reconnect falling back to this pool: with none of them on, none can fire
-            if not (settings.onSelfJoin or settings.onOthersJoin or settings.onReconnect) then
+            local viaReconnect = ReconnectFallsBackToGreetings(settings)
+            if not (settings.onSelfJoin or settings.onOthersJoin or viaReconnect) then
                 return false
             end
             if msg.trigger == "others" and not settings.onOthersJoin then return false end
-            -- A reconnect falls back into this pool and deliberately accepts [self] lines,
-            -- so they stay live while either switch can bring them out
-            if msg.trigger == "self" and not (settings.onSelfJoin or settings.onReconnect) then
+            -- That fallback deliberately accepts [self] lines, since a reconnect is a self
+            -- event, so they stay live while either switch can bring them out
+            if msg.trigger == "self" and not (settings.onSelfJoin or viaReconnect) then
                 return false
             end
         end
