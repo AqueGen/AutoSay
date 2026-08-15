@@ -7,6 +7,15 @@ local L = LibStub("AceLocale-3.0"):GetLocale(ADDON_NAME)
 -- Version (replaced by packager with git tag)
 Addon.version = "@project-version@"
 
+-- Pure string/table logic lives in MessageLogic.lua (headless-testable); alias what this file uses
+local Logic = AutoSay.MessageLogic
+local TruncateToChatLimit = Logic.TruncateToChatLimit
+local FitsContext = Logic.FitsContext
+local StripNameSlot = Logic.StripNameSlot
+local NameMode = Logic.NameMode
+local SameKey = Logic.SameKey
+local StyleFits = Logic.StyleFits
+
 -- Debug print helper
 function Addon:DebugPrint(...)
     if self.db and self.db.profile.debugMode and self.db.profile.testMode then
@@ -26,6 +35,13 @@ function Addon:IsTestMode()
     return self.db and self.db.profile.testMode
 end
 
+-- Gate for every test command: off means say so once, here, and let the caller bail
+function Addon:RequireTestMode()
+    if self:IsTestMode() then return true end
+    self:Print(L["Test mode required"])
+    return false
+end
+
 -- Helper to convert table keys to string for debug output
 function Addon:TableKeysToString(tbl)
     if not tbl then return "nil" end
@@ -43,6 +59,7 @@ local defaultGreetings = {
     hello = true,
     hey = true,
     greetings = true,
+    welcome = true,
     -- Disabled by default
     wassup = false,
     yo = false,
@@ -52,6 +69,20 @@ local defaultGreetings = {
     hiya = false,
     yoyo = false,
     hellothere = false,
+    welcomenames = false,
+    hinames = false,
+    welcomeaboard = false,
+    -- Time-of-day phrases: on by default, gated by social.timeOfDay and the local hour
+    morning = true,
+    goodmorningall = true,
+    morningwave = true,
+    evening = true,
+    goodevening = true,
+    eveningall = true,
+    lateone = true,
+    laterun = true,
+    uplate = true,
+    nightowls = true,
 }
 
 -- Default enabled goodbyes
@@ -69,6 +100,13 @@ local defaultGoodbyes = {
     gn = false,
     bb = false,
     laterall = false,
+    -- Time-of-day phrases: off by default - band goodbyes are new behavior, and AceDB
+    -- merges these keys into existing profiles (a true here would surprise upgraders
+    -- who had turned every stock goodbye off)
+    eveningbye = false,
+    gnall = false,
+    goodnightall = false,
+    sleepwell = false,
 }
 
 -- Default enabled reconnect messages
@@ -155,6 +193,7 @@ local defaults = {
         enabled = true,
         debugMode = false,
         testMode = false,
+        instanceMigrated = false, -- Instance channel seeded from the party settings (see MigrateInstanceChannel)
 
         -- Minimap icon
         minimap = {
@@ -201,11 +240,28 @@ local defaults = {
             customReconnects = {},
         },
 
+        -- Instance group settings (LFG dungeons/LFR/battlegrounds, INSTANCE_CHAT)
+        instance = {
+            enabled = true,
+            onSelfJoin = true,          -- Greet once after zoning into the instance
+            onOthersJoin = false,
+            onOthersJoinLeaderOnly = false,
+            includeNames = false,
+            includeGroupNames = false,
+            sendGoodbye = true,
+            enabledGreetings = DeepCopy(defaultGreetings),
+            enabledGoodbyes = DeepCopy(defaultGoodbyes),
+            customGreetings = {},
+            customGoodbyes = {},
+        },
+
         -- Mythic+ settings
         mythicplus = {
             enabled = true,
             announceOnFull = true,      -- Announce when group fills 5/5
-            messageMode = "basic",      -- "basic" | "withlevel" | "smart"
+            announceOnStart = true,     -- Announce the inserted keystone when the run starts
+            includeKeyLevel = false,    -- Put the key level in the announce when it is known for sure
+            keyLevelMigrated = false,   -- messageMode folded into includeKeyLevel (see MigrateKeyLevelMode)
             useClientLanguage = false,  -- false = English dungeon names, true = client locale
             enabledKeyAnnounce = DeepCopy(defaultKeyAnnounce),
             customKeyAnnounce = {},
@@ -242,13 +298,25 @@ local defaults = {
             listen = true,
             typingDelay = true,
             timeOfDay = true,
+            rolePhrases = true, -- Master switch for role-tagged and {role} phrases
+            lowercaseFirst = false,
             guildGrats = false,
             guildWelcome = false,
         },
     },
 
+    global = {
+        -- "major.minor" of the last release whose What's new popup was dismissed.
+        -- Account-wide on purpose: the news is the same on every character.
+        whatsNewSeen = "",
+    },
+
     char = {
         social = {},
+        -- Instance zone-in greeting flag, persisted so a /reload does not re-greet
+        instanceGreeted = { done = false },
+        lastLogoutTime = 0,
+        lastSeenTime = 0, -- Heartbeat: PLAYER_LOGOUT never fires on a crash/hard DC, this does
     },
 }
 
@@ -261,13 +329,20 @@ Addon.state = {
     currentGroupType = nil,
     sentGreetings = {},
     isInGuild = false, -- Cached guild status (IsInGuild() returns false during logout)
-    groupGoodbyeSent = false, -- Track if group goodbye was sent (to avoid duplicates)
+    groupGoodbyeSent = {}, -- Per-channel once-per-leave goodbye guard (channel -> bool)
     pendingNewMembers = {}, -- Batch new members for others_join greeting
     pendingGreetTimer = nil, -- Timer for batched greeting
-    messageQueue = {}, -- Queue for cooldown-blocked messages
-    queueTimer = nil, -- Timer for processing queued messages
     cachedLFGListing = nil, -- Cached LFG listing data (before auto-delist)
     keyAnnounced = false, -- Prevent duplicate M+ key announcements per group
+    keyAnnounceRetried = false, -- Key announce was already re-scheduled once for the cooldown
+    keyAnnounceTimer = nil, -- Pending key announce retry timer (one in flight at a time)
+    announcedKey = nil, -- What the last key announce actually said: { mapID = number|nil, dungeon = string, level = number|nil }
+    startAnnounced = false, -- Key start announce already sent for the current run
+    startAnnounceTimer = nil, -- Pending key start announce (initial delay or its one retry)
+    groupGoodbyeTimer = {}, -- Per-channel self-reset timers for the goodbye guard
+    instanceGreeted = false, -- Instance zone-in greeting sent (mirrors db.char.instanceGreeted, see SetInstanceGreeted)
+    pendingGroupSends = {}, -- Delayed group sends in flight (handle -> channel), cancelled on GROUP_JOINED
+    sendGeneration = 0, -- Bumped on every test-mode toggle: delayed sends from the other mode drop
     pendingGuildLogins = {}, -- Batch guild member login names
     guildLoginTimer = nil, -- Timer for batched guild login greeting
     lastGuildLoginGreetTime = 0, -- Separate cooldown for guild member login greetings
@@ -282,15 +357,27 @@ Addon.testState = {
     simulatedInGuild = false,
     simulatedGroupMembers = {},
     simulatedIsLeader = true, -- Simulate being group leader (default true for test)
+    simulatedRole = "DAMAGER", -- Role used for role-tagged phrases while testing
+    simulatedHour = nil, -- Hour (0-23) used for time-of-day band while testing; nil = use real time
     mythicPlusRole = "leader", -- "leader" or "joined" for M+ flow simulation
 }
 
 function Addon:OnInitialize()
+    -- Read before AceDB creates the store: no saved variables means a fresh install rather
+    -- than an upgrade from a version that had no instance channel (see MigrateInstanceChannel)
+    self.isUpgradeInstall = AutoSayDB ~= nil
+
     -- Initialize database
     self.db = LibStub("AceDB-3.0"):New("AutoSayDB", defaults, true)
 
     -- Migrate old single custom message format to new array format
     self:MigrateCustomMessages()
+
+    -- Seed the instance channel from the party settings on the first run after the upgrade
+    self:MigrateInstanceChannel()
+
+    -- Fold the old three-way M+ messageMode into the includeKeyLevel toggle
+    self:MigrateKeyLevelMode()
 
     -- Wire up social gate + humanizer core
     self.socialGate = AutoSay.SocialGate.New{
@@ -381,6 +468,23 @@ function Addon:MigrateCustomMessages()
     end
 end
 
+-- The instance channel is new: before it existed LFG groups used the party settings, so seed
+-- it from them once, leaving the channel off for an upgrade so nobody starts greeting an LFR
+-- by surprise. On a fresh install the party values are the defaults, so this is a no-op.
+-- Only the active profile is migrated - the addon registers no AceDB profile callbacks, so a
+-- profile switched to later keeps its own (defaults-equal) instance settings.
+function Addon:MigrateInstanceChannel()
+    if Logic.MigrateInstanceChannel(self.db.profile, self.isUpgradeInstall) then
+        self:DebugPrint("Instance channel seeded from party settings")
+    end
+end
+
+function Addon:MigrateKeyLevelMode()
+    if Logic.MigrateKeyLevelMode(self.db.profile.mythicplus) then
+        self:DebugPrint("Key level mode migrated - includeKeyLevel = true")
+    end
+end
+
 function Addon:OnEnable()
     -- Register events
     self:RegisterEvents()
@@ -394,7 +498,51 @@ function Addon:OnEnable()
     -- Hook leave group functions to send farewell before leaving
     self:HookLeaveGroupFunctions()
 
+    -- Presence heartbeat: PLAYER_LOGOUT never fires on a hard disconnect, so the reconnect
+    -- detection also compares against this once-a-minute timestamp. (SavedVariables only
+    -- flush on logout/reload, so this covers a DC followed by a normal client exit - a hard
+    -- client crash loses the writes and is out of reach.)
+    -- OnEnable runs at PLAYER_LOGIN, BEFORE the login classification in
+    -- PLAYER_ENTERING_WORLD reads this value - so the previous session's timestamp is
+    -- snapshotted first, or every login would look like a reconnect and the guild
+    -- greeting would never fire again. The immediate stamp then covers a DC inside the
+    -- first minute of this session.
+    self.state.lastSeenBeforeLogin = self.db.char.lastSeenTime or 0
+    self.db.char.lastSeenTime = time()
+    self:ScheduleRepeatingTimer(function()
+        self.db.char.lastSeenTime = time()
+    end, 60)
+
+    -- What's new popup, well after the loading screen has let go
+    self:ScheduleTimer("CheckWhatsNew", 8)
+
     self:DebugPrint("Addon enabled")
+end
+
+-- "1.6" out of "1.6.2"; nil for an unpackaged build, where the TOC still holds the
+-- packager placeholder and there is no release to announce
+function Addon:VersionMinor()
+    local version = (C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata)(ADDON_NAME, "Version") or ""
+    return version:match("^(%d+%.%d+)")
+end
+
+-- Show the What's new popup once per account per minor release
+function Addon:CheckWhatsNew()
+    local minor = self:VersionMinor()
+    if not minor or self.db.global.whatsNewSeen == minor then return end
+    -- No notes written for this release: nothing to show, and nothing worth a combat retry
+    if not self:HasWhatsNew(minor) then return end
+
+    -- A popup mid-fight is worse than a popup a minute later
+    if InCombatLockdown() then
+        self:RegisterEvent("PLAYER_REGEN_ENABLED", function()
+            self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+            self:CheckWhatsNew()
+        end)
+        return
+    end
+
+    self:ShowWhatsNew(minor)
 end
 
 -- Update cached guild status
@@ -448,13 +596,17 @@ end
 -- Hook LeaveParty to send group goodbye before leaving
 function Addon:HookLeaveGroupFunctions()
     -- Track if we already sent group goodbye to avoid duplicates
-    self.state.groupGoodbyeSent = false
+    self.state.groupGoodbyeSent = {}
 
-    -- Hook C_PartyInfo.LeaveParty (retail WoW API) - use RawHook to run BEFORE the function
+    -- Hook C_PartyInfo.LeaveParty (retail WoW API) - use RawHook to run BEFORE the function.
+    -- Known limitation: rare confirmation flows (Party Sync's LEAVE_PARTY_CONFIRMATION) can
+    -- cancel the leave AFTER the goodbye already went out - a stray "bye" while staying
+    -- grouped. Deferring to ConfirmLeaveParty would miss every normal leave, so the common
+    -- case wins.
     if C_PartyInfo and C_PartyInfo.LeaveParty and not self:IsHooked(C_PartyInfo, "LeaveParty") then
         self:RawHook(C_PartyInfo, "LeaveParty", function(category)
             self:DebugPrint("C_PartyInfo.LeaveParty() intercepted - sending goodbye BEFORE leaving")
-            self:SendGroupGoodbyeOnce()
+            self:SendGroupGoodbyeOnce(category)
             -- Call the original function
             return self.hooks[C_PartyInfo].LeaveParty(category)
         end, true)
@@ -473,27 +625,61 @@ function Addon:HookLeaveGroupFunctions()
     self:DebugPrint("Leave group functions hooked")
 end
 
--- Send group goodbye only once per leave action
-function Addon:SendGroupGoodbyeOnce()
-    if self.state.groupGoodbyeSent then
-        self:DebugPrint("Group goodbye already sent, skipping")
-        return
+-- Which chat the goodbye belongs in for the group we are leaving. LeaveParty tells us
+-- which of the two group slots is being dropped; without it fall back to where we are now.
+function Addon:GoodbyeChannelForCategory(category)
+    if category == LE_PARTY_CATEGORY_HOME then
+        return IsInRaid(LE_PARTY_CATEGORY_HOME) and "RAID" or "PARTY"
+    elseif category == LE_PARTY_CATEGORY_INSTANCE then
+        return "INSTANCE_CHAT"
     end
+    -- Nil category means the HOME group in Blizzard's own UI: the raid manager offers
+    -- "Leave Group" (bare C_PartyInfo.LeaveParty()) right next to a separate "Leave
+    -- Instance Group" button (Blizzard_CompactRaidFrameManager.lua:1311, .xml:386), and
+    -- instance departures always pass LE_PARTY_CATEGORY_INSTANCE explicitly. The generated
+    -- API docs give LeaveParty's nilable category NO documented default, so the call sites
+    -- are the ground truth here.
+    if IsInGroup(LE_PARTY_CATEGORY_HOME) then
+        return IsInRaid(LE_PARTY_CATEGORY_HOME) and "RAID" or "PARTY"
+    end
+    -- No home group: resolve live (we are still in the group at this point) so LFG groups
+    -- pick up the instance settings; cached type is the fallback if the API dropped us
+    return self:GetChatChannel() or self.state.currentGroupType
+end
 
-    local channel = self.state.currentGroupType
+-- Send group goodbye only once per leave action. The guard is keyed by the resolved
+-- channel: leaving the instance group and the home party back to back are two different
+-- goodbyes, and one shared boolean would swallow the second.
+function Addon:SendGroupGoodbyeOnce(category)
+    local channel = self:GoodbyeChannelForCategory(category)
     if not channel then
         self:DebugPrint("No current group type cached, skipping goodbye")
         return
     end
 
-    self.state.groupGoodbyeSent = true
-    self:DebugPrint("Sending goodbye to", channel, "before leaving")
-    self:SendGoodbye(channel)
+    if self.state.groupGoodbyeSent[channel] then
+        self:DebugPrint("Group goodbye already sent to", channel, ", skipping")
+        return
+    end
 
-    -- Reset flag after a short delay (in case GROUP_LEFT also tries to send)
-    self:ScheduleTimer(function()
-        self.state.groupGoodbyeSent = false
-    end, 2)
+    -- The guard is set only when a goodbye actually went out (SendGoodbye is synchronous):
+    -- a bail-out - empty pool, gate, message that polishes to nothing - must not consume
+    -- the once-per-leave slot. A double LeaveParty still cannot double-send: the first
+    -- successful send sets the flag before the second hook can run.
+    self:DebugPrint("Sending goodbye to", channel, "before leaving")
+    if self:SendGoodbye(channel) then
+        self.state.groupGoodbyeSent[channel] = true
+    end
+
+    -- GROUP_LEFT deliberately does not clear the flag (it fires milliseconds after this
+    -- hook) - so the guard resets itself. 5s covers a double LeaveParty, nothing longer.
+    if self.state.groupGoodbyeTimer[channel] then
+        self:CancelTimer(self.state.groupGoodbyeTimer[channel])
+    end
+    self.state.groupGoodbyeTimer[channel] = self:ScheduleTimer(function()
+        self.state.groupGoodbyeTimer[channel] = nil
+        self.state.groupGoodbyeSent[channel] = false
+    end, 5)
 end
 
 function Addon:OnDisable()
@@ -517,8 +703,11 @@ function Addon:SlashCommand(input)
     elseif cmd == "debug" then
         self.db.profile.debugMode = not self.db.profile.debugMode
         self:Print("Debug mode:", self.db.profile.debugMode and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r")
-    elseif cmd == "testmode" or cmd == "test" and not arg1 then
+    elseif cmd == "testmode" then
         self.db.profile.testMode = not self.db.profile.testMode
+        -- Invalidate every delayed send built under the previous mode: a simulated message
+        -- still sitting in a typing delay must never reach real chat (and vice versa)
+        self.state.sendGeneration = self.state.sendGeneration + 1
         if self.db.profile.testMode then
             self:Print("|cFFFF9900Test mode:|r |cFF00FF00ON|r - Messages will be printed, not sent")
             self:Print("Use |cFFFFFF00/as help|r to see test commands")
@@ -526,22 +715,25 @@ function Addon:SlashCommand(input)
             self:Print("|cFFFF9900Test mode:|r |cFFFF0000OFF|r")
             self:TestReset()
         end
-    -- Test simulation commands
+    -- Test simulation commands. Gated as a whole: the inline subcommands below (grats,
+    -- guildjoin, resetgate) reach real guild chat / wipe real gate state when test mode is
+    -- off - the per-helper RequireTestMode calls do not cover them.
     elseif cmd == "test" then
         local subcmd = arg1 and arg1:lower() or ""
+        -- Bare "/as test" may always show the command list; everything else needs test mode
+        if subcmd ~= "" and not self:RequireTestMode() then return end
         if subcmd == "party" or subcmd == "p" then
             self:TestJoinParty()
         elseif subcmd == "raid" or subcmd == "r" then
             self:TestJoinRaid()
+        elseif subcmd == "instance" or subcmd == "i" then
+            self:TestJoinInstance()
         elseif subcmd == "leave" or subcmd == "l" then
             self:TestLeaveGroup()
         elseif subcmd == "guild" or subcmd == "g" then
             self:TestGuildGreeting()
         elseif subcmd == "guildbye" or subcmd == "gb" then
             self:TestGuildGoodbye()
-        elseif subcmd == "guildlogin" or subcmd == "gl" then
-            local _, _, playerName = self:GetArgs(input, 3)
-            self:TestGuildMemberLogin(playerName)
         elseif subcmd == "grats" then
             self:TestPrint("=== Simulating GUILD ACHIEVEMENT (TestGuildie) ===")
             self:SendGuildGrats("TestGuildie")
@@ -557,6 +749,16 @@ function Addon:SlashCommand(input)
             self:TestPlayerJoins(playerName)
         elseif subcmd == "key" or subcmd == "k" then
             self:TestMythicPlusFlow()
+        elseif subcmd == "keystart" or subcmd == "ks" then
+            self:TestKeyStart()
+        elseif subcmd == "role" then
+            local _, _, roleArg = self:GetArgs(input, 3)
+            self:TestSetRole(roleArg)
+        elseif subcmd == "hour" then
+            local _, _, hourArg = self:GetArgs(input, 3)
+            self:TestSetHour(hourArg)
+        elseif subcmd == "whatsnew" then
+            self:TestPreviewWhatsNew()
         elseif subcmd == "reset" then
             self:TestReset()
         elseif subcmd == "resetgate" or subcmd == "rg" then
@@ -574,17 +776,22 @@ function Addon:SlashCommand(input)
             self:TestStatus()
         else
             self:Print("|cFFFF9900Test commands:|r")
+            self:Print("  /as testmode - Toggle simulation mode (required for the commands below)")
             self:Print("  /as test party - Simulate joining a party")
             self:Print("  /as test raid - Simulate joining a raid")
+            self:Print("  /as test instance - Simulate zoning into an instance group")
             self:Print("  /as test leave - Simulate leaving group")
             self:Print("  /as test guild - Simulate guild login greeting")
             self:Print("  /as test guildbye - Simulate guild logout goodbye")
-            self:Print("  /as test guildlogin [name] - Simulate guild member logging in")
             self:Print("  /as test grats - Simulate guild achievement congrats")
             self:Print("  /as test guildjoin - Simulate a new member joining the guild")
             self:Print("  /as test reconnect - Simulate reconnecting to group")
             self:Print("  /as test player [name] - Simulate player joining")
             self:Print("  /as test key - Simulate full M+ flow (listing → joins → announce)")
+            self:Print("  /as test keystart - Simulate the key start announce (duplicate and new key)")
+            self:Print("  /as test role tank|healer|dps - Simulate assigned role")
+            self:Print("  /as test hour <0-23>|off - Simulate time-of-day band")
+            self:Print("  /as test whatsnew - Preview the What's new popup")
             self:Print("  /as test reset - Reset test state")
             self:Print("  /as test resetgate - Clear social gate counters (budget, cooldowns, welcomed list)")
             self:Print("  /as test status - Show test status")
@@ -633,6 +840,7 @@ function Addon:OpenConfig()
     -- Hook frame close to save window status
     local frame = AceConfigDialog.OpenFrames["AutoSay"]
     if frame then
+        frame:SetStatusText(L["Made in Ukraine"])
         frame:SetCallback("OnClose", function(widget, event)
             local s = AceConfigDialog:GetStatusTable("AutoSay")
             self.db.profile.configWindowStatus = {
@@ -672,10 +880,21 @@ function Addon:CanSendMessage(channelType)
     return true
 end
 
--- Send a message to chat
-function Addon:SendMessageToChat(message, channel, target)
+-- Send a message to chat. Optional validate() runs again inside the typing delay - a send
+-- whose precondition can expire (the key announce's 5/5) re-checks right before dispatch.
+-- Optional onSent() fires only when the line actually went out: state that must record
+-- "this was SAID" (announcedKey) belongs there, not on the scheduling result.
+function Addon:SendMessageToChat(message, channel, target, keepCase, validate, onSent)
     if not self.db.profile.enabled then
         self:DebugPrint("Addon disabled, not sending")
+        return false
+    end
+
+    -- A message that polishes down to nothing (custom text of only "{dungeon} {key}") must be
+    -- refused here, before the caller burns its once-per-group flag, cooldown or budget slot on it
+    local polished = self:PolishMessage(message, keepCase)
+    if not polished or not polished:match("%S") then
+        self:DebugPrint("Message empty after polish, refusing")
         return false
     end
 
@@ -697,20 +916,75 @@ function Addon:SendMessageToChat(message, channel, target)
     end
 
     if delay and delay > 0 then
-        self:ScheduleTimer(function()
-            self:DoSendMessage(message, channel, target)
+        -- Group sends are tracked so that joining a NEW group can cancel anything still in
+        -- flight for the old one - a greeting built for group A must not land in group B.
+        -- Guild sends are not: the guild never changes under a pending timer. GROUP_LEFT does
+        -- not cancel either (the goodbye is scheduled moments before it fires).
+        local handles = channel ~= "GUILD" and self.state.pendingGroupSends or nil
+        -- A message built under one test-mode state must not fire under another: toggling
+        -- test mode inside the typing delay would otherwise send a SIMULATION into real chat
+        local generation = self.state.sendGeneration
+        local handle
+        handle = self:ScheduleTimer(function()
+            if handles then handles[handle] = nil end
+            if generation ~= self.state.sendGeneration then
+                self:DebugPrint("Dropping delayed send - test mode toggled since scheduling")
+                return
+            end
+            if validate and not validate() then
+                self:DebugPrint("Dropping delayed send - no longer valid")
+                return
+            end
+            if self:DoSendMessage(message, channel, target, keepCase) and onSent then
+                onSent()
+            end
         end, delay)
+        -- Tagged with the channel so GROUP_JOINED can cancel selectively (an instance
+        -- group forming next to a live home party only kills the INSTANCE_CHAT sends)
+        if handles then handles[handle] = channel end
         self:DebugPrint("Scheduled message in", delay, "seconds")
-    else
-        self:DoSendMessage(message, channel, target)
+        return true
     end
-    return true
+    -- Immediate path: the caller's budget/flag spend must reflect what actually happened
+    local ok = self:DoSendMessage(message, channel, target, keepCase)
+    if ok and onSent then onSent() end
+    return ok
 end
 
-function Addon:DoSendMessage(message, channel, target)
+-- Final polish applied to every outgoing message: {role} placeholder, leftover M+ tokens,
+-- and the optional lowercase first letter (skipped for keepCase phrases, e.g. "Lok'tar ogar!")
+-- (%a is ASCII-only on purpose, so UTF-8 custom messages are left alone)
+function Addon:PolishMessage(message, keepCase)
+    if not message then return nil end
+    message = message:gsub("{role}", self:GetRoleWord())
+    -- M+ placeholders only the M+ path can resolve - a custom greeting/goodbye using them
+    -- would otherwise ship the raw token to chat
+    message = Logic.StripTokens(message, AutoSay.MPlusTokens)
+    if self.db.profile.social.lowercaseFirst and not keepCase then
+        message = message:gsub("^%a", string.lower)
+    end
+    return message
+end
+
+-- Chat colour per channel for the test-mode "would send" line
+local ChannelColor = {}
+for _, c in ipairs(AutoSay.Channels) do ChannelColor[c.chat] = c.color end
+
+-- Returns true when a message actually went out (or was simulated in test mode) - callers
+-- that spend a budget slot on the dispatch must not spend it on a drop
+function Addon:DoSendMessage(message, channel, target, keepCase)
     if not message then
         self:DebugPrint("No message to send")
-        return
+        return false
+    end
+
+    message = TruncateToChatLimit(self:PolishMessage(message, keepCase))
+
+    -- Token stripping can reduce a message to nothing (custom text of only "{dungeon} {key}")
+    -- and SendChatMessage("") would error - drop instead
+    if not message:match("%S") then
+        self:DebugPrint("Message empty after polish, dropping")
+        return false
     end
 
     -- Update appropriate cooldown based on channel type
@@ -724,19 +998,11 @@ function Addon:DoSendMessage(message, channel, target)
 
     -- In test mode, print to chat instead of actually sending
     if self:IsTestMode() then
-        local channelColor = "|cFF00CCFF" -- Default blue
-        if channel == "RAID" then
-            channelColor = "|cFFFF7F00" -- Orange
-        elseif channel == "GUILD" then
-            channelColor = "|cFF40FF40" -- Green
-        elseif channel == "PARTY" then
-            channelColor = "|cFFAAAAFF" -- Light blue
-        end
-
+        local channelColor = ChannelColor[channel] or "|cFF00CCFF" -- Default blue
         print("|cFFFF9900[AutoSay TEST]|r Would send to " .. channelColor .. "[" .. channel .. "]|r: " .. message)
         updateCooldown()
         self:DebugPrint("Test mode - simulated send to", channel, ":", message)
-        return
+        return true
     end
 
     -- WoW 12.0+ restricts SendChatMessage in certain instance contexts
@@ -745,12 +1011,17 @@ function Addon:DoSendMessage(message, channel, target)
     if ok then
         updateCooldown()
         self:DebugPrint("Sent to", channel, ":", message)
-    else
-        self:DebugPrint("Failed to send to", channel, ":", tostring(err))
-        if self:IsTestMode() then
-            self:TestPrint("Failed to send message (possible instance restriction): " .. tostring(err))
-        end
+        return true
     end
+    self:DebugPrint("Failed to send to", channel, ":", tostring(err))
+    return false
+end
+
+-- Instance zone-in greeting flag. Mirrored into db.char so a /reload inside the instance
+-- does not greet the same group twice; cleared whenever we leave or change group.
+function Addon:SetInstanceGreeted(done)
+    self.state.instanceGreeted = done and true or false
+    self.db.char.instanceGreeted.done = self.state.instanceGreeted
 end
 
 -- Get appropriate chat channel
@@ -783,32 +1054,56 @@ function Addon:IsInGuildOrTest()
     return IsInGuild() or self.state.isInGuild
 end
 
--- Check if player is group leader (with test mode support)
-function Addon:IsGroupLeaderOrTest()
+-- Check if player is group leader (with test mode support). The optional channel scopes
+-- the check to that channel's own group: while dual-grouped, leading the home party says
+-- nothing about leading the LFR whose INSTANCE_CHAT is being greeted.
+function Addon:IsGroupLeaderOrTest(channel)
     if self:IsTestMode() and self.testState.simulatedGroupType then
         return self.testState.simulatedIsLeader
+    end
+    if channel == "INSTANCE_CHAT" then
+        return UnitIsGroupLeader("player", LE_PARTY_CATEGORY_INSTANCE)
+    elseif channel then
+        return UnitIsGroupLeader("player", LE_PARTY_CATEGORY_HOME)
     end
     return UnitIsGroupLeader("player")
 end
 
+-- Get assigned role (with test mode support); "NONE" when solo/unassigned
+function Addon:GetPlayerRoleOrTest()
+    if self:IsTestMode() then
+        return self.testState.simulatedRole or "DAMAGER"
+    end
+    return UnitGroupRolesAssigned("player")
+end
+
+-- Word used for the {role} placeholder
+function Addon:GetRoleWord()
+    return AutoSay.RoleWords[self:GetPlayerRoleOrTest()] or AutoSay.RoleWords.DAMAGER
+end
+
+-- A custom text containing {role} obeys the same two gates as the preset role phrases
+-- (master switch on, an actual role assigned) - PolishMessage would otherwise confidently
+-- substitute "dps" for an unassigned or role-phrases-off player. Applies to EVERY custom
+-- pool: channel messages, guild login, key announce, completion.
+function Addon:CustomTextUsable(text)
+    if not text:find("{role}", 1, true) then return true end
+    return self.db.profile.social.rolePhrases and self:GetPlayerRoleOrTest() ~= "NONE"
+end
+
 -- Get channel settings table
 function Addon:GetChannelSettings(channel)
-    local db = self.db.profile
-    if channel == "PARTY" then
-        return db.party
-    elseif channel == "RAID" then
-        return db.raid
-    elseif channel == "INSTANCE_CHAT" then
-        -- Instance groups (LFG/LFR/battlegrounds) reuse party/raid settings
-        return IsInRaid() and db.raid or db.party
-    elseif channel == "GUILD" then
-        return db.guild
+    for _, c in ipairs(AutoSay.Channels) do
+        if c.chat == channel then return self.db.profile[c.key] end
     end
     return nil
 end
 
--- Get random message for a channel
-function Addon:GetRandomMessageForChannel(messageType, channel)
+-- Get random message for a channel.
+-- reason is the greeting reason ("self_join"/"others_join"/"reconnect", nil elsewhere) and gates
+-- the per-phrase trigger; wantNames prefers phrases that can carry names.
+-- Returns the text, its name mode (nil = the phrase must never carry names) and its keepCase flag.
+function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantNames)
     local settings = self:GetChannelSettings(channel)
     if not settings then return nil end
 
@@ -829,69 +1124,294 @@ function Addon:GetRandomMessageForChannel(messageType, channel)
         return nil
     end
 
-    local enabled = {}
+    -- Presets first, and the same text never enters twice: a custom copy of a preset must not
+    -- override the preset's keepCase/mode, nor double that text's odds of being picked.
+    -- One pass fills the pick arrays already filtered by wantNames - with names in hand prefer
+    -- the phrases built for them, without names drop the ones that would render a hole where
+    -- {names} sits. What the filter rejects is kept aside as the fallback: when it leaves
+    -- nothing, the rejects are by definition every candidate there was.
+    local texts, modes, keeps = {}, {}, {}
+    local rejects, seen = nil, {}
+    local function AddCandidate(text, mode, keepCase)
+        if seen[text] then return end
+        seen[text] = true
+        local wanted
+        if wantNames then
+            wanted = mode ~= nil
+        else
+            wanted = mode ~= "slot"
+        end
+        if wanted then
+            local n = #texts + 1
+            texts[n], modes[n], keeps[n] = text, mode, keepCase
+        else
+            rejects = rejects or {}
+            rejects[#rejects + 1] = { text = text, mode = mode, keepCase = keepCase }
+        end
+    end
 
     -- Add enabled preset messages
     if settings[enabledKey] then
+        local role = self:GetPlayerRoleOrTest()
+        local faction = UnitFactionGroup("player")
+        -- nil band = band-tagged phrases never match, i.e. the master switch is off
+        local hour
+        if self:IsTestMode() and self.testState.simulatedHour ~= nil then
+            hour = self.testState.simulatedHour
+        else
+            hour = (self.humanizer and self.humanizer.hour)
+                and self.humanizer.hour() or tonumber(date("%H"))
+        end
+        local band = self.db.profile.social.timeOfDay
+            and AutoSay.Humanizer.BandForHour(hour) or nil
+        local rolePhrases = self.db.profile.social.rolePhrases
         for _, msg in ipairs(messages) do
-            if settings[enabledKey][msg.key] then
-                table.insert(enabled, msg.text)
+            if settings[enabledKey][msg.key] and FitsContext(msg, role, faction, band, reason, rolePhrases) then
+                AddCandidate(msg.text, NameMode(msg), msg.keepCase)
             end
         end
     end
 
-    -- Add enabled custom messages
+    -- Add enabled custom messages: a {names} placeholder makes them slot phrases (and thus
+    -- droppable when there are no names), everything else keeps the append-if-asked behaviour.
+    -- A custom {role} obeys the same two gates as the preset ones (master switch, no assigned
+    -- role) - otherwise "your {role} is here" announces "dps" for an unassigned tank.
     if settings[customsKey] then
         for _, entry in ipairs(settings[customsKey]) do
-            if entry.enabled and entry.text and entry.text ~= "" then
-                table.insert(enabled, entry.text)
+            if entry.enabled and entry.text and entry.text ~= "" and self:CustomTextUsable(entry.text) then
+                local mode = entry.text:find("{names}", 1, true) and "slot" or "append"
+                AddCandidate(entry.text, mode)
             end
         end
     end
 
-    if #enabled == 0 then
-        return nil
+    if #texts == 0 then
+        -- Nothing survived the filter. With names: nothing name-capable is enabled, so send the
+        -- rest without names. Without names: only {names} phrases are enabled, so say them with
+        -- the slot stripped rather than going silent. Either way the rejects carry no name mode.
+        if not rejects then return nil end
+        for i, c in ipairs(rejects) do
+            texts[i] = wantNames and c.text or StripNameSlot(c.text)
+            keeps[i] = c.keepCase
+        end
     end
 
-    if messageType == "greetings" and self.db.profile.social.timeOfDay and self.humanizer then
-        return self.humanizer:PickTimed("greetings:" .. channel, enabled, AutoSay.GreetingsTimeOfDay)
-    end
-
+    local text
     if self.humanizer then
-        return self.humanizer:Pick(messageType .. ":" .. channel, enabled)
+        text = self.humanizer:Pick(messageType .. ":" .. channel, texts)
+    else
+        text = texts[math.random(#texts)]
     end
 
-    return enabled[math.random(#enabled)]
+    -- First match wins, same rule the dedupe above used
+    for i = 1, #texts do
+        if texts[i] == text then return text, modes[i], keeps[i] end
+    end
+    return text
 end
 
--- Add player names to message
-function Addon:AddPlayersToMessage(message, playerNames, includeNames)
-    if not includeNames or not playerNames or #playerNames == 0 then
-        return message
+-- Every settings table a bundle or bulk button writes to, paired with the pool it owns there.
+-- Channel pools repeat once per channel (channels without that pool are skipped by the nil
+-- settings check downstream); M+ pools exist once, under db.profile.mythicplus.
+local function StylePoolTargets(profile)
+    local targets = {}
+    for _, c in ipairs(AutoSay.Channels) do
+        for _, pool in ipairs(AutoSay.StylePools) do
+            if not pool.mplus then
+                targets[#targets + 1] = { settings = profile[c.key], pool = pool }
+            end
+        end
+    end
+    for _, pool in ipairs(AutoSay.StylePools) do
+        if pool.mplus then
+            targets[#targets + 1] = { settings = profile.mythicplus, pool = pool }
+        end
+    end
+    return targets
+end
+
+-- StyleFits (from MessageLogic): used by the "fully enabled" check to ignore phrases this
+-- character's faction can never say; the apply loop enables both factions on purpose.
+
+-- style -> list of { enabledKey, mplus, <msg>, <msg>, ... }: every styled phrase, bucketed by
+-- the pool it lives in. The phrase tables never change, so this is built once and the bundle
+-- state check walks one style's phrases instead of every entry of every pool.
+local styleIndex
+local function StyleIndex(style)
+    if not styleIndex then
+        styleIndex = {}
+        for _, pool in ipairs(AutoSay.StylePools) do
+            for _, msg in ipairs(AutoSay[pool.messages]) do
+                if msg.style then
+                    local buckets = styleIndex[msg.style]
+                    if not buckets then
+                        buckets = {}
+                        styleIndex[msg.style] = buckets
+                    end
+                    local bucket = buckets[pool.enabledKey]
+                    if not bucket then
+                        bucket = { enabledKey = pool.enabledKey, mplus = pool.mplus }
+                        buckets[pool.enabledKey] = bucket
+                        buckets[#buckets + 1] = bucket
+                    end
+                    bucket[#bucket + 1] = msg
+                end
+            end
+        end
+    end
+    return styleIndex[style]
+end
+
+-- Every settings table a pool's checkboxes live in: one per channel, or the single M+ one
+local function PoolSettings(profile, mplus)
+    if mplus then return { profile.mythicplus } end
+    local list = {}
+    for _, c in ipairs(AutoSay.Channels) do
+        list[#list + 1] = profile[c.key]
+    end
+    return list
+end
+
+-- The bundle buttons ask for their state on every redraw, once per style. Cache the answer and
+-- drop the whole cache on any write to a phrase checkbox - the addon registers no AceDB profile
+-- callbacks, so nothing else can swap the settings out from under it.
+function Addon:InvalidateBundleCache()
+    self.bundleCache = nil
+end
+
+-- True when every usable phrase of the style is enabled in every pool that has one.
+-- Phrases of the other faction can never be picked here, so they do not count.
+function Addon:IsStyleBundleEnabled(style)
+    local cache = self.bundleCache
+    if not cache then
+        cache = {}
+        self.bundleCache = cache
+    end
+    if cache[style] ~= nil then return cache[style] end
+
+    local faction = UnitFactionGroup("player")
+    local profile = self.db.profile
+    local result = true
+    for _, bucket in ipairs(StyleIndex(style) or {}) do
+        for _, settings in ipairs(PoolSettings(profile, bucket.mplus)) do
+            local enabled = settings and settings[bucket.enabledKey]
+            if enabled then
+                for _, msg in ipairs(bucket) do
+                    if (not msg.faction or msg.faction == faction) and not enabled[msg.key] then
+                        result = false
+                        break
+                    end
+                end
+            end
+            if not result then break end
+        end
+        if not result then break end
     end
 
-    return message .. " " .. table.concat(playerNames, ", ")
+    cache[style] = result
+    return result
 end
 
--- Send greeting (checks cooldown and queues if blocked)
+-- Set every preset phrase of a style in every pool (state = true/false).
+-- replace = true also turns off everything that is not part of the style (custom messages are untouched).
+function Addon:ApplyStyleBundle(style, replace, state)
+    if state == nil then state = true end
+    local faction = UnitFactionGroup("player")
+
+    local targets = StylePoolTargets(self.db.profile)
+
+    -- A pool the style has nothing usable in must be left as it is - Replace has no
+    -- replacement to offer there, so wiping it would just silence the channel
+    local poolHasStyle = {}
+    for _, target in ipairs(targets) do
+        for _, msg in ipairs(AutoSay[target.pool.messages]) do
+            if StyleFits(msg, style, faction) then
+                poolHasStyle[target.pool.enabledKey] = true
+                break
+            end
+        end
+    end
+
+    for _, target in ipairs(targets) do
+        local enabled = target.settings and target.settings[target.pool.enabledKey]
+        if enabled and poolHasStyle[target.pool.enabledKey] then
+            for _, msg in ipairs(AutoSay[target.pool.messages]) do
+                if msg.style == style then
+                    -- Both factions on purpose: the profile is shared by every character on
+                    -- the account, and FitsContext already filters by faction at send time.
+                    -- Skipping the other faction here + Replace would leave a Horde alt with
+                    -- an all-false pool and no goodbye at all.
+                    enabled[msg.key] = state
+                elseif replace and state and not msg.band then
+                    -- Band phrases are not shown in this UI - Replace must not silently kill them
+                    enabled[msg.key] = false
+                end
+            end
+        end
+    end
+
+    self:InvalidateBundleCache()
+    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+    local doneKey = state and "Style bundle applied" or "Style bundle removed"
+    self:Print(L[doneKey] .. ": |cFFFFFF00" .. L["Style " .. style] .. "|r")
+end
+
+-- Tag-category matchers for the bulk enable/disable buttons next to the master switches
+local TagMatchers = {
+    role = function(msg) return msg.role ~= nil or msg.text:find("{role}", 1, true) ~= nil end,
+    band = function(msg) return msg.band ~= nil end,
+}
+
+-- Bulk-set every phrase of a tag category (role/band) on all channels, bundle-style.
+-- The master switch stays the gate; this only rewrites the per-phrase checkboxes,
+-- so "master on + old selections" remains the third, untouched-by-buttons state.
+function Addon:SetTaggedPhrasesEnabled(kind, state)
+    local matches = TagMatchers[kind]
+    if not matches then return end
+
+    for _, target in ipairs(StylePoolTargets(self.db.profile)) do
+        local enabled = target.settings and target.settings[target.pool.enabledKey]
+        if enabled then
+            for _, msg in ipairs(AutoSay[target.pool.messages]) do
+                if matches(msg) then
+                    enabled[msg.key] = state
+                end
+            end
+        end
+    end
+
+    self:InvalidateBundleCache()
+    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+    self:Print(L[state and "Phrases enabled on all channels" or "Phrases disabled on all channels"])
+end
+
+-- Render player names into a message according to the phrase's name mode
+-- ("slot" = fill the {names} placeholder, "append" = glue to the end, nil = no names at all)
+function Addon:AddPlayersToMessage(message, playerNames, nameMode)
+    return Logic.AddPlayersToMessage(message, playerNames, nameMode)
+end
+
+-- Send greeting (checks cooldown and drops if blocked).
+-- Returns true only when a message reached the send pipeline - callers that burn a
+-- once-per-group flag (instance zone-in) must not burn it on a bail-out.
 function Addon:SendGreeting(playerNames, reason)
     local db = self.db.profile
 
-    if not db.enabled then return end
+    if not db.enabled then return false end
 
     local channel = self:GetChatChannel()
     if not channel then
         self:DebugPrint("Not in group, skipping greeting")
-        return
+        return false
     end
 
     local settings = self:GetChannelSettings(channel)
-    if not settings then return end
+    if not settings then return false end
 
     -- Check if channel is enabled
     if not settings.enabled then
         self:DebugPrint(channel, "greetings disabled")
-        return
+        return false
     end
 
     if self.socialGate then
@@ -900,254 +1420,88 @@ function Addon:SendGreeting(playerNames, reason)
         if not ok then
             self:DebugPrint("SendGreeting gated:", why)
             if self:IsTestMode() then self:TestPrint("Greeting blocked: " .. why) end
-            return
+            return false
         end
     end
 
     self:DebugPrint("SendGreeting called - reason:", reason, "channel:", channel,
         "names:", playerNames and table.concat(playerNames, ", ") or "none")
 
-    -- Check cooldown - if blocked, queue for later delivery
+    -- Check cooldown - if blocked, drop it. A greeting that lands seconds late is a
+    -- second greeting, not a delayed one.
     if not self:CanSendMessage(channel) then
-        self:DebugPrint("SendGreeting -> cooldown active, queuing message")
-        self:QueueGreeting(channel, reason, playerNames)
-        return
+        self:DebugPrint("SendGreeting -> cooldown active, dropping", reason, "greeting for", channel)
+        if self:IsTestMode() then self:TestPrint("Greeting dropped (cooldown active): " .. tostring(reason)) end
+        return false
     end
 
     -- Send immediately
     self:DebugPrint("SendGreeting -> cooldown OK, sending immediately")
-    self:BuildAndSendGreeting(channel, reason, playerNames)
+    return self:BuildAndSendGreeting(channel, reason, playerNames)
 end
 
--- Build a greeting message and send it (used by both direct send and queue processing)
+-- Build a greeting message and send it. Returns true when it reached the send pipeline.
 function Addon:BuildAndSendGreeting(channel, reason, playerNames)
     local settings = self:GetChannelSettings(channel)
-    if not settings or not settings.enabled then return end
+    if not settings or not settings.enabled then return false end
+
+    -- Do we want names on this one?
+    -- For self_join: names are pre-collected based on includeGroupNames, use them if provided
+    -- For others_join: check includeNames setting
+    local hasNames = playerNames ~= nil and #playerNames > 0
+    local wantNames = hasNames and (reason == "self_join" or settings.includeNames or false)
 
     -- Pick a message based on reason (humanizer history avoids immediate repeats)
-    local message
+    local message, nameMode, keepCase
     if reason == "reconnect" then
-        message = self:GetRandomMessageForChannel("reconnects", channel)
+        message, nameMode, keepCase = self:GetRandomMessageForChannel("reconnects", channel, reason, wantNames)
         if not message then
+            -- Deliberate: this fallback may pick a [self]-tagged greeting even when
+            -- "On self join" is off - a reconnect IS a self event, and going silent when the
+            -- user explicitly enabled reconnect greetings would be the worse behaviour
             self:DebugPrint("No reconnects enabled for", channel, "- falling back to greetings")
-            message = self:GetRandomMessageForChannel("greetings", channel)
+            message, nameMode, keepCase = self:GetRandomMessageForChannel("greetings", channel, reason, wantNames)
         end
     else
-        message = self:GetRandomMessageForChannel("greetings", channel)
+        message, nameMode, keepCase = self:GetRandomMessageForChannel("greetings", channel, reason, wantNames)
     end
 
     if not message then
         self:DebugPrint("No greetings enabled for", channel)
-        return
+        return false
     end
 
-    -- Add player names if enabled for this channel
-    -- For self_join: names are pre-collected based on includeGroupNames, always append if provided
-    -- For others_join: check includeNames setting
-    local includeNames
-    if reason == "self_join" then
-        includeNames = (playerNames ~= nil and #playerNames > 0)
-    else
-        includeNames = settings.includeNames or false
-    end
-    message = self:AddPlayersToMessage(message, playerNames, includeNames)
+    message = self:AddPlayersToMessage(message, playerNames, wantNames and nameMode or nil)
 
     self:DebugPrint("BuildAndSend -> final message:", message)
 
-    -- Reserve the budget slot here, where a message is certain to go out: covers both the
-    -- immediate path and the queue path (one merged queue message = one reservation)
+    if not self:SendMessageToChat(message, channel, nil, keepCase) then
+        -- Cooldown won the race - drop it, a late greeting is just a second greeting
+        self:DebugPrint("BuildAndSend -> SendMessageToChat refused (cooldown), dropping")
+        return false
+    end
+
+    -- Spend the budget slot only for a message that actually went out
     if self.socialGate then
         self.socialGate:Record("greeting", playerNames and playerNames[1] or nil)
     end
-
-    local sent = self:SendMessageToChat(message, channel)
-    if sent then
-        self:DebugPrint("BuildAndSend -> message accepted for sending")
-    else
-        -- Cooldown blocked (race condition) - re-queue for retry
-        self:DebugPrint("BuildAndSend -> SendMessageToChat returned false, re-queuing")
-        self:QueueGreeting(channel, reason, playerNames)
-    end
+    return true
 end
 
--- Queue a greeting intent for later delivery (when cooldown blocked)
-function Addon:QueueGreeting(channel, reason, playerNames)
-    -- Copy playerNames to avoid reference issues
-    local namesCopy = nil
-    if playerNames and #playerNames > 0 then
-        namesCopy = {}
-        for _, name in ipairs(playerNames) do
-            table.insert(namesCopy, name)
-        end
-    end
-
-    table.insert(self.state.messageQueue, {
-        channel = channel,
-        reason = reason,
-        playerNames = namesCopy,
-    })
-
-    self:DebugPrint("QUEUE -> added entry:", reason, "channel:", channel,
-        "names:", namesCopy and table.concat(namesCopy, ", ") or "none",
-        "| queue size now:", #self.state.messageQueue)
-
-    if self:IsTestMode() then
-        local namesStr = namesCopy and (" for " .. table.concat(namesCopy, ", ")) or ""
-        self:TestPrint("Message queued (cooldown active): " .. reason .. namesStr .. " | queue size: " .. #self.state.messageQueue)
-    end
-
-    -- Schedule queue processing when cooldown expires
-    self:ScheduleQueueProcessing(channel)
-end
-
--- Schedule processing of the message queue when cooldown expires
-function Addon:ScheduleQueueProcessing(channel)
-    if self.state.queueTimer then
-        self:DebugPrint("QUEUE -> timer already scheduled, skipping")
-        return
-    end
-
-    local cooldown = self.db.profile.cooldown
-    local lastTime
-    if channel == "GUILD" then
-        lastTime = self.state.lastGuildMessageTime
-    else
-        lastTime = self.state.lastGroupMessageTime
-    end
-
-    local elapsed = GetTime() - lastTime
-    local remaining = cooldown - elapsed
-
-    -- Account for messageDelay: DoSendMessage updates cooldown AFTER delay,
-    -- so queue must wait for cooldown + messageDelay to avoid being blocked again
-    local messageDelay = self.db.profile.messageDelay or 0
-    if messageDelay > 0 then
-        remaining = remaining + messageDelay
-    end
-
-    if remaining < 0.1 then remaining = 0.1 end
-
-    self:DebugPrint("QUEUE -> scheduling processing in", string.format("%.1f", remaining) .. "s",
-        "(cooldown:", cooldown .. "s, elapsed:", string.format("%.1f", elapsed) .. "s, messageDelay:", messageDelay .. "s)")
-
-    if self:IsTestMode() then
-        self:TestPrint("Queue will process in " .. string.format("%.1f", remaining) .. "s (cooldown: " .. cooldown .. "s)")
-    end
-
-    self.state.queueTimer = self:ScheduleTimer(function()
-        self.state.queueTimer = nil
-        self:DebugPrint("QUEUE -> timer fired, processing queue")
-        self:ProcessMessageQueue()
-    end, remaining)
-end
-
--- Process queued messages: merge same-type entries, deduplicate, concatenate names
-function Addon:ProcessMessageQueue()
-    if #self.state.messageQueue == 0 then
-        self:DebugPrint("QUEUE PROCESS -> queue is empty, nothing to do")
-        return
-    end
-
-    self:DebugPrint("QUEUE PROCESS -> starting, entries:", #self.state.messageQueue)
-
-    -- Log each entry before grouping
-    for i, entry in ipairs(self.state.messageQueue) do
-        self:DebugPrint("  entry", i, ":", entry.channel, entry.reason,
-            "names:", entry.playerNames and table.concat(entry.playerNames, ", ") or "none")
-    end
-
-    -- Group entries by (channel, reason) - merge names, deduplicate
-    local groups = {}
-    local groupOrder = {}
-    for _, entry in ipairs(self.state.messageQueue) do
-        local key = entry.channel .. ":" .. entry.reason
-        if not groups[key] then
-            groups[key] = {
-                channel = entry.channel,
-                reason = entry.reason,
-                playerNames = {},
-                nameSet = {},
-            }
-            table.insert(groupOrder, key)
-        end
-        -- Merge player names with deduplication
-        if entry.playerNames then
-            for _, name in ipairs(entry.playerNames) do
-                if not groups[key].nameSet[name] then
-                    groups[key].nameSet[name] = true
-                    table.insert(groups[key].playerNames, name)
-                else
-                    self:DebugPrint("  dedup: skipping duplicate name", name, "in group", key)
-                end
-            end
-        end
-    end
-
-    self:DebugPrint("QUEUE PROCESS -> grouped into", #groupOrder, "group(s):")
-    for i, key in ipairs(groupOrder) do
-        local g = groups[key]
-        self:DebugPrint("  group", i, ":", key,
-            "names:", #g.playerNames > 0 and table.concat(g.playerNames, ", ") or "none")
-    end
-
-    -- Clear queue
-    self.state.messageQueue = {}
-
-    -- Send the first merged group
-    local firstKey = groupOrder[1]
-    if firstKey then
-        local group = groups[firstKey]
-        local names = #group.playerNames > 0 and group.playerNames or nil
-
-        self:DebugPrint("QUEUE PROCESS -> sending first group:", group.reason, "channel:", group.channel,
-            "merged names:", names and table.concat(names, ", ") or "none")
-
-        if self:IsTestMode() then
-            local namesStr = names and (" " .. table.concat(names, ", ")) or ""
-            self:TestPrint("Processing queue: sending " .. group.reason .. " to " .. group.channel .. namesStr)
-        end
-
-        self:BuildAndSendGreeting(group.channel, group.reason, names)
-
-        -- Re-queue remaining groups (different channel/reason combos need separate sends)
-        if #groupOrder > 1 then
-            self:DebugPrint("QUEUE PROCESS -> re-queuing", #groupOrder - 1, "remaining group(s)")
-            for i = 2, #groupOrder do
-                local key = groupOrder[i]
-                local g = groups[key]
-                local n = #g.playerNames > 0 and g.playerNames or nil
-                table.insert(self.state.messageQueue, {
-                    channel = g.channel,
-                    reason = g.reason,
-                    playerNames = n,
-                })
-                self:DebugPrint("  re-queued:", key,
-                    "names:", n and table.concat(n, ", ") or "none")
-            end
-
-            -- Schedule next processing if queue still has entries
-            local nextEntry = self.state.messageQueue[1]
-            self:DebugPrint("QUEUE PROCESS -> scheduling next processing for:", nextEntry.channel, nextEntry.reason)
-            self:ScheduleQueueProcessing(nextEntry.channel)
-        else
-            self:DebugPrint("QUEUE PROCESS -> queue fully processed")
-        end
-    end
-end
-
--- Send goodbye
+-- Send goodbye. Returns true only when a line actually went out, so the caller's
+-- once-per-leave guard is not burned on a bail-out.
 function Addon:SendGoodbye(channel)
     local db = self.db.profile
 
-    if not db.enabled then return end
+    if not db.enabled then return false end
 
     local settings = self:GetChannelSettings(channel)
-    if not settings then return end
+    if not settings then return false end
 
     -- Check if goodbye is enabled for this channel
     if not settings.sendGoodbye then
         self:DebugPrint(channel, "goodbyes disabled")
-        return
+        return false
     end
 
     if self.socialGate then
@@ -1155,24 +1509,24 @@ function Addon:SendGoodbye(channel)
         if not ok then
             self:DebugPrint("SendGoodbye gated:", why)
             if self:IsTestMode() then self:TestPrint("Goodbye blocked: " .. why) end
-            return
+            return false
         end
     end
 
     -- Get random goodbye for this channel
-    local message = self:GetRandomMessageForChannel("goodbyes", channel)
+    local message, _, keepCase = self:GetRandomMessageForChannel("goodbyes", channel)
     if not message then
         self:DebugPrint("No goodbyes enabled for", channel)
-        return
+        return false
     end
 
-    -- Reserve the budget slot now that a message is certain to go out
-    if self.socialGate then
+    -- Send immediately (no delay for goodbyes since we're leaving);
+    -- spend the budget slot only for a message that actually went out
+    local sent = self:DoSendMessage(message, channel, nil, keepCase)
+    if sent and self.socialGate then
         self.socialGate:Record("goodbye")
     end
-
-    -- Send immediately (no delay for goodbyes since we're leaving)
-    self:DoSendMessage(message, channel)
+    return sent
 end
 
 -- Send congrats when a guildmate earns an achievement
@@ -1188,9 +1542,14 @@ function Addon:SendGuildGrats(name)
     self.socialGate:Record("grats", name)
     local text = self.humanizer:Pick("guildgrats", AutoSay.GuildGrats):gsub("{name}", name)
     local pendingId = self.socialGate:AddPending("grats", "GUILD")
+    local generation = self.state.sendGeneration
     local delay = 4 + math.random() * 6 -- 4-10s listening window per spec
     self:ScheduleTimer(function()
-        if not self.socialGate:TakePending(pendingId) then
+        -- The pending slot is consumed either way - dropping on a stale generation must
+        -- not leave a dangling intent in the social gate's listening state
+        local taken = self.socialGate:TakePending(pendingId)
+        if generation ~= self.state.sendGeneration then return end
+        if not taken then
             if self:IsTestMode() then self:TestPrint("Grats blocked: someone-answered") end
             return
         end
@@ -1217,9 +1576,13 @@ function Addon:SendGuildWelcome(name)
     self.socialGate:Record("welcome", name)
     local text = self.humanizer:Pick("guildwelcome", AutoSay.GuildWelcome):gsub("{name}", name)
     local pendingId = self.socialGate:AddPending("welcome", "GUILD")
+    local generation = self.state.sendGeneration
     local delay = 5 + math.random() * 10 -- 5-15s per spec
     self:ScheduleTimer(function()
-        if not self.socialGate:TakePending(pendingId) then
+        -- Consume the pending slot before the generation check, same as the grats path
+        local taken = self.socialGate:TakePending(pendingId)
+        if generation ~= self.state.sendGeneration then return end
+        if not taken then
             if self:IsTestMode() then self:TestPrint("Welcome blocked: someone-answered") end
             return
         end
@@ -1232,21 +1595,26 @@ function Addon:SendGuildGreeting()
     local db = self.db.profile
 
     if not db.enabled then return end
-    if not db.guild.enabled then return end
+    if not db.guild.enabled then
+        if self:IsTestMode() then self:TestPrint("Guild greeting skipped (guild channel disabled)") end
+        return
+    end
     if not db.guild.onSelfJoin then
         self:DebugPrint("Guild greeting on login disabled")
+        if self:IsTestMode() then self:TestPrint("Guild greeting skipped (On login disabled)") end
         return
     end
     if not self:IsInGuildOrTest() then return end
 
-    -- Check cooldown - if blocked, queue for later delivery
+    -- Check cooldown - if blocked, drop it (we just said something in guild chat)
     if not self:CanSendMessage("GUILD") then
-        self:QueueGreeting("GUILD", "guild_login", nil)
+        self:DebugPrint("Guild login greeting dropped - cooldown active")
         return
     end
 
-    -- Get random greeting for guild
-    local message = self:GetRandomMessageForChannel("greetings", "GUILD")
+    -- Get random greeting for guild. Logging in IS a self join: without the reason,
+    -- FitsContext rejects every [self]-tagged phrase the guild tab shows as active.
+    local message, _, keepCase = self:GetRandomMessageForChannel("greetings", "GUILD", "self_join")
     if not message then
         self:DebugPrint("No greetings enabled for GUILD")
         return
@@ -1259,10 +1627,12 @@ function Addon:SendGuildGreeting()
             if self:IsTestMode() then self:TestPrint("Guild greeting blocked: " .. why) end
             return
         end
-        self.socialGate:Record("greeting")
     end
 
-    self:SendMessageToChat(message, "GUILD")
+    -- Spend the budget slot only for a message that actually went out
+    if self:SendMessageToChat(message, "GUILD", nil, keepCase) and self.socialGate then
+        self.socialGate:Record("greeting")
+    end
 end
 
 -- Send guild goodbye on logout
@@ -1276,10 +1646,12 @@ function Addon:SendGuildGoodbye()
     end
     if not db.guild.enabled then
         self:DebugPrint("Guild channel disabled, skipping goodbye")
+        if self:IsTestMode() then self:TestPrint("Guild goodbye skipped (guild channel disabled)") end
         return
     end
     if not db.guild.sendGoodbye then
         self:DebugPrint("Guild goodbye on logout disabled")
+        if self:IsTestMode() then self:TestPrint("Guild goodbye skipped (Send goodbye disabled)") end
         return
     end
 
@@ -1291,7 +1663,7 @@ function Addon:SendGuildGoodbye()
     end
 
     -- Get random goodbye for guild
-    local message = self:GetRandomMessageForChannel("goodbyes", "GUILD")
+    local message, _, keepCase = self:GetRandomMessageForChannel("goodbyes", "GUILD")
     if not message then
         self:DebugPrint("No goodbyes enabled for GUILD")
         return
@@ -1304,12 +1676,14 @@ function Addon:SendGuildGoodbye()
             if self:IsTestMode() then self:TestPrint("Guild goodbye blocked: " .. why) end
             return
         end
-        self.socialGate:Record("goodbye")
     end
 
     self:DebugPrint("Sending guild goodbye:", message)
-    -- Send immediately (no delay for goodbyes)
-    self:DoSendMessage(message, "GUILD")
+    -- Send immediately (no delay for goodbyes);
+    -- spend the budget slot only for a message that actually went out
+    if self:DoSendMessage(message, "GUILD", nil, keepCase) and self.socialGate then
+        self.socialGate:Record("goodbye")
+    end
 end
 
 -- Handle a guild member logging in (called from CLUB_MEMBER_PRESENCE_UPDATED)
@@ -1322,7 +1696,14 @@ function Addon:HandleGuildMemberLogin(name)
         self:CancelTimer(self.state.guildLoginTimer)
     end
 
+    local generation = self.state.sendGeneration
     self.state.guildLoginTimer = self:ScheduleTimer(function()
+        if generation ~= self.state.sendGeneration then
+            self.state.guildLoginTimer = nil
+            -- The batch is unsendable - its names must not ride along in the next one
+            self.state.pendingGuildLogins = {}
+            return
+        end
         local names = {}
         for n in pairs(self.state.pendingGuildLogins) do
             table.insert(names, n)
@@ -1377,9 +1758,16 @@ function Addon:SendGuildLoginGreeting(names)
         return
     end
 
-    -- Replace {name} placeholder with member name(s)
-    local nameStr = table.concat(names, ", ")
-    message = message:gsub("{name}", nameStr)
+    -- Replace {name} placeholder with member name(s), capped like every other names path -
+    -- a raid-night login burst must not produce a 255-byte name wall chopped mid-name
+    message = message:gsub("{name}", Logic.FormatNameList(names))
+
+    -- A message that polishes to nothing must not consume the cooldown or a budget slot
+    local polished = self:PolishMessage(message)
+    if not polished or not polished:match("%S") then
+        self:DebugPrint("Guild login greeting empty after polish, dropping")
+        return
+    end
 
     self.state.lastGuildLoginGreetTime = now
     -- Reserve the budget slot before the delay timer, now that a message is certain to go out
@@ -1389,7 +1777,9 @@ function Addon:SendGuildLoginGreeting(names)
     -- Send directly, bypassing global cooldown (member login has its own cooldown above)
     local delay = db.messageDelay
     if delay and delay > 0 then
+        local generation = self.state.sendGeneration
         self:ScheduleTimer(function()
+            if generation ~= self.state.sendGeneration then return end
             self:DoSendMessage(message, "GUILD")
         end, delay)
     else
@@ -1414,7 +1804,7 @@ function Addon:GetRandomGuildLoginGreeting()
     -- Add enabled custom messages
     if settings.customLoginGreetings then
         for _, entry in ipairs(settings.customLoginGreetings) do
-            if entry.enabled and entry.text and entry.text ~= "" then
+            if entry.enabled and entry.text and entry.text ~= "" and self:CustomTextUsable(entry.text) then
                 table.insert(enabled, entry.text)
             end
         end
@@ -1440,7 +1830,7 @@ function Addon:ShouldGreetOnOthersJoin(channel)
         return false
     end
     -- If leader-only is enabled, check if player is the group leader
-    if settings.onOthersJoinLeaderOnly and not self:IsGroupLeaderOrTest() then
+    if settings.onOthersJoinLeaderOnly and not self:IsGroupLeaderOrTest(channel) then
         self:DebugPrint("Leader-only greeting enabled but not leader, skipping")
         return false
     end
@@ -1476,6 +1866,22 @@ function Addon:GetMapIDFromActivity(activityID)
     return activityID and AutoSay.ActivityToDungeon[activityID] or nil
 end
 
+-- Resolve mapChallengeModeID by exact localized-name match against the live season pool -
+-- the fallback for listings whose activityID is not in ActivityToDungeon (the table can lag
+-- a season behind). Same matching trick DumpDungeons uses.
+function Addon:GetMapIDFromDungeonName(name)
+    if not name or not C_ChallengeMode or not C_ChallengeMode.GetMapTable
+        or not C_ChallengeMode.GetMapUIInfo then
+        return nil
+    end
+    for _, mapID in ipairs(C_ChallengeMode.GetMapTable() or {}) do
+        if C_ChallengeMode.GetMapUIInfo(mapID) == name then
+            return mapID
+        end
+    end
+    return nil
+end
+
 -- Replace {dungeon} and {key} placeholders in a message
 function Addon:ReplacePlaceholders(message, dungeon, keyLevel, extraReplacements)
     if not message then return nil end
@@ -1483,8 +1889,11 @@ function Addon:ReplacePlaceholders(message, dungeon, keyLevel, extraReplacements
     if keyLevel then
         message = message:gsub("{key}", "+" .. keyLevel)
     else
-        -- Remove {key} and any preceding space
-        message = message:gsub(" ?{key}", "")
+        -- Remove {key} together with the punctuation that introduced it, so
+        -- "the {dungeon} express departs, {key}" does not end on a dangling comma;
+        -- CleanupAfterTokenStrip (inside PolishMessage below) sweeps every other
+        -- comma position ("{key}, here we go", "gg, {key}, wp")
+        message = message:gsub(",?%s*{key}", "")
     end
     -- Extra replacements for completion messages ({upgrade}, {time}, etc.)
     if extraReplacements then
@@ -1492,59 +1901,49 @@ function Addon:ReplacePlaceholders(message, dungeon, keyLevel, extraReplacements
             message = message:gsub("{" .. placeholder .. "}", value)
         end
     end
-    return message
+    -- M+ messages go straight to SendChatMessage, so apply the shared polish here.
+    -- keepCase: dungeon names are proper nouns, "Ruby Life Pools" must not become "ruby ...".
+    return self:PolishMessage(message, true)
 end
 
--- Get key level based on message mode
+-- Key level for the announce, from the API only - a listing title is free text ("+10 or 12",
+-- "10+ exp", a guild name with digits) and guessing from it announces the wrong key.
+-- nil means "not known for sure": the announce then names the dungeon and nothing else.
 function Addon:GetKeyLevel()
-    local mode = self.db.profile.mythicplus.messageMode
+    if not self.db.profile.mythicplus.includeKeyLevel then return nil end
+
     local listing = self.state.cachedLFGListing
 
-    if mode == "basic" then
-        return nil
+    -- Test flow: the simulated listing carries the level the simulation announced
+    if self:IsTestMode() and listing and listing.keyLevel then
+        return listing.keyLevel
     end
 
-    if mode == "withlevel" then
-        -- 1. Try GetKeystoneForActivity (most reliable)
-        if listing and listing.activityID and C_LFGList.GetKeystoneForActivity then
-            local keystoneLevel = C_LFGList.GetKeystoneForActivity(listing.activityID)
-            if keystoneLevel and keystoneLevel > 0 then
-                self:DebugPrint("withlevel: GetKeystoneForActivity returned level:", keystoneLevel)
-                return keystoneLevel
-            end
-        end
-        -- 2. Fallback: parse from listing title
-        if listing and listing.title then
-            local level = tonumber(listing.title:match("%+?(%d+)"))
-            if level and level >= 2 and level <= 99 then
-                self:DebugPrint("withlevel: parsed level from title:", level)
-                return level
-            end
-        end
-        return nil
-    end
-
-    -- Smart mode: API first (most reliable), then title parsing
-    if mode == "smart" then
-        -- 1. Try GetKeystoneForActivity (returns key level only if our key matches the listed dungeon)
-        if listing and listing.activityID and C_LFGList.GetKeystoneForActivity then
-            local keystoneLevel = C_LFGList.GetKeystoneForActivity(listing.activityID)
-            if keystoneLevel and keystoneLevel > 0 then
-                self:DebugPrint("GetKeystoneForActivity returned level:", keystoneLevel)
-                return keystoneLevel
-            end
-        end
-
-        -- 2. Parse from listing title
-        if listing and listing.title then
-            local level = tonumber(listing.title:match("%+?(%d+)"))
-            if level and level >= 2 and level <= 99 then
-                self:DebugPrint("Parsed key level from title:", level)
+    -- 1. Our own keystone, but only while it is the dungeon this group is listed for
+    if C_MythicPlus and C_MythicPlus.GetOwnedKeystoneLevel and C_MythicPlus.GetOwnedKeystoneChallengeMapID then
+        local ownedMapID = C_MythicPlus.GetOwnedKeystoneChallengeMapID()
+        local listedMapID = listing and (self:GetMapIDFromActivity(listing.activityID)
+            or self:GetMapIDFromDungeonName(listing.dungeonName
+                and listing.dungeonName:gsub("%s*%b()%s*$", "")))
+        if ownedMapID and listedMapID and ownedMapID == listedMapID then
+            local level = C_MythicPlus.GetOwnedKeystoneLevel()
+            if level and level > 0 then
+                self:DebugPrint("Key level from owned keystone:", level)
                 return level
             end
         end
     end
 
+    -- 2. The level the listing itself was created with
+    if listing and listing.activityID and C_LFGList and C_LFGList.GetKeystoneForActivity then
+        local level = C_LFGList.GetKeystoneForActivity(listing.activityID)
+        if level and level > 0 then
+            self:DebugPrint("Key level from GetKeystoneForActivity:", level)
+            return level
+        end
+    end
+
+    self:DebugPrint("Key level unknown, announcing dungeon name only")
     return nil
 end
 
@@ -1565,7 +1964,7 @@ function Addon:GetRandomKeyAnnounce()
     -- Add enabled custom messages
     if settings.customKeyAnnounce then
         for _, entry in ipairs(settings.customKeyAnnounce) do
-            if entry.enabled and entry.text and entry.text ~= "" then
+            if entry.enabled and entry.text and entry.text ~= "" and self:CustomTextUsable(entry.text) then
                 table.insert(enabled, entry.text)
             end
         end
@@ -1581,19 +1980,41 @@ function Addon:SendKeyAnnounce()
     local db = self.db.profile
     if not db.enabled or not db.mythicplus.enabled then return end
 
+    -- One announce in flight: a retry is already carrying this group's message
+    if self.state.keyAnnounceTimer then
+        self:DebugPrint("Key announce retry already pending, skipping")
+        return
+    end
+
     local listing = self.state.cachedLFGListing
     if not listing or not listing.dungeonName then
         self:DebugPrint("SendKeyAnnounce: no cached listing data")
         return
     end
 
-    -- Resolve dungeon name (English by default, client locale if enabled)
-    local localizedName = listing.dungeonName and listing.dungeonName:gsub(" %(Mythic Keystone%)", "")
-    local mapID = self:GetMapIDFromActivity(listing.activityID)
-    local dungeon = self:GetDungeonName(mapID, localizedName)
+    -- Resolve dungeon name (English by default, client locale if enabled). The suffix strip
+    -- takes any trailing parenthesis, because "(Mythic Keystone)" is localized on non-enUS clients.
+    local localizedName = listing.dungeonName and listing.dungeonName:gsub("%s*%b()%s*$", "")
+    -- The displayed name only ever comes from the LISTED activity (or the listing's own
+    -- text, matched by name against the live season pool when the activity table lags a
+    -- season behind): feeding any other map id into GetDungeonName could announce a
+    -- different dungeon. The resolved map id doubles as the SameKey identity - the same id
+    -- space C_ChallengeMode.GetActiveChallengeMapID uses, which keeps the start announce
+    -- silent for an already-announced key on every client language.
+    local listedMapID = self:GetMapIDFromActivity(listing.activityID)
+        or self:GetMapIDFromDungeonName(localizedName)
+    local dungeon = self:GetDungeonName(listedMapID, localizedName)
+    local mapID = listedMapID
 
     -- Get key level based on mode
     local keyLevel = self:GetKeyLevel()
+
+    -- Already said exactly this (the group dipped below 5 and refilled inside the announce
+    -- delay, scheduling a second timer): once is enough
+    if SameKey(self.state.announcedKey, { mapID = mapID, dungeon = dungeon, level = keyLevel }) then
+        self:DebugPrint("Key announce skipped: this key was already announced")
+        return
+    end
 
     -- Get random message template
     local template = self:GetRandomKeyAnnounce()
@@ -1605,32 +2026,119 @@ function Addon:SendKeyAnnounce()
     -- Replace placeholders
     local message = self:ReplacePlaceholders(template, dungeon, keyLevel)
 
-    self:DebugPrint("SendKeyAnnounce:", message, "(mode:", db.mythicplus.messageMode,
-        "dungeon:", dungeon, "level:", tostring(keyLevel) .. ")")
+    self:DebugPrint("SendKeyAnnounce:", message, "(dungeon:", dungeon,
+        "level:", tostring(keyLevel) .. ")")
 
-    -- Determine channel
-    local channel = self:GetChatChannel()
-    if not channel then
-        channel = "PARTY" -- Default to party for M+
+    -- The announce belongs to the HOME group carrying the listing - GetChatChannel is
+    -- instance-first and would post the key line into a BG/LFR the party queued together
+    local channel = IsInRaid(LE_PARTY_CATEGORY_HOME) and "RAID" or "PARTY"
+
+    -- Share the group cooldown with greetings: an announce landing in the same second as
+    -- the greeting reads like a bot. One retry when the cooldown is still running, then drop.
+    -- keepCase so the second polish inside DoSendMessage keeps the dungeon name capitalized.
+    -- The validator re-checks 5/5 inside the typing delay: a member leaving after the
+    -- announce was accepted must kill the stale key line.
+    local stillValid = function()
+        return self.state.keyAnnounced
+            and (self:IsTestMode() or GetNumGroupMembers(LE_PARTY_CATEGORY_HOME) == 5)
+    end
+    -- announcedKey records what was actually SAID: stamping it on the scheduling result
+    -- would let a validator-dropped send silence this key for good (the dip path does not
+    -- clear announcedKey, and both announce entry points dedupe against it)
+    local recordSaid = function()
+        self.state.announcedKey = { mapID = mapID, dungeon = dungeon, level = keyLevel }
+    end
+    if self:SendMessageToChat(message, channel, nil, true, stillValid, recordSaid) then
+        self.state.keyAnnounceRetried = false
+        return
     end
 
-    -- Send the message (bypasses greeting cooldown, uses DoSendMessage directly)
-    if self:IsTestMode() then
-        local channelColor = "|cFFAAAAFF"
-        print("|cFFFF9900[AutoSay TEST]|r Would send to " .. channelColor .. "[" .. channel .. "]|r: " .. message)
-        self:DebugPrint("Test mode - simulated key announce to", channel)
-    else
-        local ok, err = pcall(SendChatMessage, message, channel, nil, nil)
-        if ok then
-            self:DebugPrint("Key announce sent to", channel, ":", message)
-        else
-            self:DebugPrint("Failed to send key announce:", tostring(err))
+    if self.state.keyAnnounceRetried then
+        self:DebugPrint("Key announce still blocked after the retry (cooldown or chat restriction), dropping")
+        return
+    end
+
+    self.state.keyAnnounceRetried = true
+    local remaining = self.db.profile.cooldown - (GetTime() - self.state.lastGroupMessageTime)
+    local wait = math.max(remaining, 0) + (self.db.profile.messageDelay or 0) + 0.5
+    self:DebugPrint("Key announce blocked (cooldown or chat restriction), retrying in", string.format("%.1f", wait) .. "s")
+    -- Resend the very message we built, not a fresh roll, and only while the announce
+    -- this retry belongs to is still valid (same full group, flag not reset meanwhile)
+    self.state.keyAnnounceTimer = self:ScheduleTimer(function()
+        self.state.keyAnnounceTimer = nil
+        -- Whatever happens next, this retry is spent: the latch must not outlive it and
+        -- swallow a FUTURE announce's retry (dip-refill, next listing)
+        self.state.keyAnnounceRetried = false
+        if not stillValid() then
+            self:DebugPrint("Key announce retry no longer valid, dropping")
+            return
         end
+        self:SendMessageToChat(message, channel, nil, true, stillValid, recordSaid)
+    end, wait)
+end
+
+-- Announce the keystone that was actually inserted, at the start of the run.
+-- Silent when the group-full announce already named this exact dungeon and level.
+-- @return boolean - true when a message was scheduled
+function Addon:SendKeyStartAnnounce(dungeon, keyLevel, mapID)
+    -- A pending attempt from a previous insert (reset-then-restart within the retry window)
+    -- must not survive into this one - it would post its stale message alongside ours
+    if self.state.startAnnounceTimer then
+        self:CancelTimer(self.state.startAnnounceTimer)
+        self.state.startAnnounceTimer = nil
     end
+    mapID = mapID or (C_ChallengeMode and C_ChallengeMode.GetActiveChallengeMapID
+        and C_ChallengeMode.GetActiveChallengeMapID()) or nil
+    local key = { mapID = mapID, dungeon = dungeon, level = keyLevel }
+
+    if SameKey(self.state.announcedKey, key) then
+        self:DebugPrint("Key start announce skipped:", dungeon, tostring(keyLevel),
+            "was already announced when the group filled")
+        return false
+    end
+
+    local template = self:GetRandomKeyAnnounce()
+    if not template then
+        self:DebugPrint("SendKeyStartAnnounce: no key announce messages enabled")
+        return false
+    end
+
+    local message = self:ReplacePlaceholders(template, dungeon, keyLevel)
+    -- Home-scoped like SendKeyAnnounce: a keystone run is always the home group
+    local channel = IsInRaid(LE_PARTY_CATEGORY_HOME) and "RAID" or "PARTY"
+
+    self:DebugPrint("SendKeyStartAnnounce:", message, "(dungeon:", dungeon,
+        "level:", tostring(keyLevel) .. ")")
+
+    -- announcedKey is written only once the line actually went out: recording it up front
+    -- would let a cooldown refusal silence this key for good. One retry, then drop.
+    local retried = false
+    local recordSaid = function()
+        self.state.announcedKey = key
+    end
+    local function Attempt()
+        self.state.startAnnounceTimer = nil
+        if self:SendMessageToChat(message, channel, nil, true, nil, recordSaid) then
+            return
+        end
+        if retried then
+            self:DebugPrint("Key start announce still blocked after the retry (cooldown or chat restriction), dropping")
+            return
+        end
+        retried = true
+        local remaining = self.db.profile.cooldown - (GetTime() - self.state.lastGroupMessageTime)
+        local wait = math.max(remaining, 0) + (self.db.profile.messageDelay or 0) + 0.5
+        self:DebugPrint("Key start announce blocked (cooldown or chat restriction), retrying in", string.format("%.1f", wait) .. "s")
+        self.state.startAnnounceTimer = self:ScheduleTimer(Attempt, wait)
+    end
+
+    -- Small delay so it lands after the start countdown noise, not in the middle of it
+    self.state.startAnnounceTimer = self:ScheduleTimer(Attempt, 2)
+    return true
 end
 
 -- Get a random completion message from enabled pool
-function Addon:GetRandomCompletionMessage(onTime)
+function Addon:GetRandomCompletionMessage(onTime, upgrade)
     local settings = self.db.profile.mythicplus
     local enabled = {}
 
@@ -1638,10 +2146,16 @@ function Addon:GetRandomCompletionMessage(onTime)
     local enabledPresets = onTime and settings.enabledCompletionTimed or settings.enabledCompletionDepleted
     local customMessages = onTime and settings.customCompletionTimed or settings.customCompletionDepleted
 
+    -- "+0 upgrade, nice!" is nonsense: drop upgrade phrases when the key did not go up
+    local hasUpgrade = (tonumber(upgrade) or 0) >= 1
+    local function usable(text)
+        return hasUpgrade or not text:find("{upgrade}", 1, true)
+    end
+
     -- Add enabled preset messages
     if enabledPresets then
         for _, msg in ipairs(presetDB) do
-            if enabledPresets[msg.key] then
+            if enabledPresets[msg.key] and usable(msg.text) then
                 table.insert(enabled, msg.text)
             end
         end
@@ -1650,7 +2164,8 @@ function Addon:GetRandomCompletionMessage(onTime)
     -- Add enabled custom messages
     if customMessages then
         for _, entry in ipairs(customMessages) do
-            if entry.enabled and entry.text and entry.text ~= "" then
+            if entry.enabled and entry.text and entry.text ~= ""
+                and usable(entry.text) and self:CustomTextUsable(entry.text) then
                 table.insert(enabled, entry.text)
             end
         end
@@ -1666,7 +2181,7 @@ function Addon:SendCompletionMessage(dungeon, keyLevel, onTime, upgrade, timeFor
     local db = self.db.profile
     if not db.enabled or not db.mythicplus.enabled or not db.mythicplus.completionEnabled then return end
 
-    local template = self:GetRandomCompletionMessage(onTime)
+    local template = self:GetRandomCompletionMessage(onTime, upgrade)
     if not template then
         self:DebugPrint("SendCompletionMessage: no completion messages enabled for", onTime and "timed" or "depleted")
         return
@@ -1682,20 +2197,12 @@ function Addon:SendCompletionMessage(dungeon, keyLevel, onTime, upgrade, timeFor
     self:DebugPrint("SendCompletionMessage:", message, "(onTime:", tostring(onTime),
         "dungeon:", dungeon, "level:", tostring(keyLevel), "upgrade:", tostring(upgrade) .. ")")
 
-    -- Always party in M+ dungeon
+    -- Always party in M+ dungeon. Routed through the normal pipeline for truncation,
+    -- cooldown and test mode; keepCase keeps the dungeon name capitalized.
     local channel = "PARTY"
-
-    if self:IsTestMode() then
-        local channelColor = "|cFFAAAAFF"
-        print("|cFFFF9900[AutoSay TEST]|r Would send to " .. channelColor .. "[" .. channel .. "]|r: " .. message)
-        self:DebugPrint("Test mode - simulated completion message to", channel)
-    else
-        local ok, err = pcall(SendChatMessage, message, channel, nil, nil)
-        if ok then
-            self:DebugPrint("Completion message sent to", channel, ":", message)
-        else
-            self:DebugPrint("Failed to send completion message:", tostring(err))
-        end
+    if not self:SendMessageToChat(message, channel, nil, true) then
+        -- A completion line that lands half a minute late is noise, so no retry
+        self:DebugPrint("Completion message dropped (cooldown or addon disabled)")
     end
 end
 
@@ -1709,6 +2216,8 @@ function Addon:TestReset()
     self.testState.simulatedInGuild = false
     self.testState.simulatedGroupMembers = {}
     self.testState.simulatedIsLeader = true
+    self.testState.simulatedRole = "DAMAGER"
+    self.testState.simulatedHour = nil
     self.state.previousGroup = nil
     self.state.sentGreetings = {}
     self.state.currentGroupType = nil
@@ -1725,16 +2234,23 @@ function Addon:TestReset()
         self:CancelTimer(self.state.pendingGreetTimer)
         self.state.pendingGreetTimer = nil
     end
-    self.state.messageQueue = {}
-    if self.state.queueTimer then
-        self:CancelTimer(self.state.queueTimer)
-        self.state.queueTimer = nil
-    end
     self.state.cachedLFGListing = nil
     self.state.keyAnnounced = false
+    self.state.keyAnnounceRetried = false
+    self.state.announcedKey = nil
+    self.state.startAnnounced = false
+    if self.state.keyAnnounceTimer then
+        self:CancelTimer(self.state.keyAnnounceTimer)
+        self.state.keyAnnounceTimer = nil
+    end
+    if self.state.startAnnounceTimer then
+        self:CancelTimer(self.state.startAnnounceTimer)
+        self.state.startAnnounceTimer = nil
+    end
+    self:SetInstanceGreeted(false)
     self.state.mythicPlusFlowActive = false
     self.state.goodbyeSent = false
-    self.state.groupGoodbyeSent = false
+    self.state.groupGoodbyeSent = {}
     self.state.guildMemberPresence = {}
     self.state.guildPresenceReady = true -- In test mode, always ready
     -- Clear session-only social state (persistent budget/person state intentionally kept, matches live behavior)
@@ -1744,15 +2260,70 @@ function Addon:TestReset()
     if self.humanizer then
         self.humanizer.history = {}
     end
+    -- Delayed sends from an earlier simulation must not fire into the next one (the
+    -- sendGeneration bump on the test-mode toggle covers mode changes; this covers resets).
+    -- The bump also invalidates untracked simulation timers (the M+ flow's join closures).
+    for handle in pairs(self.state.pendingGroupSends) do
+        self:CancelTimer(handle)
+    end
+    self.state.pendingGroupSends = {}
+    self.state.sendGeneration = self.state.sendGeneration + 1
     self:TestPrint("Test state reset")
+end
+
+-- Role names accepted by /as test role, mapped to the UnitGroupRolesAssigned values
+local testRoleAliases = {
+    tank = "TANK", t = "TANK",
+    healer = "HEALER", h = "HEALER",
+    dps = "DAMAGER", d = "DAMAGER",
+}
+
+-- Simulate the assigned role, for role-tagged phrases and the {role} placeholder
+function Addon:TestSetRole(roleArg)
+    if not self:RequireTestMode() then return end
+
+    local role = testRoleAliases[roleArg and roleArg:lower() or ""]
+    if not role then
+        self:Print(L["Test role usage"])
+        return
+    end
+
+    self.testState.simulatedRole = role
+    self:TestPrint(L["Simulated role set"] .. ": " .. AutoSay.RoleWords[role])
+end
+
+-- Simulate the local hour, for the time-of-day band ("off" reverts to the real clock)
+function Addon:TestSetHour(hourArg)
+    if not self:RequireTestMode() then return end
+
+    if hourArg and hourArg:lower() == "off" then
+        self.testState.simulatedHour = nil
+        self:TestPrint(L["Simulated hour cleared"])
+        return
+    end
+
+    local hour = tonumber(hourArg)
+    if not hour or hour < 0 or hour > 23 or hour ~= math.floor(hour) then
+        self:Print(L["Test hour usage"])
+        return
+    end
+
+    self.testState.simulatedHour = hour
+    local band = AutoSay.Humanizer.BandForHour(hour)
+    self:TestPrint(L["Simulated hour set"] .. ": " .. hour .. " (" .. band .. ")")
+end
+
+-- Preview the What's new popup without burning the real one-time-per-version flag
+function Addon:TestPreviewWhatsNew()
+    if not self:RequireTestMode() then return end
+
+    self:TestPrint("=== Previewing What's new ===")
+    self:ShowWhatsNew(self:VersionMinor() or "dev", true)
 end
 
 -- Simulate joining a party
 function Addon:TestJoinParty()
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     self:TestPrint("=== Simulating JOIN PARTY ===")
     self.testState.simulatedGroupType = "PARTY"
@@ -1770,10 +2341,7 @@ end
 
 -- Simulate joining a raid
 function Addon:TestJoinRaid()
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     self:TestPrint("=== Simulating JOIN RAID ===")
     self.testState.simulatedGroupType = "RAID"
@@ -1789,12 +2357,30 @@ function Addon:TestJoinRaid()
     end
 end
 
+-- Simulate zoning into an instance group (LFG dungeon/LFR/battleground)
+function Addon:TestJoinInstance()
+    if not self:RequireTestMode() then return end
+
+    self:TestPrint("=== Simulating ENTER INSTANCE GROUP ===")
+    self.testState.simulatedGroupType = "INSTANCE_CHAT"
+    self.state.previousGroup = { [UnitName("player")] = true }
+    self.state.sentGreetings = {}
+    self.state.currentGroupType = "INSTANCE_CHAT"
+    self:SetInstanceGreeted(false)
+
+    -- Trigger the greeting logic (mirrors the PLAYER_ENTERING_WORLD zone-in path)
+    if self.db.profile.enabled and self:ShouldGreetOnSelfJoin("INSTANCE_CHAT") then
+        if self:SendGreeting(nil, "self_join") then
+            self:SetInstanceGreeted(true)
+        end
+    else
+        self:TestPrint("Greeting skipped (disabled in settings)")
+    end
+end
+
 -- Simulate leaving current group
 function Addon:TestLeaveGroup()
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     if not self.testState.simulatedGroupType then
         self:TestPrint("Not in a simulated group!")
@@ -1812,14 +2398,12 @@ function Addon:TestLeaveGroup()
     self.state.previousGroup = nil
     self.state.sentGreetings = {}
     self.state.currentGroupType = nil
+    self:SetInstanceGreeted(false)
 end
 
 -- Simulate player joining the group
 function Addon:TestPlayerJoins(playerName)
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     if not self.testState.simulatedGroupType then
         self:TestPrint("Not in a simulated group! Join a party or raid first.")
@@ -1844,10 +2428,7 @@ end
 
 -- Simulate guild login greeting
 function Addon:TestGuildGreeting()
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     self:TestPrint("=== Simulating GUILD LOGIN greeting ===")
     self.testState.simulatedInGuild = true
@@ -1857,10 +2438,7 @@ end
 
 -- Simulate guild logout goodbye
 function Addon:TestGuildGoodbye()
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     self:TestPrint("=== Simulating GUILD LOGOUT goodbye ===")
     self.testState.simulatedInGuild = true
@@ -1870,10 +2448,7 @@ end
 
 -- Simulate guild member login
 function Addon:TestGuildMemberLogin(playerName)
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     local testNames = { "Thrall", "Jaina", "Sylvanas", "Anduin", "Tyrande", "Velen", "Baine", "Lor'themar" }
     local name = playerName or testNames[math.random(#testNames)]
@@ -1890,10 +2465,7 @@ end
 
 -- Simulate reconnecting to group
 function Addon:TestReconnect()
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     if not self.testState.simulatedGroupType then
         self:TestPrint("Not in a simulated group! Join a party or raid first.")
@@ -1910,12 +2482,23 @@ function Addon:TestReconnect()
     end
 end
 
+-- Dungeon pool for the M+ simulations (Midnight Season 2, matching AutoSay.DungeonNames so
+-- the simulations exercise the shipped table; activityIDs are placeholders until the season
+-- ids exist - the test path resolves names via mapID/name, not the activity map)
+local testDungeons = {
+    { name = "Altar of Fangs",            activityID = 0, mapID = 588 },
+    { name = "Ruby Life Pools",           activityID = 0, mapID = 399 },
+    { name = "Kings' Rest",               activityID = 0, mapID = 249 },
+    { name = "Voidscar Arena",            activityID = 0, mapID = 585 },
+    { name = "Den of Nalorakk",           activityID = 0, mapID = 586 },
+    { name = "Murder Row",                activityID = 0, mapID = 587 },
+    { name = "Temple of Sethraliss",      activityID = 0, mapID = 250 },
+    { name = "The Blinding Vale",         activityID = 0, mapID = 584 },
+}
+
 -- Simulate full M+ flow: create listing → players join → 5/5 → announce
 function Addon:TestMythicPlusFlow()
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
     -- Prevent overlapping simulations
     if self.state.mythicPlusFlowActive then
@@ -1926,28 +2509,18 @@ function Addon:TestMythicPlusFlow()
     local isLeader = self.testState.mythicPlusRole == "leader"
 
     self:TestPrint("=== Simulating M+ Full Flow (" .. (isLeader and "Leader" or "Joined") .. ") ===")
-    self.state.mythicPlusFlowActive = true
 
-    -- Step 1: Reset and set up party
+    -- Step 1: Reset and set up party. The overlap flag goes AFTER the reset -
+    -- TestReset clears it, so setting it first made the guard permanently dead.
     self:TestReset()
+    self.state.mythicPlusFlowActive = true
     self.testState.simulatedGroupType = "PARTY"
     self.testState.simulatedIsLeader = isLeader
     self.state.currentGroupType = "PARTY"
     self.state.previousGroup = { [UnitName("player")] = true }
     self.testState.simulatedGroupMembers = { UnitName("player") }
 
-    -- Randomize dungeon (Midnight Season 1 pool with activityIDs)
-    local dungeons = {
-        { name = "Magisters' Terrace",        activityID = 1760, mapID = 558 },
-        { name = "Maisara Caverns",           activityID = 1764, mapID = 560 },
-        { name = "Nexus-Point Xenas",         activityID = 1768, mapID = 559 },
-        { name = "Windrunner Spire",          activityID = 1542, mapID = 557 },
-        { name = "Algeth'ar Academy",         activityID = 1160, mapID = 402 },
-        { name = "Seat of the Triumvirate",   activityID = 486,  mapID = 583 },
-        { name = "Skyreach",                  activityID = 182,  mapID = 161 },
-        { name = "Pit of Saron",              activityID = 1770, mapID = 556 },
-    }
-    local picked = dungeons[math.random(#dungeons)]
+    local picked = testDungeons[math.random(#testDungeons)]
     local keyLevel = math.random(4, 15)
     local dungeon = self:GetDungeonName(picked.mapID, picked.name)
 
@@ -1956,6 +2529,9 @@ function Addon:TestMythicPlusFlow()
         self.state.cachedLFGListing = {
             activityID = picked.activityID,
             title = "+" .. keyLevel,
+            -- The real GetKeyLevel reads the game APIs; the simulation has none, so it
+            -- hands the level over on the fake listing instead
+            keyLevel = keyLevel,
             dungeonName = picked.name .. " (Mythic Keystone)",
             isMythicPlus = true,
         }
@@ -1969,10 +2545,14 @@ function Addon:TestMythicPlusFlow()
 
     self:TestPrint("Waiting for group to fill...")
 
-    -- Step 2: Players join with delays
+    -- Step 2: Players join with delays. Generation-stamped like every other delayed send:
+    -- turning test mode off mid-flow must kill the remaining joins, or their fabricated
+    -- names would be greeted into the player's REAL party chat.
     local fakeNames = { "Tankmaster", "HolyPala", "Shadowmage", "Hunterbro" }
+    local generation = self.state.sendGeneration
     for i, name in ipairs(fakeNames) do
         self:ScheduleTimer(function()
+            if generation ~= self.state.sendGeneration then return end
             table.insert(self.testState.simulatedGroupMembers, name)
             local count = #self.testState.simulatedGroupMembers
             self:TestPrint(name .. " joined (" .. count .. "/5)")
@@ -1995,8 +2575,9 @@ function Addon:TestMythicPlusFlow()
                         self.state.keyAnnounced = true
                         self:TestPrint("Group full 5/5! Sending key announce...")
                         self:ScheduleTimer(function()
-                            self:SendKeyAnnounce()
                             self.state.mythicPlusFlowActive = false
+                            if generation ~= self.state.sendGeneration then return end
+                            self:SendKeyAnnounce()
                         end, 2)
                     else
                         self:TestPrint("Group full 5/5 but no listing data (not the leader) — key announce skipped")
@@ -2013,24 +2594,39 @@ function Addon:TestMythicPlusFlow()
     end
 end
 
--- Simulate timed M+ completion
-function Addon:TestCompletionTimed()
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
+-- Simulate CHALLENGE_MODE_START: the inserted keystone gets announced, unless the
+-- group-full announce already said exactly this. Runs both paths back to back.
+function Addon:TestKeyStart()
+    if not self:RequireTestMode() then return end
+
+    local index = math.random(#testDungeons)
+    local picked = testDungeons[index]
+    local other = testDungeons[(index % #testDungeons) + 1]
+    local keyLevel = math.random(4, 15)
+    local includeLevel = self.db.profile.mythicplus.includeKeyLevel
+    local dungeon = self:GetDungeonName(picked.mapID, picked.name)
+    local otherDungeon = self:GetDungeonName(other.mapID, other.name)
+
+    self:TestPrint("=== Simulating M+ Key Start ===")
+
+    -- Path 1: the same key the group-full announce already named
+    self.state.announcedKey = { dungeon = dungeon, level = includeLevel and keyLevel or nil }
+    self:TestPrint("Group was announced as " .. dungeon .. " +" .. keyLevel .. ", same key inserted...")
+    if not self:SendKeyStartAnnounce(dungeon, includeLevel and keyLevel or nil) then
+        self:TestPrint("Stayed silent - the group-full announce already said this")
     end
 
-    local dungeons = {
-        { name = "Magisters' Terrace",        mapID = 558 },
-        { name = "Maisara Caverns",           mapID = 560 },
-        { name = "Nexus-Point Xenas",         mapID = 559 },
-        { name = "Windrunner Spire",          mapID = 557 },
-        { name = "Algeth'ar Academy",         mapID = 402 },
-        { name = "Seat of the Triumvirate",   mapID = 583 },
-        { name = "Skyreach",                  mapID = 161 },
-        { name = "Pit of Saron",              mapID = 556 },
-    }
-    local picked = dungeons[math.random(#dungeons)]
+    -- Path 2: a different key went in (lead swap, someone else's key)
+    local otherLevel = keyLevel + 2
+    self:TestPrint("Now a different key is inserted: " .. otherDungeon .. " +" .. otherLevel)
+    self:SendKeyStartAnnounce(otherDungeon, includeLevel and otherLevel or nil)
+end
+
+-- Simulate timed M+ completion
+function Addon:TestCompletionTimed()
+    if not self:RequireTestMode() then return end
+
+    local picked = testDungeons[math.random(#testDungeons)]
     local dungeon = self:GetDungeonName(picked.mapID, picked.name)
     local keyLevel = math.random(4, 15)
     local upgrade = math.random(1, 3)
@@ -2046,22 +2642,9 @@ end
 
 -- Simulate depleted M+ completion
 function Addon:TestCompletionDepleted()
-    if not self:IsTestMode() then
-        self:Print("|cFFFF0000Test mode is not enabled!|r Use /as testmode or enable in settings.")
-        return
-    end
+    if not self:RequireTestMode() then return end
 
-    local dungeons = {
-        { name = "Magisters' Terrace",        mapID = 558 },
-        { name = "Maisara Caverns",           mapID = 560 },
-        { name = "Nexus-Point Xenas",         mapID = 559 },
-        { name = "Windrunner Spire",          mapID = 557 },
-        { name = "Algeth'ar Academy",         mapID = 402 },
-        { name = "Seat of the Triumvirate",   mapID = 583 },
-        { name = "Skyreach",                  mapID = 161 },
-        { name = "Pit of Saron",              mapID = 556 },
-    }
-    local picked = dungeons[math.random(#dungeons)]
+    local picked = testDungeons[math.random(#testDungeons)]
     local dungeon = self:GetDungeonName(picked.mapID, picked.name)
     local keyLevel = math.random(4, 15)
     local minutes = math.random(35, 50)
@@ -2090,19 +2673,6 @@ function Addon:TestStatus()
     local guildCooldown = math.max(0, self.db.profile.cooldown - (GetTime() - self.state.lastGuildMessageTime))
     self:Print("Cooldown remaining: Group:", string.format("%.1fs", groupCooldown), "| Guild:", string.format("%.1fs", guildCooldown))
 
-    -- Queue status
-    local queueSize = #self.state.messageQueue
-    if queueSize > 0 then
-        self:Print("Queued messages:", "|cFFFFFF00" .. queueSize .. "|r",
-            "| Timer:", self.state.queueTimer and "|cFF00FF00scheduled|r" or "|cFFFF0000none|r")
-        for i, entry in ipairs(self.state.messageQueue) do
-            local namesStr = entry.playerNames and table.concat(entry.playerNames, ", ") or "none"
-            self:Print("  [" .. i .. "]", entry.channel, entry.reason, "names:", namesStr)
-        end
-    else
-        self:Print("Queued messages:", "|cFF00FF000|r")
-    end
-
     -- Humanizer pick history status
     if self.humanizer and self.humanizer.history then
         local poolCount = 0
@@ -2112,21 +2682,22 @@ function Addon:TestStatus()
 
     -- Show channel status
     local db = self.db.profile
-    self:Print("Party:", db.party.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
-        "| Self:", db.party.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Others:", db.party.onOthersJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Names:", db.party.includeNames and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Bye:", db.party.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
-    self:Print("Raid:", db.raid.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
-        "| Self:", db.raid.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Others:", db.raid.onOthersJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Names:", db.raid.includeNames and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
-        "| Bye:", db.raid.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
+    local function YesNo(v) return v and "|cFF00FF00Yes|r" or "|cFFFF0000No|r" end
+    for _, c in ipairs(AutoSay.Channels) do
+        local s = db[c.key]
+        if c.key ~= "guild" then
+            self:Print(L[c.chat] .. ":", s.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
+                "| Self:", YesNo(s.onSelfJoin),
+                "| Others:", YesNo(s.onOthersJoin),
+                "| Names:", YesNo(s.includeNames),
+                "| Bye:", YesNo(s.sendGoodbye))
+        end
+    end
     self:Print("Guild:", db.guild.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
         "| Login:", db.guild.onSelfJoin and "|cFF00FF00Yes|r" or "|cFFFF0000No|r",
         "| Logout:", db.guild.sendGoodbye and "|cFF00FF00Yes|r" or "|cFFFF0000No|r")
     self:Print("M+:", db.mythicplus.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
-        "| Mode:", db.mythicplus.messageMode,
+        "| Key level:", db.mythicplus.includeKeyLevel and "|cFF00FF00Yes|r" or "|cFF888888No|r",
         "| Announced:", self.state.keyAnnounced and "|cFFFFFF00Yes|r" or "|cFF888888No|r")
     if self.state.cachedLFGListing then
         self:Print("  LFG cache:", self.state.cachedLFGListing.dungeonName or "unknown",

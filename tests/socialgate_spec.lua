@@ -30,6 +30,15 @@ describe("SocialGate budget", function()
     assert.equal("budget", reason)
   end)
 
+  it("exempts goodbyes: budget exhausted by greetings still lets a goodbye through", function()
+    local gate, _, state = makeGate{ budgetPerHour = 2 }
+    gate:Record("greeting"); gate:Record("greeting")
+    assert.is_false(gate:MaySend("greeting"))
+    assert.is_true(gate:MaySend("goodbye"))
+    gate:Record("goodbye")
+    assert.equal(3, #state.sends) -- still recorded in the window
+  end)
+
   it("slides the window: old sends free the budget", function()
     local gate, clock = makeGate{ budgetPerHour = 2 }
     gate:Record("greeting"); gate:Record("greeting")

@@ -10,7 +10,7 @@ WoW addon: automatic greetings, goodbyes, and reconnect messages for party, raid
 
 ## Key Files
 - `Core.lua` — Main logic: event handling, message sending, cooldowns, queue, hooks
-- `Config.lua` — AceConfig UI definition (tabs: General, Party, Raid, Guild, M+, Test)
+- `Config.lua` — AceConfig UI definition (tabs: General, Style, Social, Group, Guild, M+, Test). The Group tab covers party/raid/instance with one shared phrase list and a checkbox column per channel; the db layout stays per channel (`db.profile.party/raid/instance`)
 - `Events.lua` — WoW event registration and dispatch
 - `Messages.lua` — Built-in message databases (greetings, goodbyes, reconnects)
 - `Locales/enUS.lua` — Localization strings
@@ -29,6 +29,12 @@ WoW addon: automatic greetings, goodbyes, and reconnect messages for party, raid
 ## References
 - **WoW UI Source / API**: `G:\Games\wow-ui-source-live`
 
+## UI Conventions
+
+- Every new user-facing option in `Config.lua` gets its name wrapped in `NewTag(name, "<minor>")`, where `<minor>` is the minor release it ships in (e.g. `NewTag(L["Style"], "1.6")` for anything landing in 1.6.x). It appends a green "New!" to the label.
+- Tags expire on their own: `NewTag` only matches while the TOC version is still in that minor, so 1.7.0 silently drops every `"1.6"` badge. Nothing to clean up on release.
+- When you touch an option whose tag no longer matches the current version, delete the stale `NewTag` call and leave the plain name.
+
 ## WoW Addon Rules
 
 ### Lua Compatibility
@@ -41,8 +47,8 @@ Releases are driven by [release-please](https://github.com/googleapis/release-pl
 
 - Write commits as `feat: ...` (minor), `fix: ...` (patch), `feat!: ...` or a `BREAKING CHANGE:` footer (major). Anything else (`chore:`, `docs:`, `ci:`, `refactor:`) does not trigger a release on its own.
 - On every push to `main`, `release-please.yml` opens or updates a **release PR** that bumps `## Version:` / `## X-Curse-Version:` in `AutoSay.toc`, updates `CHANGELOG.md`, and updates `.release-please-manifest.json`.
-- **Merging that PR** publishes everything: the `v<semver>` tag, the GitHub release, and - in the same workflow run - the CurseForge/Wago upload.
-- The packaging job lives in `release-please.yml` on purpose. A tag pushed with the default `GITHUB_TOKEN` does **not** trigger other workflows, so `release.yml` would never fire for a release-please tag. `release.yml` is now `workflow_dispatch` only and exists for manual alpha/beta builds.
+- **Merging that PR** publishes everything: the `v<semver>` tag, the GitHub release, and the CurseForge/Wago upload.
+- Packaging does not run inside the release-please job. A tag pushed with the default `GITHUB_TOKEN` does **not** start a tag workflow, and packaging on the branch push fails too: the packager reads the real `GITHUB_REF` (`refs/heads/main`) and skips with `Found future tag` (a step-level `env:` cannot override a reserved `GITHUB_*` variable). Instead the `package` job dispatches `release.yml` on the new tag - `workflow_dispatch` is the one event `GITHUB_TOKEN` may still start - so the packager runs with a real tag ref. `release.yml` stays `workflow_dispatch` only and doubles as the entry point for manual alpha/beta builds.
 - `CHANGELOG.md` is **generated and accumulating** — release-please owns it. Do NOT hand-edit it and do NOT overwrite it with a single release's notes. The packager gets only the newest section, via `RELEASE_NOTES.md`, which CI extracts from `CHANGELOG.md` before packaging (it is gitignored and excluded from the zip).
 - The TOC version is written by release-please as **bare semver** (`1.5.0`); tags keep the `v` prefix (`v1.5.0`). Do not add a `v` back into the TOC.
 - Never edit the version lines in `AutoSay.toc` by hand — they sit inside `# x-release-please-start-version` / `# x-release-please-end` markers.

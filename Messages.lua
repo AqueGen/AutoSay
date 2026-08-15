@@ -1,5 +1,37 @@
 local ADDON_NAME, AutoSay = ...
 
+-- Preset phrase model (Greetings / Goodbyes / Reconnects)
+--   key         unique id inside the pool, also the SavedVariables key of the on/off checkbox
+--   text        the phrase itself; {role} is replaced on send, {names} by the joined/current players
+--   style       style bundle id (fun, fantasy, dark, light, pirate, faction, zoomer, butler).
+--               Styled phrases are off by default and toggled by the bundle buttons.
+--   role        only picked while the player has that assigned role (TANK/HEALER/DAMAGER)
+--   faction     only picked for that faction (Horde/Alliance)
+--   band        time-of-day band (morning/evening/night); only picked inside that band
+--   keepCase    the phrase starts with a proper noun or an acronym ("Lok'tar", "GTG"),
+--               so the "lowercase first letter" option must leave it alone
+--   trigger     "self"   - only for our own join (and reconnect fallback)
+--               "others" - only when someone else joins
+--               absent   - fits both
+--   {names}     natural name slot inside the text; such a phrase is only picked when
+--               names are actually available, and never rendered with an empty hole
+--   appendNames the phrase reads fine with " Name1, Name2" glued to the end.
+--               Mutually exclusive with {names}. No marker at all = never carries names.
+
+-- The channels the addon speaks on, in UI order.
+--   key    profile sub-table (db.profile[key]) and style-bundle iteration key
+--   chat    SendChatMessage channel type, also the key of GetChannelSettings
+--   color  chat colour used by the test-mode "would send" line (matches the config tab)
+AutoSay.Channels = {
+    { key = "party",    chat = "PARTY",         color = "|cFFAAAAFF" },
+    { key = "raid",     chat = "RAID",          color = "|cFFFF7F00" },
+    { key = "instance", chat = "INSTANCE_CHAT", color = "|cFF9999FF" },
+    { key = "guild",    chat = "GUILD",         color = "|cFF40FF40" },
+}
+
+-- M+ placeholders that only the M+ path can resolve - anywhere else they are stripped on send
+AutoSay.MPlusTokens = { "{dungeon}", "{key}", "{upgrade}", "{time}" }
+
 -- Guild achievement congratulations
 AutoSay.GuildGrats = {
     "gz", "grats!", "gratz {name}", "grats {name}!", "nice one {name}!", "congrats {name}!",
@@ -12,26 +44,85 @@ AutoSay.GuildWelcome = {
 
 -- Greetings database (enabled by default first)
 AutoSay.Greetings = {
-    { key = "hi", text = "Hi!" },
-    { key = "hello", text = "Hello!" },
-    { key = "hey", text = "Hey!" },
-    { key = "greetings", text = "Greetings!" },
+    { key = "hi", text = "Hi!", appendNames = true },
+    { key = "hello", text = "Hello!", appendNames = true },
+    { key = "hey", text = "Hey!", appendNames = true },
+    { key = "greetings", text = "Greetings!", appendNames = true },
+    { key = "welcome", text = "welcome!", trigger = "others", appendNames = true },
     -- Disabled by default
-    { key = "wassup", text = "Wassup!" },
-    { key = "yo", text = "Yo!" },
-    { key = "heya", text = "Heya!" },
-    { key = "sup", text = "Sup?" },
-    { key = "howdy", text = "Howdy!" },
-    { key = "hiya", text = "Hiya!" },
-    { key = "yoyo", text = "Yo yo!" },
-    { key = "hellothere", text = "Hello there!" },
+    { key = "wassup", text = "Wassup!", appendNames = true },
+    { key = "yo", text = "Yo!", appendNames = true },
+    { key = "heya", text = "Heya!", appendNames = true },
+    { key = "sup", text = "Sup?", appendNames = true },
+    { key = "howdy", text = "Howdy!", appendNames = true },
+    { key = "hiya", text = "Hiya!", appendNames = true },
+    { key = "yoyo", text = "Yo yo!", appendNames = true },
+    { key = "hellothere", text = "Hello there!", appendNames = true },
+    { key = "welcomenames", text = "welcome {names}!", trigger = "others" },
+    { key = "hinames", text = "hi {names} o/", trigger = "others" },
+    { key = "welcomeaboard", text = "welcome aboard", trigger = "others" },
+    -- Time-of-day phrases: only picked while the local hour is in their band
+    { key = "morning", text = "morning!", band = "morning", appendNames = true },
+    { key = "goodmorningall", text = "good morning all", band = "morning" },
+    { key = "morningwave", text = "morning o/", band = "morning" },
+    { key = "evening", text = "evening!", band = "evening", appendNames = true },
+    { key = "goodevening", text = "good evening", band = "evening" },
+    { key = "eveningall", text = "evening all o/", band = "evening" },
+    { key = "lateone", text = "hi, late one o/", band = "night" },
+    { key = "laterun", text = "heya, late run", band = "night" },
+    { key = "uplate", text = "up late too? hi", band = "night" },
+    { key = "nightowls", text = "night owls unite o/", band = "night" },
+    -- Style bundles (never enabled by default, activated by bundle or by hand)
+    { key = "fun_o7", text = "o7", style = "fun", appendNames = true },
+    { key = "fun_wildgroup", text = "a wild group appears", style = "fun", trigger = "self" },
+    { key = "fun_snacks", text = "hi, I brought snacks", style = "fun", trigger = "self" },
+    { key = "fun_plusone", text = "your +1 {role} has arrived", style = "fun", trigger = "self" },
+    { key = "fun_loot", text = "hello friends, let's loot", style = "fun", trigger = "self" },
+    { key = "fun_tankhere", text = "tank here, pull respectfully", style = "fun", role = "TANK", trigger = "self" },
+    { key = "fun_shield", text = "your shield has arrived", style = "fun", role = "TANK", trigger = "self" },
+    { key = "fun_healeronline", text = "healer online, don't stand in fire", style = "fun", role = "HEALER", trigger = "self" },
+    { key = "fun_pocketheals", text = "pocket heals reporting in", style = "fun", role = "HEALER", trigger = "self" },
+    { key = "fun_dpsarrived", text = "dps here, numbers incoming", style = "fun", role = "DAMAGER", trigger = "self" },
+    { key = "fun_pewpew", text = "pew pew department reporting in", style = "fun", role = "DAMAGER", trigger = "self" },
+    { key = "fun_reinforcements", text = "reinforcements have arrived, welcome {names}", style = "fun", trigger = "others" },
+    { key = "fun_freshrecruits", text = "fresh recruits, welcome o/", style = "fun", trigger = "others" },
+    { key = "fantasy_wellmet", text = "well met, travelers", style = "fantasy", trigger = "self" },
+    { key = "fantasy_adventurers", text = "greetings, adventurers o/", style = "fantasy" },
+    { key = "fantasy_blades", text = "may your blades stay sharp", style = "fantasy" },
+    { key = "fantasy_quest", text = "a fine day for a quest", style = "fantasy" },
+    { key = "fantasy_wellmetnames", text = "well met, {names}", style = "fantasy", trigger = "others" },
+    { key = "dark_mortals", text = "greetings, mortals", style = "dark" },
+    { key = "dark_soul", text = "another soul joins the run", style = "dark", trigger = "others" },
+    { key = "dark_reinforcements", text = "the shadows sent reinforcements", style = "dark", trigger = "others" },
+    { key = "light_friends", text = "hi friends <3", style = "light", appendNames = true },
+    { key = "light_glhf", text = "hello all, glhf", style = "light", trigger = "self" },
+    { key = "light_happy", text = "happy to be here o/", style = "light", trigger = "self" },
+    { key = "light_vibes", text = "hey team, good vibes only", style = "light", trigger = "self" },
+    { key = "light_welcomenames", text = "welcome, {names} <3", style = "light", trigger = "others" },
+    { key = "pirate_ahoy", text = "ahoy crew o/", style = "pirate" },
+    { key = "pirate_aboard", text = "all aboard!", style = "pirate", trigger = "others" },
+    { key = "pirate_finecrew", text = "a fine crew we have here", style = "pirate", trigger = "self" },
+    { key = "pirate_aboardnames", text = "welcome aboard, {names}", style = "pirate", trigger = "others" },
+    { key = "faction_loktar", text = "Lok'tar ogar!", style = "faction", faction = "Horde", keepCase = true },
+    { key = "faction_forthehorde", text = "for the Horde o/", style = "faction", faction = "Horde" },
+    { key = "faction_bloodthunder", text = "blood and thunder!", style = "faction", faction = "Horde" },
+    { key = "faction_forthealliance", text = "for the Alliance o/", style = "faction", faction = "Alliance" },
+    { key = "faction_wellmetheroes", text = "well met, heroes", style = "faction", faction = "Alliance" },
+    { key = "faction_bythelight", text = "by the Light, hello", style = "faction", faction = "Alliance" },
+    { key = "zoomer_weball", text = "yo we ball", style = "zoomer" },
+    { key = "zoomer_cook", text = "lets cook team", style = "zoomer", trigger = "self" },
+    { key = "zoomer_squad", text = "squad up o/", style = "zoomer" },
+    { key = "butler_goodday", text = "good day to you all", style = "butler" },
+    { key = "butler_pleasure", text = "a pleasure to join you", style = "butler", trigger = "self" },
+    { key = "butler_service", text = "at your service o/", style = "butler", trigger = "self" },
+    { key = "butler_welcomenames", text = "a warm welcome, {names}", style = "butler", trigger = "others" },
 }
 
 -- Goodbyes database (enabled by default first)
 AutoSay.Goodbyes = {
     { key = "bye", text = "Bye!" },
     { key = "goodbye", text = "Goodbye!" },
-    { key = "gtg", text = "GTG, bye!" },
+    { key = "gtg", text = "GTG, bye!", keepCase = true },
     { key = "takecare", text = "Take care!" },
     { key = "peace", text = "Peace!" },
     -- Disabled by default
@@ -39,16 +130,47 @@ AutoSay.Goodbyes = {
     { key = "later", text = "Later!" },
     { key = "cya", text = "Cya!" },
     { key = "cheers", text = "Cheers!" },
-    { key = "gn", text = "GN!" },
-    { key = "bb", text = "BB!" },
+    { key = "gn", text = "GN!", keepCase = true },
+    { key = "bb", text = "BB!", keepCase = true },
     { key = "laterall", text = "Later all!" },
+    -- Time-of-day phrases: only picked while the local hour is in their band
+    { key = "eveningbye", text = "have a good evening", band = "evening" },
+    { key = "gnall", text = "gn all", band = "night" },
+    { key = "goodnightall", text = "good night everyone", band = "night" },
+    { key = "sleepwell", text = "gn, sleep well", band = "night" },
+    -- Style bundles (never enabled by default, activated by bundle or by hand)
+    { key = "fun_hearthstone", text = "gtg, my hearthstone is calling", style = "fun" },
+    { key = "fun_afkirl", text = "afk irl, bye o/", style = "fun" },
+    { key = "fun_bags", text = "bye, may your bags be full", style = "fun" },
+    { key = "fun_glhf", text = "gl hf without me", style = "fun" },
+    { key = "fantasy_safetravels", text = "safe travels", style = "fantasy" },
+    { key = "fantasy_meetagain", text = "until we meet again", style = "fantasy" },
+    { key = "fantasy_wind", text = "may the wind guide you", style = "fantasy" },
+    { key = "dark_shadows", text = "I return to the shadows", style = "dark", keepCase = true },
+    { key = "dark_calls", text = "the darkness calls me home", style = "dark" },
+    { key = "dark_mist", text = "fading into the mist o/", style = "dark" },
+    { key = "light_takecare", text = "bye all, take care <3", style = "light" },
+    { key = "light_bewell", text = "thanks for the run, be well", style = "light" },
+    { key = "light_seeyou", text = "see you around, friends", style = "light" },
+    { key = "pirate_fairwinds", text = "sailing off, fair winds", style = "pirate" },
+    { key = "pirate_calmerseas", text = "off to calmer seas o/", style = "pirate" },
+    { key = "faction_strength", text = "strength and honor, bye", style = "faction", faction = "Horde" },
+    { key = "faction_axes", text = "may your axes stay sharp", style = "faction", faction = "Horde" },
+    { key = "faction_lightbe", text = "Light be with you", style = "faction", faction = "Alliance", keepCase = true },
+    { key = "faction_honorguide", text = "honor guide you, bye", style = "faction", faction = "Alliance" },
+    { key = "zoomer_ggnext", text = "gg go next", style = "zoomer" },
+    { key = "zoomer_dipping", text = "aight, dipping o/", style = "zoomer" },
+    { key = "zoomer_beenreal", text = "it's been real", style = "zoomer" },
+    { key = "butler_honour", text = "it has been an honour", style = "butler" },
+    { key = "butler_takecare", text = "do take care, everyone", style = "butler" },
+    { key = "butler_farewell", text = "I bid you farewell", style = "butler", keepCase = true },
 }
 
 -- Reconnect messages database (enabled by default first)
 AutoSay.Reconnects = {
     { key = "back", text = "Back!" },
     { key = "reconnected", text = "Reconnected!" },
-    { key = "imback", text = "I'm back!" },
+    { key = "imback", text = "I'm back!", keepCase = true },
     -- Disabled by default
     { key = "rehi", text = "Re!" },
     { key = "backagain", text = "Back again!" },
@@ -57,10 +179,49 @@ AutoSay.Reconnects = {
     { key = "backinthegame", text = "Back in the game!" },
     { key = "srydc", text = "Sorry for DC!" },
     { key = "sorrydisconnect", text = "Sorry, got disconnected!" },
-    { key = "dcsorry", text = "DC, sorry about that!" },
+    { key = "dcsorry", text = "DC, sorry about that!", keepCase = true },
     { key = "mybad", text = "My bad, DC!" },
     { key = "internetissues", text = "Internet issues, back now!" },
     { key = "laggedout", text = "Lagged out, I'm back!" },
+    -- Style bundles (never enabled by default, activated by bundle or by hand)
+    { key = "fun_router", text = "back, blame the router", style = "fun" },
+    { key = "fun_lagwon", text = "the lag won round one", style = "fun" },
+    { key = "fantasy_portal", text = "the portal spat me back out", style = "fantasy" },
+    { key = "dark_death", text = "death could not hold me", style = "dark" },
+    { key = "dark_void", text = "back from the void", style = "dark" },
+    { key = "light_sorry", text = "back, sorry all!", style = "light" },
+    { key = "light_waiting", text = "here again, thanks for waiting", style = "light" },
+    { key = "pirate_backondeck", text = "back on deck!", style = "pirate" },
+    { key = "faction_backfight", text = "back to the fight!", style = "faction" },
+    { key = "zoomer_wifi", text = "back, wifi said no for a sec", style = "zoomer" },
+    { key = "butler_returned", text = "my apologies, I have returned", style = "butler" },
+}
+
+-- Style bundle ids, in UI order
+AutoSay.MessageStyles = {
+    "fun", "fantasy", "dark", "light", "pirate", "faction", "zoomer", "butler",
+}
+
+-- Every phrase pool a style bundle can toggle, in UI order. One inventory, three consumers:
+-- the bundle apply/state logic, the tag bulk buttons, and the bundle tooltip in Config.
+--   messages    name of the AutoSay.<name> phrase table
+--   enabledKey  settings key of that pool's per-phrase checkbox table
+--   mplus       the pool lives once under db.profile.mythicplus instead of per channel
+--   header      tooltip section title; pools sharing one are listed under a single header
+AutoSay.StylePools = {
+    { messages = "Greetings",          enabledKey = "enabledGreetings",          header = "Greetings" },
+    { messages = "Goodbyes",           enabledKey = "enabledGoodbyes",           header = "Goodbyes" },
+    { messages = "Reconnects",         enabledKey = "enabledReconnects",         header = "Reconnects" },
+    { messages = "KeyAnnounce",        enabledKey = "enabledKeyAnnounce",        header = "Key announce", mplus = true },
+    { messages = "CompletionTimed",    enabledKey = "enabledCompletionTimed",    header = "Completion",   mplus = true },
+    { messages = "CompletionDepleted", enabledKey = "enabledCompletionDepleted", header = "Completion",   mplus = true },
+}
+
+-- Role token used by the {role} placeholder and by the config labels
+AutoSay.RoleWords = {
+    TANK = "tank",
+    HEALER = "healer",
+    DAMAGER = "dps",
 }
 
 -- Key announce messages (M+ group full)
@@ -68,6 +229,14 @@ AutoSay.KeyAnnounce = {
     { key = "letsgo",   text = "Let's go! {dungeon} {key}" },
     { key = "ready",    text = "Ready! {dungeon} {key}" },
     { key = "gogogo",   text = "{dungeon} {key}, let's do this!" },
+    -- Style bundles (never enabled by default, activated by bundle or by hand)
+    { key = "fun_express", text = "the {dungeon} express departs, {key}", style = "fun" },
+    { key = "fantasy_gates", text = "the gates of {dungeon} await, {key}", style = "fantasy" },
+    { key = "dark_ready", text = "{dungeon} {key}, the shadows are ready", style = "dark" },
+    { key = "light_goodluck", text = "{dungeon} {key}, good luck everyone <3", style = "light" },
+    { key = "pirate_sail", text = "setting sail for {dungeon} {key}", style = "pirate" },
+    { key = "zoomer_cook", text = "{dungeon} {key} lets cook", style = "zoomer" },
+    { key = "butler_carriage", text = "your carriage to {dungeon} {key} is ready", style = "butler" },
 }
 
 -- M+ completion messages - timed (enabled by default first)
@@ -83,6 +252,14 @@ AutoSay.CompletionTimed = {
     { key = "wpall", text = "wp all" },
     { key = "timed", text = "{dungeon} {key} timed, gg!" },
     { key = "upgraded", text = "+{upgrade} upgrade, nice!" },
+    -- Style bundles (never enabled by default, activated by bundle or by hand)
+    { key = "fun_router", text = "gg, the router held up", style = "fun" },
+    { key = "fantasy_victory", text = "victory, well fought", style = "fantasy" },
+    { key = "dark_pleased", text = "the void is pleased, gg", style = "dark" },
+    { key = "light_lovely", text = "gg all, lovely run <3", style = "light" },
+    { key = "pirate_plunder", text = "fine plunder, crew", style = "pirate" },
+    { key = "zoomer_ez", text = "gg ez, we cooked", style = "zoomer" },
+    { key = "butler_splendid", text = "splendidly done, everyone", style = "butler" },
 }
 
 -- Guild member login greetings (enabled by default first)
@@ -112,17 +289,12 @@ AutoSay.DungeonNames = {
     [584] = "The Blinding Vale",
 }
 
--- LFG activityID -> mapChallengeModeID mapping (Midnight Season 1)
--- Used to resolve dungeon names from Group Finder listings.
+-- LFG activityID -> mapChallengeModeID mapping. Used to resolve dungeon names from Group
+-- Finder listings. Empty until the Season 2 activity ids exist: regenerate with
+-- /as dumpdungeons (enUS client) once the season is live. The announce degrades gracefully
+-- without it (listing's own name + the owned-keystone identity check), whereas last season's
+-- ids would resolve to map ids the Season 2 DungeonNames table cannot name.
 AutoSay.ActivityToDungeon = {
-    [1760] = 558,
-    [1764] = 560,
-    [1768] = 559,
-    [1542] = 557,
-    [1160] = 402,
-    [486]  = 583,
-    [182]  = 161,
-    [1770] = 556,
 }
 
 -- M+ completion messages - depleted (enabled by default first)
@@ -138,11 +310,12 @@ AutoSay.CompletionDepleted = {
     { key = "wpall", text = "wp all" },
     { key = "done", text = "{dungeon} {key} done, gg" },
     { key = "tyfun", text = "ty all, was fun" },
-}
-
--- Time-of-day greeting extras, mixed into the universal pool by local hour
-AutoSay.GreetingsTimeOfDay = {
-    morning = { "morning!", "good morning all", "morning o/" },
-    evening = { "evening!", "good evening", "evening all o/" },
-    night = { "up late too? hi", "night owls unite o/" },
+    -- Style bundles (never enabled by default, activated by bundle or by hand)
+    { key = "fun_blamelag", text = "gg, we blame the lag", style = "fun" },
+    { key = "fantasy_noble", text = "a noble effort, friends", style = "fantasy" },
+    { key = "dark_claims", text = "the dungeon claims this one, gg", style = "dark" },
+    { key = "light_nextone", text = "good try all, next one is ours", style = "light" },
+    { key = "pirate_roughseas", text = "rough seas, gg crew", style = "pirate" },
+    { key = "zoomer_gonext", text = "gg go next", style = "zoomer" },
+    { key = "butler_valiant", text = "a valiant attempt, thank you all", style = "butler" },
 }

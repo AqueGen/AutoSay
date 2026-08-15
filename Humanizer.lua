@@ -47,15 +47,5 @@ function Humanizer:Pick(poolId, entries)
   return text
 end
 
-function Humanizer:PickTimed(poolId, universal, bands)
-  local merged = {}
-  for _, t in ipairs(universal) do merged[#merged + 1] = t end
-  local band = bands and bands[Humanizer.BandForHour(self.hour())]
-  if band then
-    for _, t in ipairs(band) do merged[#merged + 1] = t end
-  end
-  return self:Pick(poolId, merged)
-end
-
 if ns then ns.Humanizer = Humanizer end
 return Humanizer

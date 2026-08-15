@@ -34,7 +34,9 @@ function SocialGate:MaySend(trigger, targetName)
   local s = self.settings()
 
   pruneWindow(self.state.sends, now - HOUR)
-  if #self.state.sends >= s.budgetPerHour then
+  -- Goodbyes are exempt: staying silent when leaving reads worse than one extra line.
+  -- They still spend a slot via Record, so they count against later greetings.
+  if trigger ~= "goodbye" and #self.state.sends >= s.budgetPerHour then
     self.debug("blocked: budget (" .. trigger .. ")")
     return false, "budget"
   end

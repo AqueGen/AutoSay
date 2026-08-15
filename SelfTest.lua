@@ -174,6 +174,16 @@ function Addon:RunSelfTest()
         self:Print("|cFFFFCC00SKIP|r season pool coverage - no M+ map data on this client right now")
     end
 
+    -- A cross-season mismatch here silently kills English names and the key dedupe
+    local orphanActivities = {}
+    for activityID, mapID in pairs(AutoSay.ActivityToDungeon) do
+        if not AutoSay.DungeonNames[mapID] then
+            orphanActivities[#orphanActivities + 1] = format("%d->%d", activityID, mapID)
+        end
+    end
+    check("every ActivityToDungeon map id resolves in DungeonNames", #orphanActivities == 0,
+        "orphans: " .. table.concat(orphanActivities, ", ") .. " - regenerate both via /as dumpdungeons")
+
     self:Print(format("Self-test: %d/%d passed", passed, total))
 end
 
