@@ -741,22 +741,6 @@ end
 -- Tooltip body of a style bundle button: its phrases, one line per AutoSay.StylePools header
 -- (both completion pools share the "Completion" header, so they merge into a single line).
 -- Cached per style - eight multi-line listings are not worth building for a tooltip nobody hovers.
--- Class names in their own colours, for the advisory "often suits" line. The class list is
--- built once from the API rather than hardcoded, so a class added later needs no edit here.
-local classNameCache
-local function ClassLabel(token)
-    if not classNameCache then
-        classNameCache = {}
-        for i = 1, (GetNumClasses and GetNumClasses() or 0) do
-            local name, file = GetClassInfo(i)
-            if name and file then classNameCache[file] = name end
-        end
-    end
-    local name = classNameCache[token] or token
-    local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[token]
-    return color and color:WrapTextInColorCode(name) or name
-end
-
 --- Does this bundle lean towards the class the player is on right now?
 local function BundleSuitsPlayer(style)
     local tokens = AutoSay.StyleClasses[style]
@@ -773,43 +757,23 @@ local function BundleDesc(style)
     local desc = bundleDescCache[style]
     if desc then return desc end
 
-    local lines, byHeader = {}, {}
+    -- Counts, not the phrases themselves: a bundle holds dozens of lines, and a tooltip
+    -- that listed them buried the one thing the button had to say. The phrases live on the
+    -- Group, Guild and Mythic+ tabs, where they can be read and ticked one at a time.
+    local order, counts = {}, {}
     for _, pool in ipairs(AutoSay.StylePools) do
+        local n = 0
         for _, msg in ipairs(AutoSay[pool.messages]) do
-            if AutoSay.MessageLogic.StyleMatches(msg, style) then
-                local texts = byHeader[pool.header]
-                if not texts then
-                    texts = {}
-                    byHeader[pool.header] = texts
-                    lines[#lines + 1] = { header = pool.header, texts = texts }
-                end
-                texts[#texts + 1] = msg.text
-            end
+            if AutoSay.MessageLogic.StyleMatches(msg, style) then n = n + 1 end
+        end
+        if n > 0 then
+            if not counts[pool.header] then order[#order + 1] = pool.header end
+            counts[pool.header] = (counts[pool.header] or 0) + n
         end
     end
-    -- Classic holds every untagged phrase, far too many to read in a tooltip: list a
-    -- sample and say how many are left rather than covering half the screen. The cap
-    -- applies to every bundle - the styled ones simply never reach it.
-    local PREVIEW = 8
-    for j, line in ipairs(lines) do
-        local shown, extra = line.texts, #line.texts - PREVIEW
-        if extra > 0 then
-            shown = {}
-            for k = 1, PREVIEW do shown[k] = line.texts[k] end
-        end
-        lines[j] = "|cFFFFD100" .. L[line.header] .. ":|r " .. table.concat(shown, "  |cFF555555/|r  ")
-        if extra > 0 then
-            lines[j] = lines[j] .. "  |cFF888888" .. string.format(L["+%d more"], extra) .. "|r"
-        end
-    end
-
-    -- Only bundles with a genuine class leaning carry the line. A bundle that suits
-    -- everyone says nothing rather than showing an empty row that reads as "fits nobody".
-    local classes = AutoSay.StyleClasses[style]
-    if classes then
-        local names = {}
-        for i, token in ipairs(classes) do names[i] = ClassLabel(token) end
-        lines[#lines + 1] = "|cFFFFD100" .. L["Often suits"] .. ":|r " .. table.concat(names, ", ")
+    local lines = {}
+    for j, header in ipairs(order) do
+        lines[j] = "|cFFFFD100" .. L[header] .. ":|r " .. string.format(L["%d phrases"], counts[header])
     end
 
     desc = table.concat(lines, "\n") .. "\n\n" .. L["Bundle button hint"]
@@ -1085,21 +1049,14 @@ local function BuildOptions()
                                 set = function(_, v) replaceOnApply = v end,
                             },
                         }
-                        -- One button per bundle: click applies it; the tooltip lists its phrases,
-                        -- built on first hover of that button (see BundleDesc)
+                        -- One button per bundle: click applies it; the tooltip counts what it
+                        -- holds, built on first hover of that button (see BundleDesc)
                         for i, style in ipairs(AutoSay.MessageStyles) do
                             args["bundle_" .. style] = {
                                 type = "execute", order = 10 + i, width = 0.9,
                                 -- Green name = bundle fully enabled; clicking then disables it
                                 name = function()
                                     local label = NewTag(L["Style " .. style], "1.6")
-                                    -- A dot in your class colour: the bundles that suit
-                                    -- this character stand out without reading the tooltips
-                                    if BundleSuitsPlayer(style) then
-                                        local _, playerClass = UnitClass("player")
-                                        local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[playerClass]
-                                        label = (color and color:WrapTextInColorCode("*") or "*") .. label
-                                    end
                                     if Addon:IsStyleBundleEnabled(style) then
                                         return "|cFF00FF00" .. label .. "|r"
                                     end
@@ -1117,6 +1074,26 @@ local function BuildOptions()
                                 end,
                             }
                         end
+                        -- Under the buttons rather than inside each tooltip: the one line
+                        -- that is actually about this character should not need a hover.
+                        -- Bundles with no class leaning are simply not mentioned here.
+                        args.classHint = {
+                            type = "description", order = 100, width = "full",
+                            name = function()
+                                local names = {}
+                                for _, style in ipairs(AutoSay.MessageStyles) do
+                                    if BundleSuitsPlayer(style) then
+                                        names[#names + 1] = L["Style " .. style]
+                                    end
+                                end
+                                if #names == 0 then return "" end
+                                local _, playerClass = UnitClass("player")
+                                local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[playerClass]
+                                local list = table.concat(names, ", ")
+                                return "|cFFFFD100" .. L["Often suits"] .. ":|r "
+                                    .. (color and color:WrapTextInColorCode(list) or list)
+                            end,
+                        }
                         return args
                     end)(),
                 },
