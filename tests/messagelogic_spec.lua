@@ -293,6 +293,22 @@ describe("PoolIsSilent", function()
   end)
 end)
 
+describe("PoolLostItsPhrases", function()
+  local f = Logic.PoolLostItsPhrases
+  local valid = { hi = true, bye = true }
+  it("is true when the release retired every phrase that was on", function()
+    assert.is_true(f({ seeya = true, yoyo = true }, valid, {}))
+  end)
+  it("leaves a pool the user emptied on purpose alone", function()
+    assert.is_false(f({ hi = false, bye = false }, valid, {}))
+    assert.is_false(f({}, valid, {}))
+  end)
+  it("stays out of the way while a live phrase or custom is on", function()
+    assert.is_false(f({ seeya = true, hi = true }, valid, {}))
+    assert.is_false(f({ seeya = true }, valid, { { text = "o/", enabled = true } }))
+  end)
+end)
+
 describe("MigrateInstanceChannel", function()
   local function freshProfile()
     return {

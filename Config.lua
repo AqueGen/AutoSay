@@ -1001,6 +1001,8 @@ local function BuildOptions()
                         -- without re-stamping, the next login would re-run MigrateInstanceChannel
                         -- and overwrite the instance settings chosen after this reset
                         Addon.db.profile.instanceMigrated = true
+                        Addon.db.profile.masterSwitchesMigrated = true
+                        Addon.db.profile.retiredPhrasesMigrated = true
                         Addon.db.profile.mythicplus.keyLevelMigrated = true
                         if wasTestMode then
                             Addon:TestReset() -- bumps sendGeneration itself

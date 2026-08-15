@@ -177,6 +177,19 @@ function MessageLogic.PoolIsSilent(enabled, validKeys, customs)
     return true
 end
 
+-- Silence alone is not a reason to hand the stock phrases back: a pool can be empty because
+-- the user unticked every line on purpose, and overriding that would be worse than the
+-- problem. Only a pool that is silent AND still holds a tick for a phrase this build no
+-- longer ships lost its selection to the release rather than to its owner.
+function MessageLogic.PoolLostItsPhrases(enabled, validKeys, customs)
+    if not enabled then return false end
+    if not MessageLogic.PoolIsSilent(enabled, validKeys, customs) then return false end
+    for key, on in pairs(enabled) do
+        if on and not validKeys[key] then return true end
+    end
+    return false
+end
+
 function MessageLogic.MigrateInstanceChannel(profile)
     if profile.instanceMigrated then return false end
 

@@ -383,20 +383,15 @@ function Addon:OnInitialize()
     -- Initialize database
     self.db = LibStub("AceDB-3.0"):New("AutoSayDB", defaults, true)
 
-    -- Migrate old single custom message format to new array format
-    self:MigrateCustomMessages()
+    -- Every migration is one-shot per profile, so re-running them when the active profile
+    -- changes is what makes a profile switched to later behave like one loaded at login.
+    -- Without this a legacy profile picked mid-session keeps a selection this build no
+    -- longer ships, and an Instance channel that never inherited its Party settings.
+    for _, event in ipairs({ "OnProfileChanged", "OnProfileCopied", "OnProfileReset" }) do
+        self.db.RegisterCallback(self, event, "OnProfileSwitched")
+    end
 
-    -- Seed the instance channel from the party settings on the first run after the upgrade
-    self:MigrateInstanceChannel()
-
-    -- Fold the old three-way M+ messageMode into the includeKeyLevel toggle
-    self:MigrateKeyLevelMode()
-
-    -- Keep the time-of-day phrases an upgrade already had
-    self:MigrateMasterSwitches()
-
-    -- Give a channel its stock phrases back if this build retired every one it had
-    self:MigrateRetiredPhrases()
+    self:RunProfileMigrations()
 
     -- Wire up social gate + humanizer core
     self.socialGate = AutoSay.SocialGate.New{
@@ -526,7 +521,7 @@ function Addon:MigrateRetiredPhrases()
             if enabled then
                 local live = {}
                 for _, msg in ipairs(AutoSay[pool.messages]) do live[msg.key] = true end
-                if Logic.PoolIsSilent(enabled, live, settings[pool.customsKey]) then
+                if Logic.PoolLostItsPhrases(enabled, live, settings[pool.customsKey]) then
                     for key, on in pairs(defaults[pool.enabledKey]) do enabled[key] = on end
                     self:DebugPrint("Restored stock", pool.messages, "for", channel.key)
                 end
@@ -534,6 +529,32 @@ function Addon:MigrateRetiredPhrases()
         end
     end
 end
+
+function Addon:OnProfileSwitched()
+    self:RunProfileMigrations()
+    self:InvalidateBundleCache() -- the cached bundle state belongs to the previous profile
+    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- the open panel shows the old profile
+end
+
+function Addon:RunProfileMigrations()
+    -- Migrate old single custom message format to new array format
+    self:MigrateCustomMessages()
+
+    -- Seed the instance channel from the party settings on the first run after the upgrade
+    self:MigrateInstanceChannel()
+
+    -- Fold the old three-way M+ messageMode into the includeKeyLevel toggle
+    self:MigrateKeyLevelMode()
+
+    -- Keep the time-of-day phrases an upgrade already had
+    self:MigrateMasterSwitches()
+
+    -- Give a channel its stock phrases back if this build retired every one it had
+    self:MigrateRetiredPhrases()
+end
+
+-- Band goodbyes shipped disabled before this release, so an upgrade never had them
+local BAND_GOODBYE_KEYS = { "eveningbye", "gnall", "goodnightall", "sleepwell" }
 
 -- The master switches are new, and they ship off. 1.5.x had no switch and spoke its
 -- time-of-day phrases for everyone, so defaulting an upgrade to off would read as "the
@@ -548,6 +569,14 @@ function Addon:MigrateMasterSwitches()
     -- that person would undo a decision they made by hand.
     if self.priorTimeOfDay[self.db:GetCurrentProfile()] == nil then
         profile.social.timeOfDay = true
+        -- Only the greetings existed before. Band goodbyes are new, and switching the
+        -- master on for an upgrade must not start saying "gn all" on their behalf
+        for _, key in ipairs(BAND_GOODBYE_KEYS) do
+            for _, channel in ipairs(AutoSay.Channels) do
+                local settings = profile[channel.key]
+                if settings and settings.enabledGoodbyes then settings.enabledGoodbyes[key] = false end
+            end
+        end
         self:DebugPrint("Kept time-of-day phrases on for an upgraded profile")
     end
 end
@@ -1615,6 +1644,13 @@ function Addon:SendGoodbye(channel)
 
     local settings = self:GetChannelSettings(channel)
     if not settings then return false end
+
+    -- The channel master comes first: "Enable Party" off means silence on that channel,
+    -- goodbyes included, whatever the per-channel goodbye toggle inherited
+    if not settings.enabled then
+        self:DebugPrint(channel, "channel disabled, no goodbye")
+        return false
+    end
 
     -- Check if goodbye is enabled for this channel
     if not settings.sendGoodbye then
