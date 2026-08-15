@@ -2298,13 +2298,8 @@ function Addon:TestReset()
         self.humanizer.history = {}
     end
     -- Delayed sends from an earlier simulation must not fire into the next one (the
-    -- sendGeneration bump on the test-mode toggle covers mode changes; this covers resets).
-    -- The bump also invalidates untracked simulation timers (the M+ flow's join closures).
-    for handle in pairs(self.state.pendingGroupSends) do
-        self:CancelTimer(handle)
-    end
-    self.state.pendingGroupSends = {}
-    self.state.sendGeneration = self.state.sendGeneration + 1
+    -- sendGeneration bump on the test-mode toggle covers mode changes; this covers resets)
+    self:TestCancelPendingSends()
     self:TestPrint("Test state reset")
 end
 
@@ -2358,11 +2353,25 @@ function Addon:TestPreviewWhatsNew()
     self:ShowWhatsNew(self:VersionMinor() or "dev", true)
 end
 
+-- Entering a new simulated group drops whatever the previous one still had in flight, the
+-- way GROUP_JOINED does for real groups. Without it a greeting built for one simulation
+-- lands in the next: schedule a 5-player instance greeting, switch to /as test lfr inside
+-- the typing delay, and the old timer would speak in a group that must stay silent.
+function Addon:TestCancelPendingSends()
+    for handle in pairs(self.state.pendingGroupSends) do
+        self:CancelTimer(handle)
+    end
+    self.state.pendingGroupSends = {}
+    -- Also invalidates the simulation timers that are not tracked by handle (M+ flow)
+    self.state.sendGeneration = self.state.sendGeneration + 1
+end
+
 -- Simulate joining a party
 function Addon:TestJoinParty()
     if not self:RequireTestMode() then return end
 
     self:TestPrint("=== Simulating JOIN PARTY ===")
+    self:TestCancelPendingSends()
     self.testState.simulatedGroupType = "PARTY"
     self.state.previousGroup = { [UnitName("player")] = true }
     self.state.sentGreetings = {}
@@ -2381,6 +2390,7 @@ function Addon:TestJoinRaid()
     if not self:RequireTestMode() then return end
 
     self:TestPrint("=== Simulating JOIN RAID ===")
+    self:TestCancelPendingSends()
     self.testState.simulatedGroupType = "RAID"
     self.state.previousGroup = { [UnitName("player")] = true }
     self.state.sentGreetings = {}
@@ -2400,6 +2410,7 @@ function Addon:TestJoinInstance(raidSized)
     if not self:RequireTestMode() then return end
 
     self:TestPrint(raidSized and "=== Simulating ENTER LFR/BATTLEGROUND ===" or "=== Simulating ENTER INSTANCE GROUP ===")
+    self:TestCancelPendingSends()
     self.testState.simulatedGroupType = "INSTANCE_CHAT"
     self.testState.simulatedRaidInstance = raidSized and true or false
     self.state.previousGroup = { [UnitName("player")] = true }
