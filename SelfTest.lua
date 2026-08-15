@@ -266,31 +266,38 @@ function Addon:RunSelfTest()
     check("every class this client knows is named by some bundle", #unhinted == 0,
         "no hint mentions: " .. table.concat(unhinted, ", "))
 
-    -- The LFR gate, asked the way the sender asks it. Test mode and the toggle are put back
-    -- immediately afterwards, whatever the answers were.
+    -- The LFR gate, asked the way the sender asks it. The four answers are collected inside a
+    -- pcall so that a raise cannot walk out on the restore below.
     do
         local instance = self.db.profile.instance
         local savedSkip, savedMode = instance.skipRaidGroups, self.db.profile.testMode
         local savedType, savedRaid =
             self.testState.simulatedGroupType, self.testState.simulatedRaidInstance
-        self.db.profile.testMode = true
-        self.testState.simulatedGroupType = "INSTANCE_CHAT"
+        local silencedInLFR, silencedInDungeon, silencedWithToggleOff, partyUntouched
 
-        instance.skipRaidGroups = true
-        self.testState.simulatedRaidInstance = true
-        local silencedInLFR = self:IsChannelSilenced("INSTANCE_CHAT")
-        self.testState.simulatedRaidInstance = false
-        local silencedInDungeon = self:IsChannelSilenced("INSTANCE_CHAT")
-        instance.skipRaidGroups = false
-        self.testState.simulatedRaidInstance = true
-        local silencedWithToggleOff = self:IsChannelSilenced("INSTANCE_CHAT")
-        local partyUntouched = self:IsChannelSilenced("PARTY")
+        local asked, askErr = pcall(function()
+            self.db.profile.testMode = true
+            self.testState.simulatedGroupType = "INSTANCE_CHAT"
+
+            instance.skipRaidGroups = true
+            self.testState.simulatedRaidInstance = true
+            silencedInLFR = self:IsChannelSilenced("INSTANCE_CHAT")
+            -- Asked while the toggle is still on: with it off, a gate that wrongly silenced
+            -- every channel would answer "not silenced" here and look correct
+            partyUntouched = self:IsChannelSilenced("PARTY")
+            self.testState.simulatedRaidInstance = false
+            silencedInDungeon = self:IsChannelSilenced("INSTANCE_CHAT")
+            instance.skipRaidGroups = false
+            self.testState.simulatedRaidInstance = true
+            silencedWithToggleOff = self:IsChannelSilenced("INSTANCE_CHAT")
+        end)
 
         instance.skipRaidGroups = savedSkip
         self.db.profile.testMode = savedMode
         self.testState.simulatedGroupType = savedType
         self.testState.simulatedRaidInstance = savedRaid
 
+        if not asked then check("the LFR gate answered at all", false, tostring(askErr)) end
         check("the instance channel is silent in a raid-sized group", silencedInLFR == true,
             "a raid finder run would have been greeted")
         check("a 5-player instance group still speaks", silencedInDungeon == false,
@@ -301,11 +308,19 @@ function Addon:RunSelfTest()
             "party chat was silenced by an instance rule")
     end
 
-    -- Group F: profile migrations, on a scratch profile that is deleted again
-    local SCRATCH = "AutoSay self-test"
+    -- Group F: profile migrations, on a scratch profile that is deleted again. The name is
+    -- claimed rather than assumed: deleting a profile a player happens to have called the
+    -- same thing would be a far worse bug than the one this group is looking for.
+    local taken = {}
+    for _, name in ipairs(self.db:GetProfiles()) do taken[name] = true end
+    local SCRATCH
+    for i = 1, 100 do
+        local candidate = "AutoSay self-test" .. (i > 1 and (" " .. i) or "")
+        if not taken[candidate] then SCRATCH = candidate break end
+    end
     local home = self.db:GetCurrentProfile()
-    if home == SCRATCH then
-        self:Print("|cFFFFCC00SKIP|r migrations - already sitting on the scratch profile")
+    if not SCRATCH then
+        self:Print("|cFFFFCC00SKIP|r migrations - no free name for a scratch profile")
     else
         local function Dump(value)
             if type(value) ~= "table" then return tostring(value) end
@@ -332,16 +347,17 @@ function Addon:RunSelfTest()
             profile.instanceMigrated = nil
             profile.masterSwitchesMigrated = nil
             profile.retiredPhrasesMigrated = nil
+            if profile.mythicplus then profile.mythicplus.keyLevelMigrated = nil end
             profile.social.timeOfDay = false
 
             self:RunProfileMigrations()
 
-            local rescued = 0
-            for _ in pairs(profile.party.enabledGreetings) do rescued = rescued + 1 end
+            -- Raid keeps its selection through all of this, so its greetings are still the
+            -- stock set: the rescued party pool has to match it key for key, not merely
+            -- hold more than one key
             check("a pool whose phrases were all retired gets the stock set back",
-                rescued > 1 and profile.party.enabledGreetings["retired_in_1_6"] == nil,
-                format("%d keys left, stale key %s", rescued,
-                    tostring(profile.party.enabledGreetings["retired_in_1_6"])))
+                Dump(profile.party.enabledGreetings) == Dump(profile.raid.enabledGreetings),
+                "the restored set is not the stock one")
             check("an upgrade keeps the time-of-day phrases it already had",
                 profile.social.timeOfDay == true, "the master switch was left off")
 
@@ -359,11 +375,16 @@ function Addon:RunSelfTest()
                 "the migrations undid Reset Profile")
         end)
 
-        self.db:SetProfile(home)
-        self.db:DeleteProfile(SCRATCH, true)
+        -- Each step of the way back is on its own: a raise in the first must not strand the
+        -- player on the scratch profile with the rest of the cleanup unrun
+        local backHome = pcall(function() self.db:SetProfile(home) end)
+        if backHome then pcall(function() self.db:DeleteProfile(SCRATCH, true) end) end
         self.priorProfiles[SCRATCH] = nil
         self.priorTimeOfDay[SCRATCH] = nil
         self.priorBandGoodbyes[SCRATCH] = nil
+        check("the player is back on their own profile", backHome
+            and self.db:GetCurrentProfile() == home,
+            "still on " .. tostring(self.db:GetCurrentProfile()) .. " - switch back by hand")
         if not ok then
             check("the migration checks ran to the end", false, tostring(err))
         end

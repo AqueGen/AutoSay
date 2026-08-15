@@ -61,9 +61,11 @@ end
 -- table governs this list.
 -- A reconnect draws from the Reconnects list and only falls back to the greetings when that
 -- list has nothing to say. So "On reconnect" keeps a greeting row live only while the
--- channel's reconnect list is silent: with any reconnect phrase ticked the fallback never
--- runs, and a greeting row that no join trigger can reach is dead however it looks.
-local function ReconnectFallsBackToGreetings(settings)
+-- channel's reconnect list is silent: with a reconnect phrase the sender can use, the
+-- fallback never runs, and a greeting row that no join trigger can reach is dead however
+-- it looks. Silence is judged the way every other row here is judged - by the switches, not
+-- by this character's role or the hour, both of which change under a panel that stays open.
+local function ReconnectFallsBackToGreetings(settings, channelKey)
     if not settings.onReconnect then return false end
     local social = Addon.db.profile.social
     local live = {}
@@ -71,8 +73,20 @@ local function ReconnectFallsBackToGreetings(settings)
         live[msg.key] = (msg.band == nil or social.timeOfDay == true)
             and (msg.role == nil or social.rolePhrases == true)
     end
-    return AutoSay.MessageLogic.PoolIsSilent(settings.enabledReconnects, live,
-        settings.customReconnects)
+    -- A custom line the sender refuses is silence too: CustomTextUsable drops {role} with the
+    -- master switch off, and on guild chat whatever the switch says
+    local customs = settings.customReconnects
+    if customs then
+        local usable = {}
+        for _, entry in ipairs(customs) do
+            local roleText = entry.text and entry.text:find("{role}", 1, true)
+            if not roleText or (social.rolePhrases == true and channelKey ~= "guild") then
+                usable[#usable + 1] = entry
+            end
+        end
+        customs = usable
+    end
+    return AutoSay.MessageLogic.PoolIsSilent(settings.enabledReconnects, live, customs)
 end
 
 local function PhraseActive(msg, settingsFn, poolKind, channelKey)
@@ -110,7 +124,7 @@ local function PhraseActive(msg, settingsFn, poolKind, channelKey)
         elseif poolKind == "greetings" then
             -- A greeting can be triggered by joining, by someone else joining, or by a
             -- reconnect falling back to this pool: with none of them on, none can fire
-            local viaReconnect = ReconnectFallsBackToGreetings(settings)
+            local viaReconnect = ReconnectFallsBackToGreetings(settings, channelKey)
             if not (settings.onSelfJoin or settings.onOthersJoin or viaReconnect) then
                 return false
             end
