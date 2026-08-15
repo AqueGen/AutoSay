@@ -106,6 +106,8 @@ local function PhraseActive(msg, settingsFn, poolKind, channelKey)
     -- the reconnect toggle, and so on. Without this only the greetings list ever greyed.
     if poolKind == "mplusKey" or poolKind == "mplusCompletion" then
         if not settings.enabled then return false end
+        -- Said in party chat, so the party switch silences these as well
+        if Addon.db.profile.party.enabled == false then return false end
         -- Beyond the master switch each M+ pool has its own trigger: a completion line
         -- cannot go out with completion messages off, and the key announce needs one of
         -- its two announce moments switched on
@@ -194,6 +196,12 @@ local function ChannelOffNotice(channels)
         return "|cFFFF7F3F" .. string.format(L["Channel off notice"], table.concat(names, ", ")) .. "|r"
     end
 end
+
+--- Mythic+ speaks in party chat, so the party switch reaches it too. Same warning row the
+--- phrase matrices carry, on a tab that has no channel columns of its own to grey.
+local MythicPlusPartyNotice = ChannelOffNotice({
+    { key = "party", settingsFn = function() return Addon.db.profile.party end },
+})
 
 -- AceConfig numeric widths are fixed pixels while the flow layout packs a visual line
 -- until it runs out of window: on a wide window two logical rows interleave. A zero-text
@@ -1547,6 +1555,10 @@ local function BuildOptions()
                     name = L["Group Ready"],
                     order = 1,
                     args = {
+                        partyOffNotice = {
+                            type = "description", order = 0.5, width = "full",
+                            name = MythicPlusPartyNotice,
+                        },
                         settingsGroup = {
                             type = "group",
                             name = L["Settings"],
@@ -1671,6 +1683,10 @@ local function BuildOptions()
                     childGroups = "tab",
                     args = {
                         -- Non-group args render above the sub-tab strip
+                        partyOffNotice = {
+                            type = "description", order = 0.5, width = "full",
+                            name = MythicPlusPartyNotice,
+                        },
                         completionEnabled = {
                             type = "toggle",
                             name = L["Send message on completion"],

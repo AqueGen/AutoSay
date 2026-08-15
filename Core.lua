@@ -2135,6 +2135,7 @@ end
 function Addon:SendKeyAnnounce()
     local db = self.db.profile
     if not db.enabled or not db.mythicplus.enabled then return end
+    if not self:MythicPlusChannelOpen() then return end
 
     -- One announce in flight: a retry is already carrying this group's message
     if self.state.keyAnnounceTimer then
@@ -2332,10 +2333,26 @@ function Addon:GetRandomCompletionMessage(onTime, upgrade)
     return enabled[math.random(#enabled)]
 end
 
+-- Everything Mythic+ says is said in party chat, so "Enable Party" governs it like any other
+-- line sent there. The M+ switch decides whether the feature runs, the channel switch decides
+-- whether that channel speaks at all, and the channel has the last word.
+function Addon:MythicPlusChannelOpen()
+    local settings = self.db.profile.party
+    if settings and settings.enabled == false then
+        self:DebugPrint("Party channel disabled, no Mythic+ announcement")
+        if self:IsTestMode() then
+            self:TestPrint("Message blocked: the Party channel is off (General tab)")
+        end
+        return false
+    end
+    return true
+end
+
 -- Send completion message to party chat
 function Addon:SendCompletionMessage(dungeon, keyLevel, onTime, upgrade, timeFormatted)
     local db = self.db.profile
     if not db.enabled or not db.mythicplus.enabled or not db.mythicplus.completionEnabled then return end
+    if not self:MythicPlusChannelOpen() then return end
 
     local template = self:GetRandomCompletionMessage(onTime, upgrade)
     if not template then
