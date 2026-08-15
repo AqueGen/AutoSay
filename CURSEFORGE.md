@@ -2,50 +2,67 @@
 
 Keep this file in sync with addon features. Update after each release.
 CurseForge editor: switch to **Markdown** mode, then paste the Description section below.
+Wago takes the same Markdown in its description field.
+
+Screenshots to keep on the listing, in this order (the first one is the header image):
+
+1. The Style tab with a set expanded, so the counts and the Enable all / Disable all pair are visible.
+2. The Group tab: the phrase list with the Party, Raid and Instance columns and a greyed column.
+3. A party chat window with two or three greetings actually sent, in different styles.
+4. The Mythic+ tab, or a chat line announcing a key.
+5. The What's new popup, which shows what a fresh install greets you with.
 
 ---
 
 ## Summary
 
-Automatically sends greetings, farewells, and reconnect messages in party, raid, and guild chat. Supports custom messages, M+ key announcements, and per-channel configuration.
+Automatic greetings, farewells and reconnect messages for party, raid, instance and guild chat. 300 phrases in 13 styles, phrases for your role, custom messages, Mythic+ key announcements and per-channel settings.
 
 ---
 
 ## Description (paste into CurseForge in Markdown mode)
 
-AutoSay takes care of the social basics so you don't have to. It automatically sends greetings when you join a group, says goodbye when you leave, and lets everyone know when you reconnect after a disconnect — all in party, raid, and guild chat.
+AutoSay handles the social basics so you don't have to. It greets the group when you join, says goodbye when you leave, and tells people you are back after a disconnect. It works in party, raid, instance (LFG, LFR, battlegrounds) and guild chat, and every phrase it can say is a checkbox you own.
 
-<!-- TODO: Add 1-2 screenshots of the settings window here -->
+### New in 1.6
 
-### Chat Messages
+- **13 style bundles.** Classic, Minimal, Fun, Fantasy, Dark, Deadpan, Wholesome, Pirate, Faction, Zoomer, Butler, Robot and Naturewarden. Switch a whole set on or off in one click and read at a glance how many of its phrases are selected and how many can be sent right now.
+- **Phrases for your role.** Every set has its own tank, healer and damage lines, so "I hold the line" only ever goes out when you are the one holding it. Off by default.
+- **Time of day.** Morning, evening and night variants for the sets that have them. Also off by default.
+- **Instance channel.** Its own settings for the groups you queue into, and it stays out of raid finder and battlegrounds unless you say otherwise.
+- **Nothing sends silently.** A row that cannot go out is greyed and says which switch would bring it back.
 
-- Sends greetings when you or others join a group
-- Sends farewells when you leave, log out, or quit the game
-- Sends reconnect messages after a disconnect
-- Comes with a variety of built-in messages — toggle each one on or off
-- Add up to 10 custom messages per channel and message type
-- Messages are picked randomly from your enabled pool
-- Optionally include the joining player's name in greetings
+### Chat messages
+
+- Greets you joining, and other people joining after you
+- Says goodbye when you leave the group, log out or quit
+- Sends a reconnect line after a disconnect, with the greetings as a fallback
+- Around 300 built-in phrases, each with its own checkbox per channel
+- Up to 10 custom messages per channel and message type
+- Picks at random from what you enabled, and avoids repeating itself
+- Can name the people who joined, and merges several names into one line
 
 ### Mythic+
 
-- Announces your key in party chat when the group fills to 5/5 (leader only)
-- Sends a completion message at the end of a dungeon — different messages for timed and depleted runs
+- Announces your key in party chat when the group fills to 5 out of 5, if you are the leader
+- Sums up the run at the end, with separate phrases for a timed and a depleted key
+- Dungeon names in English or in your client's language, your choice
 
-### Smart Delivery
+### It behaves in chat
 
-- Independent settings for Party, Raid, and Guild — enable or disable each channel separately
-- Cooldown system prevents message spam (adjustable per channel, 0–60 seconds)
-- Messages blocked by cooldown are queued and sent automatically when ready
-- Multiple player names are merged into a single greeting
+- An hourly budget, so a bad night of disconnects cannot turn into spam
+- A per-person cooldown, so the same player is not greeted twice in an evening
+- It listens first: if somebody already said "gz", it stays quiet
+- An optional typing delay, so a line lands like something a person typed
 
-### Configuration
+### Settings
 
-- Open settings with `/autosay` or `/as`
-- Simulation mode lets you preview all triggers without sending real messages
-- Per-character profiles — different setups for different characters
-- Settings window remembers its size and position
+- `/autosay` or `/as` opens the panel
+- Party, raid, instance and guild each keep their own settings
+- Test mode replays every trigger without a word reaching real chat
+- Profiles per character or shared across the account
+- `/as selftest` checks the addon against your own settings and reports what it found
 
-### Feedback & Bugs
+### Feedback and bugs
 
-Found a bug or have a feature request? Open an issue on [GitHub](https://github.com/AqueGen/AutoSay/issues).
+Found a bug or want a phrase added? Open an issue on [GitHub](https://github.com/AqueGen/AutoSay/issues).
