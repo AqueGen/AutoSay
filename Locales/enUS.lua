@@ -322,7 +322,7 @@ L["Disable this bundle on all channels?"] = "Disable this bundle on all channels
 L["Bundle button hint"] = "|cFF00FF00Green|r = bundle fully enabled. Click to enable it everywhere; click again to disable. Any class can use any style; the line under the buttons only says which ones lean your way."
 L["Style bundle applied"] = "Style bundle applied"
 L["Style bundle removed"] = "Style bundle removed"
-L["Tag navigation note"] = "Greyed phrases are switched off by their tag: [self] / [newcomers] phrases follow this channel's trigger toggles (where the channel has them), role and [morning/evening/night] phrases follow the master switches on the Style tab."
+L["Tag navigation note"] = "Greyed rows cannot go out as things stand: a whole column greys when its channel is off on the General tab or has no trigger switched on above, and single phrases follow their tag - [self] / [newcomers] follow this channel's triggers, role and [morning/evening/night] follow the master switches on the Style tab."
 L["Role-based phrases"] = "Role-based phrases"
 L["Role-based phrases desc"] = "Allow phrases tied to your current role (tank/healer/dps), including the {role} placeholder. Off hides and disables all of them."
 L["Lowercase first letter"] = "Lowercase first letter"

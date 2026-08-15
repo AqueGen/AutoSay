@@ -65,6 +65,10 @@ local function PhraseActive(msg, settingsFn)
     if msg.band and not Addon.db.profile.social.timeOfDay then return false end
     if not settingsFn then return true end
     local settings = settingsFn()
+    -- A switched-off channel says nothing at all, and neither does one whose every trigger
+    -- is off: the ticks in that column would otherwise promise a phrase that cannot go out
+    if not settings.enabled then return false end
+    if not (settings.onSelfJoin or settings.onOthersJoin or settings.onReconnect) then return false end
     if msg.trigger == "others" and not settings.onOthersJoin then return false end
     if msg.trigger == "self" and not settings.onSelfJoin then return false end
     -- {names} rows are deliberately NOT greyed when the names options are off: the runtime
