@@ -111,8 +111,28 @@ end
 -- Whether a styled phrase belongs to this style. Faction is deliberately NOT part of the
 -- bundle-apply decision (the profile is account-shared and FitsContext filters at send
 -- time), but the "fully enabled" check uses it to ignore phrases this character can never say.
+-- "classic" is the untagged pool the phrase lists show first: no style of its own, and no
+-- time-of-day band either (those are their own section, and the Style tab has a master
+-- switch for them, so a bundle must not reach in and flip them).
+function MessageLogic.StyleMatches(msg, style)
+    if style == "classic" then
+        return msg.style == nil and msg.band == nil
+    end
+    return msg.style == style
+end
+
 function MessageLogic.StyleFits(msg, style, faction)
-    return msg.style == style and (not msg.faction or msg.faction == faction)
+    return MessageLogic.StyleMatches(msg, style)
+        and (not msg.faction or msg.faction == faction)
+end
+
+-- LFR and battlegrounds share INSTANCE_CHAT with a 5-player dungeon run, but talking to 25
+-- or 40 strangers is a different thing than talking to your 4 group mates. The channel is
+-- on by default, this keeps it to the small groups people actually queue together for.
+function MessageLogic.SkipsRaidInstanceGroup(channel, settings, isRaidInstanceGroup)
+    if channel ~= "INSTANCE_CHAT" then return false end
+    if not settings or not settings.skipRaidGroups then return false end
+    return isRaidInstanceGroup and true or false
 end
 
 -- "1.6" matches "1.6" and "1.6.2" but not "1.60.x", "11.6.x" or "2.0.x"
@@ -139,19 +159,47 @@ end
 -- seed it from them once (toggles, phrase selections and custom lists - a user who narrowed
 -- the party phrases down must not get the stock set back in LFG). Entry tables are cloned,
 -- not shared. Returns true when the migration ran.
--- isUpgrade means the saved variables predate this channel. Those users only ever greeted
--- their party, so the channel starts off: inheriting party.enabled would drop them into an
--- LFR or a battleground greeting 25 to 40 strangers they never agreed to greet. Everything
--- else is still seeded, so turning it on gives them their own phrases.
-function MessageLogic.MigrateInstanceChannel(profile, isUpgrade)
+-- A pool that can no longer say anything: every preset the user had ticked is gone from the
+-- inventory (phrases do get retired between versions) and no custom line fills the gap.
+-- Restoring the defaults there is the difference between "my list changed" and "the addon
+-- went quiet". validKeys is the set of keys the current build still ships for that pool.
+-- validKeys maps a key to true when the phrase counts as something the pool can say, to
+-- false when the build still ships it but it cannot speak for itself (a time-of-day phrase
+-- waits on a master switch, and AceDB hands those out enabled), and to nil when the phrase
+-- is gone. Counting a default-injected band phrase as content is what let a pool look alive
+-- right up to the moment the band phrases were switched off again.
+function MessageLogic.PoolIsSilent(enabled, validKeys, customs)
+    if customs then
+        for _, entry in ipairs(customs) do
+            if entry.enabled and entry.text and entry.text:match("%S") then return false end
+        end
+    end
+    if enabled then
+        for key, on in pairs(enabled) do
+            if on and validKeys[key] == true then return false end
+        end
+    end
+    return true
+end
+
+-- Silence alone is not a reason to hand the stock phrases back: a pool can be empty because
+-- the user unticked every line on purpose, and overriding that would be worse than the
+-- problem. Only a pool that is silent AND still holds a tick for a phrase this build no
+-- longer ships lost its selection to the release rather than to its owner.
+function MessageLogic.PoolLostItsPhrases(enabled, validKeys, customs)
+    if not enabled then return false end
+    if not MessageLogic.PoolIsSilent(enabled, validKeys, customs) then return false end
+    for key, on in pairs(enabled) do
+        if on and validKeys[key] == nil then return true end
+    end
+    return false
+end
+
+function MessageLogic.MigrateInstanceChannel(profile)
     if profile.instanceMigrated then return false end
 
     local party, instance = profile.party, profile.instance
-    if isUpgrade then
-        instance.enabled = false
-    else
-        instance.enabled = party.enabled
-    end
+    instance.enabled = party.enabled
     instance.onSelfJoin = party.onSelfJoin
     instance.onOthersJoin = party.onOthersJoin
     instance.onOthersJoinLeaderOnly = party.onOthersJoinLeaderOnly

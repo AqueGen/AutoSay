@@ -3,7 +3,8 @@ local ADDON_NAME, AutoSay = ...
 -- Preset phrase model (Greetings / Goodbyes / Reconnects)
 --   key         unique id inside the pool, also the SavedVariables key of the on/off checkbox
 --   text        the phrase itself; {role} is replaced on send, {names} by the joined/current players
---   style       style bundle id (fun, fantasy, dark, light, pirate, faction, zoomer, butler).
+--   style       style bundle id; see AutoSay.MessageStyles for the list. "classic" is not
+--               a value here - it stands for a phrase with no style and no band.
 --               Styled phrases are off by default and toggled by the bundle buttons.
 --   role        only picked while the player has that assigned role (TANK/HEALER/DAMAGER)
 --   faction     only picked for that faction (Horde/Alliance)
@@ -50,14 +51,9 @@ AutoSay.Greetings = {
     { key = "greetings", text = "Greetings!", appendNames = true },
     { key = "welcome", text = "welcome!", trigger = "others", appendNames = true },
     -- Disabled by default
-    { key = "wassup", text = "Wassup!", appendNames = true },
     { key = "yo", text = "Yo!", appendNames = true },
-    { key = "heya", text = "Heya!", appendNames = true },
     { key = "sup", text = "Sup?", appendNames = true },
     { key = "howdy", text = "Howdy!", appendNames = true },
-    { key = "hiya", text = "Hiya!", appendNames = true },
-    { key = "yoyo", text = "Yo yo!", appendNames = true },
-    { key = "hellothere", text = "Hello there!", appendNames = true },
     { key = "welcomenames", text = "welcome {names}!", trigger = "others" },
     { key = "hinames", text = "hi {names} o/", trigger = "others" },
     { key = "welcomeaboard", text = "welcome aboard", trigger = "others" },
@@ -110,12 +106,103 @@ AutoSay.Greetings = {
     { key = "faction_wellmetheroes", text = "well met, heroes", style = "faction", faction = "Alliance" },
     { key = "faction_bythelight", text = "by the Light, hello", style = "faction", faction = "Alliance" },
     { key = "zoomer_weball", text = "yo we ball", style = "zoomer" },
-    { key = "zoomer_cook", text = "lets cook team", style = "zoomer", trigger = "self" },
+    { key = "zoomer_cook", text = "lets lock in team", style = "zoomer", trigger = "self" },
     { key = "zoomer_squad", text = "squad up o/", style = "zoomer" },
     { key = "butler_goodday", text = "good day to you all", style = "butler" },
     { key = "butler_pleasure", text = "a pleasure to join you", style = "butler", trigger = "self" },
     { key = "butler_service", text = "at your service o/", style = "butler", trigger = "self" },
     { key = "butler_welcomenames", text = "a warm welcome, {names}", style = "butler", trigger = "others" },
+    { key = "classic_tank1", text = "tank here o/", role = "TANK", trigger = "self" },
+    { key = "classic_tank2", text = "tanking today", role = "TANK", trigger = "self" },
+    { key = "classic_heal1", text = "healer here o/", role = "HEALER", trigger = "self" },
+    { key = "classic_heal2", text = "heals incoming", role = "HEALER", trigger = "self" },
+    { key = "classic_dps1", text = "dps here o/", role = "DAMAGER", trigger = "self" },
+    { key = "classic_dps2", text = "damage on the way", role = "DAMAGER", trigger = "self" },
+    { key = "fantasy_tank1", text = "I shall hold the line", style = "fantasy", role = "TANK", trigger = "self", keepCase = true },
+    { key = "fantasy_tank2", text = "the shield of this company stands ready", style = "fantasy", role = "TANK", trigger = "self" },
+    { key = "fantasy_heal1", text = "the Light mends, call for me", style = "fantasy", role = "HEALER", trigger = "self" },
+    { key = "fantasy_heal2", text = "your wounds are my charge", style = "fantasy", role = "HEALER", trigger = "self" },
+    { key = "fantasy_dps1", text = "my blade answers the call", style = "fantasy", role = "DAMAGER", trigger = "self" },
+    { key = "fantasy_dps2", text = "steel and fury, at your service", style = "fantasy", role = "DAMAGER", trigger = "self" },
+    { key = "dark_tank1", text = "let them break upon me", style = "dark", role = "TANK", trigger = "self" },
+    { key = "dark_tank2", text = "I am the wall before the end", style = "dark", role = "TANK", trigger = "self", keepCase = true },
+    { key = "dark_heal1", text = "death can wait, I am here", style = "dark", role = "HEALER", trigger = "self", keepCase = true },
+    { key = "dark_heal2", text = "your fate rests in my hands", style = "dark", role = "HEALER", trigger = "self" },
+    { key = "dark_dps1", text = "I bring the ending", style = "dark", role = "DAMAGER", trigger = "self", keepCase = true },
+    { key = "dark_dps2", text = "the reaping starts now", style = "dark", role = "DAMAGER", trigger = "self" },
+    { key = "light_tank1", text = "tank here, I've got you all", style = "light", role = "TANK", trigger = "self" },
+    { key = "light_tank2", text = "I'll keep everyone safe o/", style = "light", role = "TANK", trigger = "self", keepCase = true },
+    { key = "light_heal1", text = "healer here, I'll patch you up", style = "light", role = "HEALER", trigger = "self" },
+    { key = "light_heal2", text = "nobody dies on my watch <3", style = "light", role = "HEALER", trigger = "self" },
+    { key = "light_dps1", text = "dps here, happy to help o/", style = "light", role = "DAMAGER", trigger = "self" },
+    { key = "light_dps2", text = "I'll do my best out there", style = "light", role = "DAMAGER", trigger = "self", keepCase = true },
+    { key = "pirate_tank1", text = "I be the hull, hide behind me", style = "pirate", role = "TANK", trigger = "self", keepCase = true },
+    { key = "pirate_tank2", text = "the figurehead has arrived", style = "pirate", role = "TANK", trigger = "self" },
+    { key = "pirate_heal1", text = "the ship's surgeon reports in", style = "pirate", role = "HEALER", trigger = "self" },
+    { key = "pirate_heal2", text = "I patch the crew, mind the fire", style = "pirate", role = "HEALER", trigger = "self", keepCase = true },
+    { key = "pirate_dps1", text = "cannons ready o/", style = "pirate", role = "DAMAGER", trigger = "self" },
+    { key = "pirate_dps2", text = "the cannons are loaded", style = "pirate", role = "DAMAGER", trigger = "self", keepCase = true },
+    { key = "faction_tank1", text = "front line, on me", style = "faction", role = "TANK", trigger = "self" },
+    { key = "faction_tank2", text = "I hold the vanguard", style = "faction", role = "TANK", trigger = "self", keepCase = true },
+    { key = "faction_heal1", text = "field medic reporting", style = "faction", role = "HEALER", trigger = "self" },
+    { key = "faction_heal2", text = "the wounded live today", style = "faction", role = "HEALER", trigger = "self" },
+    { key = "faction_dps1", text = "weapons hot", style = "faction", role = "DAMAGER", trigger = "self" },
+    { key = "faction_dps2", text = "for the charge o/", style = "faction", role = "DAMAGER", trigger = "self" },
+    { key = "zoomer_tank1", text = "tank here, im him", style = "zoomer", role = "TANK", trigger = "self" },
+    { key = "zoomer_tank2", text = "no cap i hold everything", style = "zoomer", role = "TANK", trigger = "self" },
+    { key = "zoomer_heal1", text = "healer here, ill keep u alive fr", style = "zoomer", role = "HEALER", trigger = "self" },
+    { key = "zoomer_heal2", text = "heals on deck", style = "zoomer", role = "HEALER", trigger = "self" },
+    { key = "zoomer_dps1", text = "dps here, watch this", style = "zoomer", role = "DAMAGER", trigger = "self" },
+    { key = "zoomer_dps2", text = "locked in today", style = "zoomer", role = "DAMAGER", trigger = "self" },
+    { key = "butler_tank1", text = "I shall stand between you and harm", style = "butler", role = "TANK", trigger = "self", keepCase = true },
+    { key = "butler_tank2", text = "your protection is my duty", style = "butler", role = "TANK", trigger = "self" },
+    { key = "butler_heal1", text = "I shall attend to your wounds", style = "butler", role = "HEALER", trigger = "self", keepCase = true },
+    { key = "butler_heal2", text = "your health is in my care", style = "butler", role = "HEALER", trigger = "self" },
+    { key = "butler_dps1", text = "I shall dispatch them, discreetly", style = "butler", role = "DAMAGER", trigger = "self", keepCase = true },
+    { key = "butler_dps2", text = "the unpleasantness is mine to handle", style = "butler", role = "DAMAGER", trigger = "self" },
+    { key = "minimal_tank1", text = "tank", style = "minimal", role = "TANK", trigger = "self" },
+    { key = "minimal_tank2", text = "tank o/", style = "minimal", role = "TANK", trigger = "self" },
+    { key = "minimal_heal1", text = "heals", style = "minimal", role = "HEALER", trigger = "self" },
+    { key = "minimal_heal2", text = "heals o/", style = "minimal", role = "HEALER", trigger = "self" },
+    { key = "minimal_dps1", text = "dps", style = "minimal", role = "DAMAGER", trigger = "self" },
+    { key = "minimal_dps2", text = "dps o/", style = "minimal", role = "DAMAGER", trigger = "self" },
+    { key = "robot_tank1", text = "damage absorption unit online", style = "robot", role = "TANK", trigger = "self" },
+    { key = "robot_tank2", text = "armor plating at full integrity", style = "robot", role = "TANK", trigger = "self" },
+    { key = "robot_heal1", text = "repair systems online", style = "robot", role = "HEALER", trigger = "self" },
+    { key = "robot_heal2", text = "restoration protocol standing by", style = "robot", role = "HEALER", trigger = "self" },
+    { key = "robot_dps1", text = "weapon systems online", style = "robot", role = "DAMAGER", trigger = "self" },
+    { key = "robot_dps2", text = "target acquisition ready", style = "robot", role = "DAMAGER", trigger = "self" },
+    { key = "deadpan_tank1", text = "tank. I'll stand in front, as usual.", style = "deadpan", role = "TANK", trigger = "self" },
+    { key = "deadpan_tank2", text = "yes, I'll pull", style = "deadpan", role = "TANK", trigger = "self" },
+    { key = "deadpan_heal1", text = "healer. I will be over here, healing.", style = "deadpan", role = "HEALER", trigger = "self" },
+    { key = "deadpan_heal2", text = "healer. the bars go up, eventually.", style = "deadpan", role = "HEALER", trigger = "self", keepCase = true },
+    { key = "deadpan_dps1", text = "dps. I press buttons.", style = "deadpan", role = "DAMAGER", trigger = "self" },
+    { key = "deadpan_dps2", text = "I'll do damage. allegedly.", style = "deadpan", role = "DAMAGER", trigger = "self", keepCase = true },
+    { key = "minimal_hi", text = "hi", style = "minimal", appendNames = true },
+    { key = "minimal_wave", text = "o/", style = "minimal", appendNames = true },
+    { key = "minimal_sup", text = "sup", style = "minimal" },
+    { key = "minimal_names", text = "o/ {names}", style = "minimal", trigger = "others" },
+    { key = "robot_greetings", text = "greetings, unit", style = "robot" },
+    { key = "robot_protocol", text = "party protocol initiated", style = "robot", trigger = "self" },
+    { key = "robot_parameters", text = "functioning within parameters", style = "robot", trigger = "self" },
+    { key = "robot_detected", text = "new unit detected, welcome", style = "robot", trigger = "others" },
+    { key = "deadpan_hi", text = "hi.", style = "deadpan", appendNames = true },
+    { key = "deadpan_another", text = "another one", style = "deadpan", trigger = "self" },
+    { key = "deadpan_herewego", text = "here we go then", style = "deadpan", trigger = "self" },
+    { key = "deadpan_someone", text = "someone new. hello.", style = "deadpan", trigger = "others" },
+    { key = "nature_paths", text = "our paths cross well today", style = "naturewarden" },
+    { key = "nature_wind", text = "the wind is with us o/", style = "naturewarden" },
+    { key = "nature_grove", text = "greetings from the grove", style = "naturewarden", trigger = "self" },
+    { key = "nature_welcomenames", text = "the wilds welcome you, {names}", style = "naturewarden", trigger = "others" },
+    { key = "nature_tank1", text = "I stand where the storm hits first", style = "naturewarden", role = "TANK", trigger = "self", keepCase = true },
+    { key = "nature_tank2", text = "roots hold, and so do I", style = "naturewarden", role = "TANK", trigger = "self" },
+    { key = "nature_heal1", text = "the healing winds are with us", style = "naturewarden", role = "HEALER", trigger = "self" },
+    { key = "nature_heal2", text = "I tend the wounded, call out early", style = "naturewarden", role = "HEALER", trigger = "self", keepCase = true },
+    { key = "nature_dps1", text = "the hunt begins o/", style = "naturewarden", role = "DAMAGER", trigger = "self" },
+    { key = "nature_dps2", text = "swift and steady, that is the way", style = "naturewarden", role = "DAMAGER", trigger = "self" },
+    { key = "fantasy_skies", text = "well met, may the skies favor our path", style = "fantasy" },
+    { key = "fantasy_ancient", text = "the old paths brought us together", style = "fantasy", trigger = "self" },
+    { key = "fantasy_scale", text = "I hold the line, steady as dragon scales", style = "fantasy", role = "TANK", trigger = "self", keepCase = true },
 }
 
 -- Goodbyes database (enabled by default first)
@@ -123,16 +210,13 @@ AutoSay.Goodbyes = {
     { key = "bye", text = "Bye!" },
     { key = "goodbye", text = "Goodbye!" },
     { key = "gtg", text = "GTG, bye!", keepCase = true },
+    { key = "gn", text = "GN!", keepCase = true },
     { key = "takecare", text = "Take care!" },
     { key = "peace", text = "Peace!" },
     -- Disabled by default
-    { key = "seeya", text = "See ya!" },
     { key = "later", text = "Later!" },
     { key = "cya", text = "Cya!" },
     { key = "cheers", text = "Cheers!" },
-    { key = "gn", text = "GN!", keepCase = true },
-    { key = "bb", text = "BB!", keepCase = true },
-    { key = "laterall", text = "Later all!" },
     -- Time-of-day phrases: only picked while the local hour is in their band
     { key = "eveningbye", text = "have a good evening", band = "evening" },
     { key = "gnall", text = "gn all", band = "night" },
@@ -164,6 +248,19 @@ AutoSay.Goodbyes = {
     { key = "butler_honour", text = "it has been an honour", style = "butler" },
     { key = "butler_takecare", text = "do take care, everyone", style = "butler" },
     { key = "butler_farewell", text = "I bid you farewell", style = "butler", keepCase = true },
+    { key = "minimal_bye", text = "bye", style = "minimal" },
+    { key = "minimal_wave", text = "o/", style = "minimal" },
+    { key = "minimal_gg", text = "gg", style = "minimal" },
+    { key = "robot_disconnecting", text = "disconnecting from party", style = "robot" },
+    { key = "robot_shutdown", text = "shutdown sequence initiated", style = "robot" },
+    { key = "robot_farewell", text = "farewell, units", style = "robot" },
+    { key = "deadpan_thatsthat", text = "and that's that", style = "deadpan" },
+    { key = "deadpan_itwasfine", text = "leaving. that worked.", style = "deadpan" },
+    { key = "deadpan_iguess", text = "bye I guess", style = "deadpan", keepCase = true },
+    { key = "nature_road", text = "may the road be gentle", style = "naturewarden" },
+    { key = "nature_seasons", text = "good hunting, until the seasons turn", style = "naturewarden" },
+    { key = "nature_still", text = "safe travels, keep to the still paths", style = "naturewarden" },
+    { key = "fantasy_flytrue", text = "fly true, friends, until our paths cross again", style = "fantasy" },
 }
 
 -- Reconnect messages database (enabled by default first)
@@ -175,14 +272,10 @@ AutoSay.Reconnects = {
     { key = "rehi", text = "Re!" },
     { key = "backagain", text = "Back again!" },
     { key = "herewego", text = "Here we go again!" },
-    { key = "missedme", text = "Miss me?" },
     { key = "backinthegame", text = "Back in the game!" },
-    { key = "srydc", text = "Sorry for DC!" },
     { key = "sorrydisconnect", text = "Sorry, got disconnected!" },
-    { key = "dcsorry", text = "DC, sorry about that!", keepCase = true },
     { key = "mybad", text = "My bad, DC!" },
     { key = "internetissues", text = "Internet issues, back now!" },
-    { key = "laggedout", text = "Lagged out, I'm back!" },
     -- Style bundles (never enabled by default, activated by bundle or by hand)
     { key = "fun_router", text = "back, blame the router", style = "fun" },
     { key = "fun_lagwon", text = "the lag won round one", style = "fun" },
@@ -195,11 +288,34 @@ AutoSay.Reconnects = {
     { key = "faction_backfight", text = "back to the fight!", style = "faction" },
     { key = "zoomer_wifi", text = "back, wifi said no for a sec", style = "zoomer" },
     { key = "butler_returned", text = "my apologies, I have returned", style = "butler" },
+    { key = "minimal_back", text = "back", style = "minimal" },
+    { key = "minimal_re", text = "re", style = "minimal" },
+    { key = "robot_restored", text = "connection restored", style = "robot" },
+    { key = "robot_online", text = "systems back online", style = "robot" },
+    { key = "deadpan_apparently", text = "internet exists, apparently", style = "deadpan" },
+    { key = "deadpan_thrilling", text = "back. thrilling.", style = "deadpan" },
+    { key = "nature_roots", text = "the roots led me back", style = "naturewarden" },
+    { key = "nature_storm", text = "the storm passed, I am back", style = "naturewarden", keepCase = true },
+    { key = "fantasy_horizon", text = "back from beyond the horizon", style = "fantasy" },
 }
 
 -- Style bundle ids, in UI order
+-- "classic" is not a style tag on any phrase: it stands for the untagged pool, so the
+-- stock phrases can be switched on and off as fast as a style bundle (see StyleMatches)
 AutoSay.MessageStyles = {
-    "fun", "fantasy", "dark", "light", "pirate", "faction", "zoomer", "butler",
+    "classic", "minimal", "fun", "fantasy", "dark", "deadpan", "light", "pirate", "faction",
+    "zoomer", "butler", "robot", "naturewarden",
+}
+
+-- Style bundles that lean towards particular classes. Advisory only - every bundle works
+-- for every class, and a bundle missing here shows no class hint rather than an empty one.
+-- Kept sparse on purpose: a hint for every plausible pairing would stop meaning anything,
+-- and "light" is wholesome rather than Holy Light, so it earns no class of its own.
+AutoSay.StyleClasses = {
+    fantasy = { "WARRIOR", "PALADIN", "PRIEST", "MAGE", "MONK", "EVOKER" },
+    dark = { "DEATHKNIGHT", "WARLOCK", "DEMONHUNTER" },
+    pirate = { "ROGUE", "HUNTER" },
+    naturewarden = { "DRUID", "SHAMAN", "HUNTER" },
 }
 
 -- Every phrase pool a style bundle can toggle, in UI order. One inventory, three consumers:
@@ -235,8 +351,12 @@ AutoSay.KeyAnnounce = {
     { key = "dark_ready", text = "{dungeon} {key}, the shadows are ready", style = "dark" },
     { key = "light_goodluck", text = "{dungeon} {key}, good luck everyone <3", style = "light" },
     { key = "pirate_sail", text = "setting sail for {dungeon} {key}", style = "pirate" },
-    { key = "zoomer_cook", text = "{dungeon} {key} lets cook", style = "zoomer" },
+    { key = "zoomer_cook", text = "{dungeon} {key} lets lock in", style = "zoomer" },
     { key = "butler_carriage", text = "your carriage to {dungeon} {key} is ready", style = "butler" },
+    { key = "minimal_key", text = "{dungeon} {key}", style = "minimal" },
+    { key = "robot_objective", text = "objective loaded: {dungeon} {key}", style = "robot" },
+    { key = "deadpan_sure", text = "{dungeon} {key}. sure.", style = "deadpan" },
+    { key = "nature_trail", text = "the trail leads to {dungeon} {key}", style = "naturewarden" },
 }
 
 -- M+ completion messages - timed (enabled by default first)
@@ -258,8 +378,12 @@ AutoSay.CompletionTimed = {
     { key = "dark_pleased", text = "the void is pleased, gg", style = "dark" },
     { key = "light_lovely", text = "gg all, lovely run <3", style = "light" },
     { key = "pirate_plunder", text = "fine plunder, crew", style = "pirate" },
-    { key = "zoomer_ez", text = "gg ez, we cooked", style = "zoomer" },
+    { key = "zoomer_ez", text = "gg, we were locked in", style = "zoomer" },
     { key = "butler_splendid", text = "splendidly done, everyone", style = "butler" },
+    { key = "minimal_wellrun", text = "clean", style = "minimal" },
+    { key = "robot_nominal", text = "objective complete, efficiency nominal", style = "robot" },
+    { key = "deadpan_incredible", text = "we did it. incredible.", style = "deadpan" },
+    { key = "nature_wellwalked", text = "well walked, everyone", style = "naturewarden" },
 }
 
 -- Guild member login greetings (enabled by default first)
@@ -318,4 +442,8 @@ AutoSay.CompletionDepleted = {
     { key = "pirate_roughseas", text = "rough seas, gg crew", style = "pirate" },
     { key = "zoomer_gonext", text = "gg go next", style = "zoomer" },
     { key = "butler_valiant", text = "a valiant attempt, thank you all", style = "butler" },
+    { key = "minimal_rough", text = "rough one", style = "minimal" },
+    { key = "robot_recalibrating", text = "objective failed, recalibrating", style = "robot" },
+    { key = "deadpan_asexpected", text = "not clean, but done", style = "deadpan" },
+    { key = "nature_longpath", text = "a long path, but we walked it", style = "naturewarden" },
 }

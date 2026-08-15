@@ -61,18 +61,22 @@ local defaultGreetings = {
     greetings = true,
     welcome = true,
     -- Disabled by default
-    wassup = false,
     yo = false,
-    heya = false,
     sup = false,
     howdy = false,
-    hiya = false,
-    yoyo = false,
-    hellothere = false,
     welcomenames = false,
     hinames = false,
     welcomeaboard = false,
-    -- Time-of-day phrases: on by default, gated by social.timeOfDay and the local hour
+    -- Role phrases: enabled, silent until the Style tab master switch is on (same deal as
+    -- the time-of-day set). Styled role phrases stay off, like every other styled phrase
+    classic_tank1 = true,
+    classic_tank2 = true,
+    classic_heal1 = true,
+    classic_heal2 = true,
+    classic_dps1 = true,
+    classic_dps2 = true,
+    -- Time-of-day phrases: enabled, but silent until the Style tab master switch is on.
+    -- The switch is the feature; the phrases under it are ready so one click is enough
     morning = true,
     goodmorningall = true,
     morningwave = true,
@@ -85,6 +89,9 @@ local defaultGreetings = {
     nightowls = true,
 }
 
+-- Band goodbyes shipped disabled before this release, so an upgrade never had them
+local BAND_GOODBYE_KEYS = { "eveningbye", "gnall", "goodnightall", "sleepwell" }
+
 -- Default enabled goodbyes
 local defaultGoodbyes = {
     bye = true,
@@ -93,20 +100,17 @@ local defaultGoodbyes = {
     takecare = true,
     peace = true,
     -- Disabled by default
-    seeya = false,
     later = false,
     cya = false,
     cheers = false,
     gn = false,
-    bb = false,
-    laterall = false,
-    -- Time-of-day phrases: off by default - band goodbyes are new behavior, and AceDB
-    -- merges these keys into existing profiles (a true here would surprise upgraders
-    -- who had turned every stock goodbye off)
-    eveningbye = false,
-    gnall = false,
-    goodnightall = false,
-    sleepwell = false,
+    -- Time-of-day phrases: enabled like the band greetings, and silent until the Style tab
+    -- master switch is on. An upgrader who muted every goodbye and never touched that
+    -- switch stays muted; flipping it on is what opts them back in
+    eveningbye = true,
+    gnall = true,
+    goodnightall = true,
+    sleepwell = true,
 }
 
 -- Default enabled reconnect messages
@@ -118,14 +122,10 @@ local defaultReconnects = {
     rehi = false,
     backagain = false,
     herewego = false,
-    missedme = false,
     backinthegame = false,
-    srydc = false,
     sorrydisconnect = false,
-    dcsorry = false,
     mybad = false,
     internetissues = false,
-    laggedout = false,
 }
 
 -- Default enabled key announce messages
@@ -194,6 +194,8 @@ local defaults = {
         debugMode = false,
         testMode = false,
         instanceMigrated = false, -- Instance channel seeded from the party settings (see MigrateInstanceChannel)
+        masterSwitchesMigrated = false, -- Time-of-day switch carried over from 1.5.x (see MigrateMasterSwitches)
+        retiredPhrasesMigrated = 0, -- Version of the last retired-phrase pass (see RETIRED_PHRASES_VERSION)
 
         -- Minimap icon
         minimap = {
@@ -243,6 +245,7 @@ local defaults = {
         -- Instance group settings (LFG dungeons/LFR/battlegrounds, INSTANCE_CHAT)
         instance = {
             enabled = true,
+            skipRaidGroups = true,      -- Stay silent in LFR and battlegrounds (see SkipsRaidInstanceGroup)
             onSelfJoin = true,          -- Greet once after zoning into the instance
             onOthersJoin = false,
             onOthersJoinLeaderOnly = false,
@@ -297,8 +300,11 @@ local defaults = {
             personCooldownHours = 4,
             listen = true,
             typingDelay = true,
-            timeOfDay = true,
-            rolePhrases = true, -- Master switch for role-tagged and {role} phrases
+            -- Both off by default: they change what the addon says about YOU (your role,
+            -- your local hour), so they are opt-in. The phrases under them ship enabled,
+            -- so ticking the switch is all it takes
+            timeOfDay = false,
+            rolePhrases = false, -- Master switch for role-tagged and {role} phrases
             lowercaseFirst = false,
             guildGrats = false,
             guildWelcome = false,
@@ -343,6 +349,7 @@ Addon.state = {
     instanceGreeted = false, -- Instance zone-in greeting sent (mirrors db.char.instanceGreeted, see SetInstanceGreeted)
     pendingGroupSends = {}, -- Delayed group sends in flight (handle -> channel), cancelled on GROUP_JOINED
     sendGeneration = 0, -- Bumped on every test-mode toggle: delayed sends from the other mode drop
+    testFlowGeneration = 0, -- Bumped when a simulation is replaced: the previous flow's own timers drop
     pendingGuildLogins = {}, -- Batch guild member login names
     guildLoginTimer = nil, -- Timer for batched guild login greeting
     lastGuildLoginGreetTime = 0, -- Separate cooldown for guild member login greetings
@@ -354,6 +361,7 @@ Addon.state = {
 -- Test mode simulation state
 Addon.testState = {
     simulatedGroupType = nil, -- "PARTY", "RAID", or nil
+    simulatedRaidInstance = false, -- Simulated instance group is raid-sized (LFR/battleground)
     simulatedInGuild = false,
     simulatedGroupMembers = {},
     simulatedIsLeader = true, -- Simulate being group leader (default true for test)
@@ -363,21 +371,48 @@ Addon.testState = {
 }
 
 function Addon:OnInitialize()
-    -- Read before AceDB creates the store: no saved variables means a fresh install rather
-    -- than an upgrade from a version that had no instance channel (see MigrateInstanceChannel)
-    self.isUpgradeInstall = AutoSayDB ~= nil
+    -- Snapshot taken before AceDB fills the store with defaults: afterwards an explicit
+    -- "off" from 1.5.x is indistinguishable from the new default of the same value, and
+    -- the profile this character uses is only known once the database exists
+    local priorProfiles, priorTimeOfDay, priorBandGoodbyes = {}, {}, {}
+    if AutoSayDB and AutoSayDB.profiles then
+        for name, stored in pairs(AutoSayDB.profiles) do
+            if type(stored) ~= "table" then stored = {} end
+            priorProfiles[name] = true
+            priorTimeOfDay[name] = type(stored.social) == "table" and stored.social.timeOfDay or nil
+            local ticked = {}
+            for _, channel in ipairs(AutoSay.Channels) do
+                local settings = stored[channel.key]
+                local goodbyes = type(settings) == "table" and type(settings.enabledGoodbyes) == "table"
+                    and settings.enabledGoodbyes or nil
+                if goodbyes then
+                    for _, key in ipairs(BAND_GOODBYE_KEYS) do
+                        if goodbyes[key] then ticked[channel.key .. ":" .. key] = true end
+                    end
+                end
+            end
+            priorBandGoodbyes[name] = ticked
+        end
+    end
+    self.priorProfiles = priorProfiles
+    self.priorTimeOfDay = priorTimeOfDay
+    self.priorBandGoodbyes = priorBandGoodbyes
 
     -- Initialize database
     self.db = LibStub("AceDB-3.0"):New("AutoSayDB", defaults, true)
 
-    -- Migrate old single custom message format to new array format
-    self:MigrateCustomMessages()
+    -- Every migration is one-shot per profile, so re-running them when the active profile
+    -- changes is what makes a profile switched to later behave like one loaded at login.
+    -- Without this a legacy profile picked mid-session keeps a selection this build no
+    -- longer ships, and an Instance channel that never inherited its Party settings.
+    for _, event in ipairs({ "OnProfileChanged", "OnProfileCopied", "OnProfileReset" }) do
+        self.db.RegisterCallback(self, event, "OnProfileSwitched")
+    end
+    -- A name freed by a deletion belongs to nobody: whoever takes it next is a new profile,
+    -- not the one that predated this build
+    self.db.RegisterCallback(self, "OnProfileDeleted", "OnProfileDeleted")
 
-    -- Seed the instance channel from the party settings on the first run after the upgrade
-    self:MigrateInstanceChannel()
-
-    -- Fold the old three-way M+ messageMode into the includeKeyLevel toggle
-    self:MigrateKeyLevelMode()
+    self:RunProfileMigrations()
 
     -- Wire up social gate + humanizer core
     self.socialGate = AutoSay.SocialGate.New{
@@ -469,13 +504,163 @@ function Addon:MigrateCustomMessages()
 end
 
 -- The instance channel is new: before it existed LFG groups used the party settings, so seed
--- it from them once, leaving the channel off for an upgrade so nobody starts greeting an LFR
--- by surprise. On a fresh install the party values are the defaults, so this is a no-op.
--- Only the active profile is migrated - the addon registers no AceDB profile callbacks, so a
--- profile switched to later keeps its own (defaults-equal) instance settings.
+-- it from them once. On a fresh install the party values are the defaults, so this is a no-op.
+-- skipRaidGroups is what keeps an upgrade out of LFR and battlegrounds; 1.5.x had no such
+-- guard, so the channel inheriting the party toggles is only safe alongside it.
+-- Every profile is migrated as it becomes active: the AceDB profile callbacks re-run this
+-- for a profile switched to later, so it is treated exactly like one loaded at login.
 function Addon:MigrateInstanceChannel()
-    if Logic.MigrateInstanceChannel(self.db.profile, self.isUpgradeInstall) then
+    if Logic.MigrateInstanceChannel(self.db.profile) then
         self:DebugPrint("Instance channel seeded from party settings")
+    end
+end
+
+-- Phrases do get retired between versions. Someone whose whole selection was retired would
+-- otherwise go quiet on that channel with no hint why, so a pool left with nothing to say
+-- gets the stock set back. Only pools that are actually empty are touched.
+-- Bumped whenever a release retires phrases, so that release gets its own pass instead of
+-- finding the flag an earlier one left behind
+local RETIRED_PHRASES_VERSION = 2
+
+local RETIRED_POOLS = {
+    { messages = "Greetings", enabledKey = "enabledGreetings", customsKey = "customGreetings" },
+    { messages = "Goodbyes", enabledKey = "enabledGoodbyes", customsKey = "customGoodbyes" },
+    { messages = "Reconnects", enabledKey = "enabledReconnects", customsKey = "customReconnects" },
+}
+
+-- The M+ pools live once under db.profile.mythicplus rather than per channel
+local RETIRED_MPLUS_POOLS = {
+    { messages = "KeyAnnounce", enabledKey = "enabledKeyAnnounce", customsKey = "customKeyAnnounce" },
+    { messages = "CompletionTimed", enabledKey = "enabledCompletionTimed", customsKey = "customCompletionTimed" },
+    { messages = "CompletionDepleted", enabledKey = "enabledCompletionDepleted", customsKey = "customCompletionDepleted" },
+}
+
+function Addon:MigrateRetiredPhrases()
+    local profile = self.db.profile
+    if profile.retiredPhrasesMigrated == RETIRED_PHRASES_VERSION then return end
+    profile.retiredPhrasesMigrated = RETIRED_PHRASES_VERSION
+    if not self.priorProfiles[self.db:GetCurrentProfile()] then return end
+
+    local defaults = {
+        enabledGreetings = defaultGreetings,
+        enabledGoodbyes = defaultGoodbyes,
+        enabledReconnects = defaultReconnects,
+        enabledKeyAnnounce = defaultKeyAnnounce,
+        enabledCompletionTimed = defaultCompletionTimed,
+        enabledCompletionDepleted = defaultCompletionDepleted,
+    }
+    local targets = {}
+    for _, channel in ipairs(AutoSay.Channels) do
+        targets[#targets + 1] = { settings = profile[channel.key], pools = RETIRED_POOLS, label = channel.key }
+    end
+    targets[#targets + 1] = { settings = profile.mythicplus, pools = RETIRED_MPLUS_POOLS, label = "mythicplus" }
+
+    for _, target in ipairs(targets) do
+        local settings = target.settings
+        for _, pool in ipairs(target.pools) do
+            local enabled = settings and settings[pool.enabledKey]
+            if enabled then
+                local live = {}
+                for _, msg in ipairs(AutoSay[pool.messages]) do
+                    -- false rather than true for anything a master switch holds back: it is
+                    -- still shipped, so it is no evidence of a retirement, but it cannot
+                    -- carry the pool either. Both switches ship off and both sets of phrases
+                    -- ship enabled, so counting them as content hid every empty pool.
+                    live[msg.key] = msg.band == nil and msg.role == nil
+                        and not msg.text:find("{role}", 1, true)
+                end
+                if Logic.PoolLostItsPhrases(enabled, live, settings[pool.customsKey]) then
+                    for key in pairs(enabled) do
+                        if not live[key] then enabled[key] = nil end
+                    end
+                    for key, on in pairs(defaults[pool.enabledKey]) do enabled[key] = on end
+                    self:DebugPrint("Restored stock", pool.messages, "for", target.label)
+                end
+            end
+        end
+    end
+end
+
+function Addon:OnProfileDeleted(_, _, name)
+    if name then
+        self.priorProfiles[name] = nil
+        self.priorTimeOfDay[name] = nil
+        self.priorBandGoodbyes[name] = nil
+    end
+end
+
+function Addon:OnProfileSwitched(event)
+    if event == "OnProfileReset" or event == "OnProfileCopied" then
+        -- A reset asks for the defaults and a copy already holds what its source gave it.
+        -- Either way the upgrade migrations have nothing to add, and running them would
+        -- judge this profile by a history that belongs to another one: the snapshots are
+        -- keyed by profile name, and the name here is the destination's.
+        self:StampMigrationsDone()
+    else
+        self:RunProfileMigrations()
+    end
+    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- the open panel shows the old profile
+end
+
+function Addon:RunProfileMigrations()
+    -- Migrate old single custom message format to new array format
+    self:MigrateCustomMessages()
+
+    -- Seed the instance channel from the party settings on the first run after the upgrade
+    self:MigrateInstanceChannel()
+
+    -- Fold the old three-way M+ messageMode into the includeKeyLevel toggle
+    self:MigrateKeyLevelMode()
+
+    -- Restore first, suppress second: the stock set includes the band goodbyes, so running
+    -- it after the master-switch migration would undo that migration's suppression
+    self:MigrateRetiredPhrases()
+
+    -- Keep the time-of-day phrases an upgrade already had
+    self:MigrateMasterSwitches()
+end
+
+-- Everything the migrations would have done is already true of a freshly reset profile,
+-- so they only need marking as done - running them would move it off the defaults.
+function Addon:StampMigrationsDone()
+    local profile = self.db.profile
+    profile.instanceMigrated = true
+    profile.masterSwitchesMigrated = true
+    profile.retiredPhrasesMigrated = RETIRED_PHRASES_VERSION
+    if profile.mythicplus then profile.mythicplus.keyLevelMigrated = true end
+end
+
+-- The master switches are new, and they ship off. 1.5.x had no switch and spoke its
+-- time-of-day phrases for everyone, so defaulting an upgrade to off would read as "the
+-- morning greetings broke", not as a setting. Roles are genuinely new, so they stay off.
+function Addon:MigrateMasterSwitches()
+    local profile = self.db.profile
+    if profile.masterSwitchesMigrated then return end
+    profile.masterSwitchesMigrated = true
+    -- Only a profile that existed before this build can have lost anything. One created or
+    -- copied afterwards already holds whatever it was given, and treating it as an upgrade
+    -- would switch a feature on that its owner never had.
+    local name = self.db:GetCurrentProfile()
+    if not self.priorProfiles[name] then return end
+    -- A stored false is someone who turned the phrases off back when the switch defaulted
+    -- to on; turning them back on would undo a decision made by hand.
+    if self.priorTimeOfDay[name] == nil then
+        profile.social.timeOfDay = true
+        -- Only the greetings existed before. Band goodbyes are new, and switching the
+        -- master on for an upgrade must not start saying "gn all" on their behalf
+        local ticked = self.priorBandGoodbyes[name] or {}
+        for _, key in ipairs(BAND_GOODBYE_KEYS) do
+            for _, channel in ipairs(AutoSay.Channels) do
+                local settings = profile[channel.key]
+                -- Leave alone anything the profile itself had ticked: only the values this
+                -- build handed out are being taken back
+                if settings and settings.enabledGoodbyes
+                    and not ticked[channel.key .. ":" .. key] then
+                    settings.enabledGoodbyes[key] = false
+                end
+            end
+        end
+        self:DebugPrint("Kept time-of-day phrases on for an upgraded profile")
     end
 end
 
@@ -728,6 +913,8 @@ function Addon:SlashCommand(input)
             self:TestJoinRaid()
         elseif subcmd == "instance" or subcmd == "i" then
             self:TestJoinInstance()
+        elseif subcmd == "lfr" or subcmd == "bg" then
+            self:TestJoinInstance(true)
         elseif subcmd == "leave" or subcmd == "l" then
             self:TestLeaveGroup()
         elseif subcmd == "guild" or subcmd == "g" then
@@ -779,7 +966,8 @@ function Addon:SlashCommand(input)
             self:Print("  /as testmode - Toggle simulation mode (required for the commands below)")
             self:Print("  /as test party - Simulate joining a party")
             self:Print("  /as test raid - Simulate joining a raid")
-            self:Print("  /as test instance - Simulate zoning into an instance group")
+            self:Print("  /as test instance - Simulate zoning into a 5-player instance group")
+            self:Print("  /as test lfr (or bg) - Simulate zoning into an LFR or battleground")
             self:Print("  /as test leave - Simulate leaving group")
             self:Print("  /as test guild - Simulate guild login greeting")
             self:Print("  /as test guildbye - Simulate guild logout goodbye")
@@ -855,8 +1043,26 @@ function Addon:OpenConfig()
     end
 end
 
+-- True when nothing may go out on this channel right now: the toggle means "say nothing in
+-- an LFR or a battleground", so goodbyes and reconnects obey it as much as greetings.
+-- Asked at preflight so a refused line burns no cooldown or budget, and again at dispatch -
+-- goodbyes dispatch with no preflight at all, and a delayed send can outlive the group
+-- state it was scheduled in.
+function Addon:IsChannelSilenced(channel)
+    if not Logic.SkipsRaidInstanceGroup(channel, self.db.profile.instance, self:IsRaidInstanceGroupOrTest()) then
+        return false
+    end
+    self:DebugPrint("Raid-sized instance group, skipping message")
+    if self:IsTestMode() then
+        self:TestPrint("Message blocked: LFR and battlegrounds are skipped (General tab)")
+    end
+    return true
+end
+
 -- Check if cooldown has passed for a specific channel type
 function Addon:CanSendMessage(channelType)
+    if self:IsChannelSilenced(channelType) then return false end
+
     local now = GetTime()
     local cooldown = self.db.profile.cooldown
 
@@ -978,6 +1184,10 @@ function Addon:DoSendMessage(message, channel, target, keepCase)
         return false
     end
 
+    -- Last gate before the line leaves: goodbyes come straight here without a preflight,
+    -- and a scheduled send is only checked against the group it was scheduled in
+    if self:IsChannelSilenced(channel) then return false end
+
     message = TruncateToChatLimit(self:PolishMessage(message, keepCase))
 
     -- Token stripping can reduce a message to nothing (custom text of only "{dungeon} {key}")
@@ -1043,6 +1253,16 @@ function Addon:GetChatChannel()
     return nil
 end
 
+-- LFR and battlegrounds are raid-sized instance groups; a 5-player LFG run never is.
+-- Asked about the group, not the head count: a raid group is raid-sized from the moment
+-- it forms, before it fills up.
+function Addon:IsRaidInstanceGroupOrTest()
+    if self:IsTestMode() and self.testState.simulatedGroupType then
+        return self.testState.simulatedRaidInstance and true or false
+    end
+    return IsInRaid(LE_PARTY_CATEGORY_INSTANCE) and true or false
+end
+
 -- Check if in guild (with test mode support and cached fallback for logout)
 function Addon:IsInGuildOrTest()
     -- For test mode, only use simulation if explicitly set (during test commands)
@@ -1086,8 +1306,10 @@ end
 -- (master switch on, an actual role assigned) - PolishMessage would otherwise confidently
 -- substitute "dps" for an unassigned or role-phrases-off player. Applies to EVERY custom
 -- pool: channel messages, guild login, key announce, completion.
-function Addon:CustomTextUsable(text)
+function Addon:CustomTextUsable(text, channel)
     if not text:find("{role}", 1, true) then return true end
+    -- Same rule the presets follow: a role means nothing to a guild reading it
+    if channel == "GUILD" then return false end
     return self.db.profile.social.rolePhrases and self:GetPlayerRoleOrTest() ~= "NONE"
 end
 
@@ -1164,7 +1386,10 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
         end
         local band = self.db.profile.social.timeOfDay
             and AutoSay.Humanizer.BandForHour(hour) or nil
-        local rolePhrases = self.db.profile.social.rolePhrases
+        -- Never in guild chat: "tank here o/" is addressed to the four people you are about
+        -- to pull for, not to a guild reading it over breakfast
+        local rolePhrases = self.db.profile.social.rolePhrases and channel ~= "GUILD"
+
         for _, msg in ipairs(messages) do
             if settings[enabledKey][msg.key] and FitsContext(msg, role, faction, band, reason, rolePhrases) then
                 AddCandidate(msg.text, NameMode(msg), msg.keepCase)
@@ -1178,7 +1403,7 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
     -- role) - otherwise "your {role} is here" announces "dps" for an unassigned tank.
     if settings[customsKey] then
         for _, entry in ipairs(settings[customsKey]) do
-            if entry.enabled and entry.text and entry.text ~= "" and self:CustomTextUsable(entry.text) then
+            if entry.enabled and entry.text and entry.text ~= "" and self:CustomTextUsable(entry.text, channel) then
                 local mode = entry.text:find("{names}", 1, true) and "slot" or "append"
                 AddCandidate(entry.text, mode)
             end
@@ -1230,87 +1455,8 @@ local function StylePoolTargets(profile)
     return targets
 end
 
--- StyleFits (from MessageLogic): used by the "fully enabled" check to ignore phrases this
--- character's faction can never say; the apply loop enables both factions on purpose.
-
--- style -> list of { enabledKey, mplus, <msg>, <msg>, ... }: every styled phrase, bucketed by
--- the pool it lives in. The phrase tables never change, so this is built once and the bundle
--- state check walks one style's phrases instead of every entry of every pool.
-local styleIndex
-local function StyleIndex(style)
-    if not styleIndex then
-        styleIndex = {}
-        for _, pool in ipairs(AutoSay.StylePools) do
-            for _, msg in ipairs(AutoSay[pool.messages]) do
-                if msg.style then
-                    local buckets = styleIndex[msg.style]
-                    if not buckets then
-                        buckets = {}
-                        styleIndex[msg.style] = buckets
-                    end
-                    local bucket = buckets[pool.enabledKey]
-                    if not bucket then
-                        bucket = { enabledKey = pool.enabledKey, mplus = pool.mplus }
-                        buckets[pool.enabledKey] = bucket
-                        buckets[#buckets + 1] = bucket
-                    end
-                    bucket[#bucket + 1] = msg
-                end
-            end
-        end
-    end
-    return styleIndex[style]
-end
-
--- Every settings table a pool's checkboxes live in: one per channel, or the single M+ one
-local function PoolSettings(profile, mplus)
-    if mplus then return { profile.mythicplus } end
-    local list = {}
-    for _, c in ipairs(AutoSay.Channels) do
-        list[#list + 1] = profile[c.key]
-    end
-    return list
-end
-
--- The bundle buttons ask for their state on every redraw, once per style. Cache the answer and
--- drop the whole cache on any write to a phrase checkbox - the addon registers no AceDB profile
--- callbacks, so nothing else can swap the settings out from under it.
-function Addon:InvalidateBundleCache()
-    self.bundleCache = nil
-end
-
--- True when every usable phrase of the style is enabled in every pool that has one.
--- Phrases of the other faction can never be picked here, so they do not count.
-function Addon:IsStyleBundleEnabled(style)
-    local cache = self.bundleCache
-    if not cache then
-        cache = {}
-        self.bundleCache = cache
-    end
-    if cache[style] ~= nil then return cache[style] end
-
-    local faction = UnitFactionGroup("player")
-    local profile = self.db.profile
-    local result = true
-    for _, bucket in ipairs(StyleIndex(style) or {}) do
-        for _, settings in ipairs(PoolSettings(profile, bucket.mplus)) do
-            local enabled = settings and settings[bucket.enabledKey]
-            if enabled then
-                for _, msg in ipairs(bucket) do
-                    if (not msg.faction or msg.faction == faction) and not enabled[msg.key] then
-                        result = false
-                        break
-                    end
-                end
-            end
-            if not result then break end
-        end
-        if not result then break end
-    end
-
-    cache[style] = result
-    return result
-end
+-- StyleFits (from MessageLogic): used to decide whether a pool holds anything of this style
+-- for this character; the apply loop itself enables both factions on purpose.
 
 -- Set every preset phrase of a style in every pool (state = true/false).
 -- replace = true also turns off everything that is not part of the style (custom messages are untouched).
@@ -1336,7 +1482,7 @@ function Addon:ApplyStyleBundle(style, replace, state)
         local enabled = target.settings and target.settings[target.pool.enabledKey]
         if enabled and poolHasStyle[target.pool.enabledKey] then
             for _, msg in ipairs(AutoSay[target.pool.messages]) do
-                if msg.style == style then
+                if Logic.StyleMatches(msg, style) then
                     -- Both factions on purpose: the profile is shared by every character on
                     -- the account, and FitsContext already filters by faction at send time.
                     -- Skipping the other faction here + Replace would leave a Horde alt with
@@ -1350,7 +1496,6 @@ function Addon:ApplyStyleBundle(style, replace, state)
         end
     end
 
-    self:InvalidateBundleCache()
     LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
     local doneKey = state and "Style bundle applied" or "Style bundle removed"
     self:Print(L[doneKey] .. ": |cFFFFFF00" .. L["Style " .. style] .. "|r")
@@ -1380,7 +1525,6 @@ function Addon:SetTaggedPhrasesEnabled(kind, state)
         end
     end
 
-    self:InvalidateBundleCache()
     LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
     self:Print(L[state and "Phrases enabled on all channels" or "Phrases disabled on all channels"])
 end
@@ -1413,6 +1557,11 @@ function Addon:SendGreeting(playerNames, reason)
         self:DebugPrint(channel, "greetings disabled")
         return false
     end
+
+    -- First of the refusals: this channel is off-limits whatever the budget or the cooldown
+    -- says, so it is the honest reason to report. Nothing below has run yet, so no cooldown
+    -- stamp, phrase history or budget slot is spent on a line that was never going out.
+    if self:IsChannelSilenced(channel) then return false end
 
     if self.socialGate then
         local target = playerNames and playerNames[1] or nil
@@ -1497,6 +1646,13 @@ function Addon:SendGoodbye(channel)
 
     local settings = self:GetChannelSettings(channel)
     if not settings then return false end
+
+    -- The channel master comes first: "Enable Party" off means silence on that channel,
+    -- goodbyes included, whatever the per-channel goodbye toggle inherited
+    if not settings.enabled then
+        self:DebugPrint(channel, "channel disabled, no goodbye")
+        return false
+    end
 
     -- Check if goodbye is enabled for this channel
     if not settings.sendGoodbye then
@@ -1804,7 +1960,7 @@ function Addon:GetRandomGuildLoginGreeting()
     -- Add enabled custom messages
     if settings.customLoginGreetings then
         for _, entry in ipairs(settings.customLoginGreetings) do
-            if entry.enabled and entry.text and entry.text ~= "" and self:CustomTextUsable(entry.text) then
+            if entry.enabled and entry.text and entry.text ~= "" and self:CustomTextUsable(entry.text, "GUILD") then
                 table.insert(enabled, entry.text)
             end
         end
@@ -1979,6 +2135,7 @@ end
 function Addon:SendKeyAnnounce()
     local db = self.db.profile
     if not db.enabled or not db.mythicplus.enabled then return end
+    if not self:MythicPlusChannelOpen() then return end
 
     -- One announce in flight: a retry is already carrying this group's message
     if self.state.keyAnnounceTimer then
@@ -2176,10 +2333,26 @@ function Addon:GetRandomCompletionMessage(onTime, upgrade)
     return enabled[math.random(#enabled)]
 end
 
+-- Everything Mythic+ says is said in party chat, so "Enable Party" governs it like any other
+-- line sent there. The M+ switch decides whether the feature runs, the channel switch decides
+-- whether that channel speaks at all, and the channel has the last word.
+function Addon:MythicPlusChannelOpen()
+    local settings = self.db.profile.party
+    if settings and settings.enabled == false then
+        self:DebugPrint("Party channel disabled, no Mythic+ announcement")
+        if self:IsTestMode() then
+            self:TestPrint("Message blocked: the Party channel is off (General tab)")
+        end
+        return false
+    end
+    return true
+end
+
 -- Send completion message to party chat
 function Addon:SendCompletionMessage(dungeon, keyLevel, onTime, upgrade, timeFormatted)
     local db = self.db.profile
     if not db.enabled or not db.mythicplus.enabled or not db.mythicplus.completionEnabled then return end
+    if not self:MythicPlusChannelOpen() then return end
 
     local template = self:GetRandomCompletionMessage(onTime, upgrade)
     if not template then
@@ -2213,6 +2386,7 @@ end
 -- Reset test state
 function Addon:TestReset()
     self.testState.simulatedGroupType = nil
+    self.testState.simulatedRaidInstance = false
     self.testState.simulatedInGuild = false
     self.testState.simulatedGroupMembers = {}
     self.testState.simulatedIsLeader = true
@@ -2263,10 +2437,7 @@ function Addon:TestReset()
     -- Delayed sends from an earlier simulation must not fire into the next one (the
     -- sendGeneration bump on the test-mode toggle covers mode changes; this covers resets).
     -- The bump also invalidates untracked simulation timers (the M+ flow's join closures).
-    for handle in pairs(self.state.pendingGroupSends) do
-        self:CancelTimer(handle)
-    end
-    self.state.pendingGroupSends = {}
+    self:TestCancelPendingSends()
     self.state.sendGeneration = self.state.sendGeneration + 1
     self:TestPrint("Test state reset")
 end
@@ -2321,11 +2492,42 @@ function Addon:TestPreviewWhatsNew()
     self:ShowWhatsNew(self:VersionMinor() or "dev", true)
 end
 
+-- Entering a new simulated group drops whatever the previous one still had in flight, the
+-- way GROUP_JOINED does for real groups. Without it a greeting built for one simulation
+-- lands in the next: schedule a 5-player instance greeting, switch to /as test lfr inside
+-- the typing delay, and the old timer would speak in a group that must stay silent.
+-- Deliberately only the tracked group sends, with no sendGeneration bump: the bump reaches
+-- further than a group change should (it would drop a pending guild greeting and strand the
+-- M+ simulation's own closures, which a live GROUP_JOINED leaves alone). Full teardown of a
+-- simulation is TestReset's job.
+function Addon:TestCancelPendingSends()
+    for handle in pairs(self.state.pendingGroupSends) do
+        self:CancelTimer(handle)
+    end
+    self.state.pendingGroupSends = {}
+    -- The M+ simulation schedules its own untracked join timers. They are fenced by the
+    -- flow generation rather than sendGeneration, so replacing a simulation strands them
+    -- without touching a guild send that has nothing to do with the group.
+    self.state.testFlowGeneration = self.state.testFlowGeneration + 1
+    self.state.mythicPlusFlowActive = false
+    -- The announce timers are held by name rather than in pendingGroupSends, and their own
+    -- revalidation would accept the replacement group, so they have to be dropped here
+    if self.state.keyAnnounceTimer then
+        self:CancelTimer(self.state.keyAnnounceTimer)
+        self.state.keyAnnounceTimer = nil
+    end
+    if self.state.startAnnounceTimer then
+        self:CancelTimer(self.state.startAnnounceTimer)
+        self.state.startAnnounceTimer = nil
+    end
+end
+
 -- Simulate joining a party
 function Addon:TestJoinParty()
     if not self:RequireTestMode() then return end
 
     self:TestPrint("=== Simulating JOIN PARTY ===")
+    self:TestCancelPendingSends()
     self.testState.simulatedGroupType = "PARTY"
     self.state.previousGroup = { [UnitName("player")] = true }
     self.state.sentGreetings = {}
@@ -2344,6 +2546,7 @@ function Addon:TestJoinRaid()
     if not self:RequireTestMode() then return end
 
     self:TestPrint("=== Simulating JOIN RAID ===")
+    self:TestCancelPendingSends()
     self.testState.simulatedGroupType = "RAID"
     self.state.previousGroup = { [UnitName("player")] = true }
     self.state.sentGreetings = {}
@@ -2357,12 +2560,15 @@ function Addon:TestJoinRaid()
     end
 end
 
--- Simulate zoning into an instance group (LFG dungeon/LFR/battleground)
-function Addon:TestJoinInstance()
+-- Simulate zoning into an instance group. raidSized simulates an LFR or a battleground,
+-- which the skipRaidGroups toggle silences; without it this is a 5-player LFG run.
+function Addon:TestJoinInstance(raidSized)
     if not self:RequireTestMode() then return end
 
-    self:TestPrint("=== Simulating ENTER INSTANCE GROUP ===")
+    self:TestPrint(raidSized and "=== Simulating ENTER LFR/BATTLEGROUND ===" or "=== Simulating ENTER INSTANCE GROUP ===")
+    self:TestCancelPendingSends()
     self.testState.simulatedGroupType = "INSTANCE_CHAT"
+    self.testState.simulatedRaidInstance = raidSized and true or false
     self.state.previousGroup = { [UnitName("player")] = true }
     self.state.sentGreetings = {}
     self.state.currentGroupType = "INSTANCE_CHAT"
@@ -2393,8 +2599,11 @@ function Addon:TestLeaveGroup()
     -- Send goodbye before "leaving"
     self:SendGoodbye(groupType)
 
-    -- Reset simulated group state
+    -- Reset simulated group state. The flow ends with the group: a simulation left behind
+    -- would keep adding fake members to a group that no longer exists
+    self:TestCancelPendingSends()
     self.testState.simulatedGroupType = nil
+    self.testState.simulatedRaidInstance = false
     self.state.previousGroup = nil
     self.state.sentGreetings = {}
     self.state.currentGroupType = nil
@@ -2550,9 +2759,12 @@ function Addon:TestMythicPlusFlow()
     -- names would be greeted into the player's REAL party chat.
     local fakeNames = { "Tankmaster", "HolyPala", "Shadowmage", "Hunterbro" }
     local generation = self.state.sendGeneration
+    local flowGeneration = self.state.testFlowGeneration
     for i, name in ipairs(fakeNames) do
         self:ScheduleTimer(function()
             if generation ~= self.state.sendGeneration then return end
+            -- Another simulation replaced this one: its remaining joins are not ours to greet
+            if flowGeneration ~= self.state.testFlowGeneration then return end
             table.insert(self.testState.simulatedGroupMembers, name)
             local count = #self.testState.simulatedGroupMembers
             self:TestPrint(name .. " joined (" .. count .. "/5)")
@@ -2575,8 +2787,11 @@ function Addon:TestMythicPlusFlow()
                         self.state.keyAnnounced = true
                         self:TestPrint("Group full 5/5! Sending key announce...")
                         self:ScheduleTimer(function()
-                            self.state.mythicPlusFlowActive = false
+                            -- Both fences before the shared flag: a stale callback clearing
+                            -- it would hand the next simulation's flow to a third one
                             if generation ~= self.state.sendGeneration then return end
+                            if flowGeneration ~= self.state.testFlowGeneration then return end
+                            self.state.mythicPlusFlowActive = false
                             self:SendKeyAnnounce()
                         end, 2)
                     else

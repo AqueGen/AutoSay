@@ -34,6 +34,7 @@ WoW addon: automatic greetings, goodbyes, and reconnect messages for party, raid
 - Every new user-facing option in `Config.lua` gets its name wrapped in `NewTag(name, "<minor>")`, where `<minor>` is the minor release it ships in (e.g. `NewTag(L["Style"], "1.6")` for anything landing in 1.6.x). It appends a green "New!" to the label.
 - Tags expire on their own: `NewTag` only matches while the TOC version is still in that minor, so 1.7.0 silently drops every `"1.6"` badge. Nothing to clean up on release.
 - When you touch an option whose tag no longer matches the current version, delete the stale `NewTag` call and leave the plain name.
+- The tag belongs to the row, not to every widget on it. A row built once per item of a list (the style sets, each with its own Enable all / Disable all) carries the tag on the row's name only - thirteen copies of "New!" on one screen say less than one.
 
 ## WoW Addon Rules
 
@@ -63,3 +64,8 @@ Releases are driven by [release-please](https://github.com/googleapis/release-pl
   `MSYS_NO_PATHCONV=1 wsl bash -lc 'cd "/mnt/g/Games/World of Warcraft/_retail_/Interface/AddOns/AutoSay" && ~/luaenv/bin/busted'`
 - In-game smoke: `/as testmode`, then `/as test`, `/as test grats`,
   `/as test guildjoin`. Gate rejections print their reason.
+- In-game regression pass: `/as selftest`. Besides the gate and humanizer wiring it
+  checks the phrase data (styles, role coverage, class hints, locale names), the LFR
+  gate through `IsChannelSilenced`, and the profile migrations - those run on a scratch
+  profile it creates and deletes again, so the player's own profile is not touched.
+  What it cannot check is layout: colours, greyed rows and widths still need eyes.
