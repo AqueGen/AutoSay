@@ -980,8 +980,8 @@ local function BundleDesc(style)
         lines[j] = "|cFFFFD100" .. L[header] .. ":|r " .. string.format(L["%d phrases"], counts[header])
     end
 
-    -- Only what the row cannot show: the colour rule is visible in the list itself, and the
-    -- counts beside the name already answer how much of the set is on
+    -- Only what the row cannot show: the name is already coloured by how much of the set
+    -- is on, and the counts beside it give the exact numbers
     desc = table.concat(lines, "\n")
     bundleDescCache[style] = desc
     return desc
@@ -1268,7 +1268,9 @@ local function BuildOptions()
                                 end,
                                 disabled = function()
                                     local _, _, _, full = StyleCounts(style)
-                                    return full
+                                    -- With Replace on there is still work to do on a full
+                                    -- set: switching off every phrase that is not part of it
+                                    return full and not replaceOnApply
                                 end,
                                 func = function() Addon:ApplyStyleBundle(style, replaceOnApply, true) end,
                             }
