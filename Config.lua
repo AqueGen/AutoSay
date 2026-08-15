@@ -919,11 +919,14 @@ local function PoolTargets(pool)
     return targets
 end
 
---- total = phrases the bundle owns, enabled = ticked somewhere, live = ticked somewhere it
---- can actually be sent right now. The gap between the last two is the useful number: it is
---- what a master switch being off, or a channel being off, costs this bundle.
+--- total    phrases the set owns
+--- selected ticked on at least one channel
+--- sendable of those, the ones at least one channel could send right now
+--- full     every phrase ticked on every channel that has the pool, which is what
+---          "Enable all" would produce - a phrase ticked in one channel only must not
+---          colour the set as finished
 local function StyleCounts(style)
-    local total, enabled, live = 0, 0, 0
+    local total, selected, sendable, full = 0, 0, 0, true
     for _, pool in ipairs(AutoSay.StylePools) do
         local poolKind = POOL_KIND_BY_KEY[pool.enabledKey]
         local targets = PoolTargets(pool)
@@ -933,20 +936,24 @@ local function StyleCounts(style)
                 local on, canSend = false, false
                 for _, target in ipairs(targets) do
                     local flags = target.settings and target.settings[pool.enabledKey]
-                    if flags and flags[msg.key] then
-                        on = true
-                        if PhraseActive(msg, function() return target.settings end, poolKind, target.key) then
-                            canSend = true
-                            break
+                    if flags then
+                        if flags[msg.key] then
+                            on = true
+                            if not canSend and PhraseActive(msg, function() return target.settings end,
+                                poolKind, target.key) then
+                                canSend = true
+                            end
+                        else
+                            full = false
                         end
                     end
                 end
-                if on then enabled = enabled + 1 end
-                if canSend then live = live + 1 end
+                if on then selected = selected + 1 end
+                if canSend then sendable = sendable + 1 end
             end
         end
     end
-    return total, enabled, live
+    return total, selected, sendable, full
 end
 
 local bundleDescCache = {}
@@ -1224,9 +1231,9 @@ local function BuildOptions()
                                 type = "description", order = order, width = 1.2,
                                 fontSize = "medium",
                                 name = function()
-                                    local total, enabled, live = StyleCounts(style)
-                                    local colour = (enabled == 0 and "|cFF888888")
-                                        or (enabled == total and "|cFF00FF00")
+                                    local _, selected, _, full = StyleCounts(style)
+                                    local colour = (selected == 0 and "|cFF888888")
+                                        or (full and "|cFF00FF00")
                                         or "|cFFFFD100"
                                     return colour .. L["Style " .. style] .. "|r"
                                 end,
@@ -1234,26 +1241,42 @@ local function BuildOptions()
                             args["count_" .. style] = {
                                 type = "description", order = order + 1, width = 1.1,
                                 name = function()
-                                    local total, enabled, live = StyleCounts(style)
+                                    local total, selected, sendable = StyleCounts(style)
                                     -- The second number only earns its place when it differs:
-                                    -- "8/16" plus "8 live" side by side is noise
-                                    if live == enabled then
-                                        return string.format("|cFFAAAAAA%d/%d|r", enabled, total)
+                                    -- printing it next to an identical first one is noise
+                                    if sendable == selected then
+                                        return string.format("|cFFAAAAAA%s|r",
+                                            string.format(L["%d/%d selected"], selected, total))
                                     end
-                                    return string.format("|cFFAAAAAA%d/%d|r  |cFFFF7F3F%s|r",
-                                        enabled, total, string.format(L["%d live"], live))
+                                    return string.format("|cFFAAAAAA%s|r  |cFFFF7F3F%s|r",
+                                        string.format(L["%d/%d selected"], selected, total),
+                                        string.format(L["%d sendable now"], sendable))
                                 end,
                                 desc = function() return BundleDesc(style) end,
                             }
                             args["on_" .. style] = {
                                 type = "execute", order = order + 2, width = 0.7,
                                 name = L["Enable all"],
-                                desc = function() return BundleDesc(style) end,
+                                desc = function()
+                                    if replaceOnApply then
+                                        return BundleDesc(style) .. "\n\n|cFFFF7F3F"
+                                            .. L["Replace warning"] .. "|r"
+                                    end
+                                    return BundleDesc(style)
+                                end,
+                                disabled = function()
+                                    local _, _, _, full = StyleCounts(style)
+                                    return full
+                                end,
                                 func = function() Addon:ApplyStyleBundle(style, replaceOnApply, true) end,
                             }
                             args["off_" .. style] = {
                                 type = "execute", order = order + 3, width = 0.7,
                                 name = L["Disable all"],
+                                disabled = function()
+                                    local _, selected = StyleCounts(style)
+                                    return selected == 0
+                                end,
                                 func = function() Addon:ApplyStyleBundle(style, false, false) end,
                             }
                             -- The classes this bundle leans towards, on its own row under
