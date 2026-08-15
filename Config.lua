@@ -1105,6 +1105,21 @@ local function BuildOptions()
                                 flavourOrder = flavourOrder + 1
                             end
                         end
+                        -- Naming the rest closes the obvious question: a style missing from
+                        -- the rows above is universal, not forgotten
+                        args.flavourNeutral = {
+                            type = "description", order = flavourOrder, width = "full",
+                            name = function()
+                                local names = {}
+                                for _, style in ipairs(AutoSay.MessageStyles) do
+                                    if not AutoSay.StyleClasses[style] then
+                                        names[#names + 1] = L["Style " .. style]
+                                    end
+                                end
+                                return "|cFF808080" .. L["Class neutral"] .. ":|r |cFFAAAAAA"
+                                    .. table.concat(names, ", ") .. "|r"
+                            end,
+                        }
                         return args
                     end)(),
                 },
