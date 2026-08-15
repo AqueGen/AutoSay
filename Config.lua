@@ -1224,7 +1224,10 @@ local function BuildOptions()
                                     local colour = (selected == 0 and "|cFF888888")
                                         or (full and "|cFF00FF00")
                                         or "|cFFFFD100"
-                                    return colour .. L["Style " .. style] .. "|r"
+                                    -- The tag rides the whole row: the two buttons next to
+                                    -- it repeat for all thirteen sets, so badging them too
+                                    -- would just be thirteen more "New!" on one screen
+                                    return NewTag(colour .. L["Style " .. style] .. "|r", "1.6")
                                 end,
                             }
                             args["count_" .. style] = {
