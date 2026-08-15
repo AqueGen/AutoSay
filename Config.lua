@@ -57,7 +57,8 @@ end
 -- [newcomers] needs On others join, [self] needs On self join, a {names} slot needs the
 -- names option, role phrases need the master switch. An inactive phrase stays visible but
 -- greyed out - the tag on its row points at the switch that re-activates it.
--- settingsFn is nil for pools without trigger context (goodbyes/reconnects/guild login).
+-- settingsFn always resolves to the channel's settings; poolKind says which switch of that
+-- table governs this list.
 local function PhraseActive(msg, settingsFn, poolKind, channelKey)
     -- Nothing is sent at all while the addon is off, so nothing in any list is live
     if not Addon.db.profile.enabled then return false end
@@ -338,7 +339,6 @@ local function BuildMessageMatrix(poolId, pool, channels)
                     for _, msg in ipairs(entries) do
                         for _, ch in ipairs(channels) do ch.tableFn()[msg.key] = true end
                     end
-                    Addon:InvalidateBundleCache()
                     LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
                 end,
             }
@@ -346,12 +346,13 @@ local function BuildMessageMatrix(poolId, pool, channels)
                 type = "execute", order = order + 0.1, width = 0.7,
                 name = L["Disable all"],
                 desc = L["Disable every phrase of this section on every channel shown"],
+                confirm = true,
+                confirmText = L["Disable this section everywhere?"],
                 hidden = folded,
                 func = function()
                     for _, msg in ipairs(entries) do
                         for _, ch in ipairs(channels) do ch.tableFn()[msg.key] = false end
                     end
-                    Addon:InvalidateBundleCache()
                     LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
                 end,
             }
@@ -382,7 +383,6 @@ local function BuildMessageMatrix(poolId, pool, channels)
                         get = function() return ch.tableFn()[msg.key] end,
                         set = function(_, val)
                             ch.tableFn()[msg.key] = val
-                            Addon:InvalidateBundleCache()
                         end,
                     }
                 end)
@@ -399,7 +399,6 @@ local function BuildMessageMatrix(poolId, pool, channels)
                     get = function() return ch.tableFn()[msg.key] end,
                     set = function(_, val)
                         ch.tableFn()[msg.key] = val
-                        Addon:InvalidateBundleCache()
                     end,
                 }
             end
@@ -1169,13 +1168,10 @@ local function BuildOptions()
                         -- for a user who never touched test mode, since it re-arms mid-group
                         -- greeting/goodbye state
                         local wasTestMode = Addon.db.profile.testMode
+                        -- ResetProfile fires OnProfileReset, and that callback stamps the
+                        -- one-shot migrations - without it the next login would migrate the
+                        -- freshly reset profile straight back off its defaults
                         Addon.db:ResetProfile()
-                        -- The reset wipes the one-shot migration stamps back to their defaults;
-                        -- without re-stamping, the next login would re-run MigrateInstanceChannel
-                        -- and overwrite the instance settings chosen after this reset
-                        -- The OnProfileReset callback stamps the one-shot migrations; without
-                        -- that, the next login would migrate the freshly reset profile
-                        Addon:StampMigrationsDone()
                         if wasTestMode then
                             Addon:TestReset() -- bumps sendGeneration itself
                         else
@@ -1190,7 +1186,6 @@ local function BuildOptions()
                             end
                             Addon.state.pendingGuildLogins = {}
                         end
-                        Addon:InvalidateBundleCache()
                         LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
                         Addon:Print(L["Settings reset to defaults"])
                     end,
@@ -1261,6 +1256,10 @@ local function BuildOptions()
                             args["off_" .. style] = {
                                 type = "execute", order = order + 3, width = 0.7,
                                 name = L["Disable all"],
+                                -- Asked every time: this reaches every channel and every
+                                -- pool at once, and there is no undo
+                                confirm = true,
+                                confirmText = L["Disable this set everywhere?"],
                                 disabled = function()
                                     local _, selected = StyleCounts(style)
                                     return selected == 0

@@ -507,8 +507,8 @@ end
 -- it from them once. On a fresh install the party values are the defaults, so this is a no-op.
 -- skipRaidGroups is what keeps an upgrade out of LFR and battlegrounds; 1.5.x had no such
 -- guard, so the channel inheriting the party toggles is only safe alongside it.
--- Only the active profile is migrated - the addon registers no AceDB profile callbacks, so a
--- profile switched to later keeps its own (defaults-equal) instance settings.
+-- Every profile is migrated as it becomes active: the AceDB profile callbacks re-run this
+-- for a profile switched to later, so it is treated exactly like one loaded at login.
 function Addon:MigrateInstanceChannel()
     if Logic.MigrateInstanceChannel(self.db.profile) then
         self:DebugPrint("Instance channel seeded from party settings")
@@ -562,9 +562,12 @@ function Addon:MigrateRetiredPhrases()
             if enabled then
                 local live = {}
                 for _, msg in ipairs(AutoSay[pool.messages]) do
-                    -- false rather than true for a band phrase: it is still shipped, so it
-                    -- is not evidence of a retirement, but it cannot carry the pool either
-                    live[msg.key] = msg.band == nil
+                    -- false rather than true for anything a master switch holds back: it is
+                    -- still shipped, so it is no evidence of a retirement, but it cannot
+                    -- carry the pool either. Both switches ship off and both sets of phrases
+                    -- ship enabled, so counting them as content hid every empty pool.
+                    live[msg.key] = msg.band == nil and msg.role == nil
+                        and not msg.text:find("{role}", 1, true)
                 end
                 if Logic.PoolLostItsPhrases(enabled, live, settings[pool.customsKey]) then
                     for key in pairs(enabled) do
@@ -587,14 +590,15 @@ function Addon:OnProfileDeleted(_, _, name)
 end
 
 function Addon:OnProfileSwitched(event)
-    if event == "OnProfileReset" then
-        -- Reset means "give me the defaults", so the upgrade migrations must not touch the
-        -- fresh table. Stamping them keeps the next login from doing it instead.
+    if event == "OnProfileReset" or event == "OnProfileCopied" then
+        -- A reset asks for the defaults and a copy already holds what its source gave it.
+        -- Either way the upgrade migrations have nothing to add, and running them would
+        -- judge this profile by a history that belongs to another one: the snapshots are
+        -- keyed by profile name, and the name here is the destination's.
         self:StampMigrationsDone()
     else
         self:RunProfileMigrations()
     end
-    self:InvalidateBundleCache() -- the cached bundle state belongs to the previous profile
     LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- the open panel shows the old profile
 end
 
@@ -1451,89 +1455,8 @@ local function StylePoolTargets(profile)
     return targets
 end
 
--- StyleFits (from MessageLogic): used by the "fully enabled" check to ignore phrases this
--- character's faction can never say; the apply loop enables both factions on purpose.
-
--- style -> list of { enabledKey, mplus, <msg>, <msg>, ... }: every styled phrase, bucketed by
--- the pool it lives in. The phrase tables never change, so this is built once and the bundle
--- state check walks one style's phrases instead of every entry of every pool.
-local styleIndex
-local function StyleIndex(style)
-    if not styleIndex then
-        styleIndex = {}
-        for _, pool in ipairs(AutoSay.StylePools) do
-            for _, msg in ipairs(AutoSay[pool.messages]) do
-                -- Untagged phrases index under "classic", the bundle the phrase lists show first
-                local id = msg.style or (msg.band == nil and "classic" or nil)
-                if id then
-                    local buckets = styleIndex[id]
-                    if not buckets then
-                        buckets = {}
-                        styleIndex[id] = buckets
-                    end
-                    local bucket = buckets[pool.enabledKey]
-                    if not bucket then
-                        bucket = { enabledKey = pool.enabledKey, mplus = pool.mplus }
-                        buckets[pool.enabledKey] = bucket
-                        buckets[#buckets + 1] = bucket
-                    end
-                    bucket[#bucket + 1] = msg
-                end
-            end
-        end
-    end
-    return styleIndex[style]
-end
-
--- Every settings table a pool's checkboxes live in: one per channel, or the single M+ one
-local function PoolSettings(profile, mplus)
-    if mplus then return { profile.mythicplus } end
-    local list = {}
-    for _, c in ipairs(AutoSay.Channels) do
-        list[#list + 1] = profile[c.key]
-    end
-    return list
-end
-
--- The bundle buttons ask for their state on every redraw, once per style. Cache the answer and
--- drop the whole cache on any write to a phrase checkbox - the addon registers no AceDB profile
--- callbacks, so nothing else can swap the settings out from under it.
-function Addon:InvalidateBundleCache()
-    self.bundleCache = nil
-end
-
--- True when every usable phrase of the style is enabled in every pool that has one.
--- Phrases of the other faction can never be picked here, so they do not count.
-function Addon:IsStyleBundleEnabled(style)
-    local cache = self.bundleCache
-    if not cache then
-        cache = {}
-        self.bundleCache = cache
-    end
-    if cache[style] ~= nil then return cache[style] end
-
-    local faction = UnitFactionGroup("player")
-    local profile = self.db.profile
-    local result = true
-    for _, bucket in ipairs(StyleIndex(style) or {}) do
-        for _, settings in ipairs(PoolSettings(profile, bucket.mplus)) do
-            local enabled = settings and settings[bucket.enabledKey]
-            if enabled then
-                for _, msg in ipairs(bucket) do
-                    if (not msg.faction or msg.faction == faction) and not enabled[msg.key] then
-                        result = false
-                        break
-                    end
-                end
-            end
-            if not result then break end
-        end
-        if not result then break end
-    end
-
-    cache[style] = result
-    return result
-end
+-- StyleFits (from MessageLogic): used to decide whether a pool holds anything of this style
+-- for this character; the apply loop itself enables both factions on purpose.
 
 -- Set every preset phrase of a style in every pool (state = true/false).
 -- replace = true also turns off everything that is not part of the style (custom messages are untouched).
@@ -1573,7 +1496,6 @@ function Addon:ApplyStyleBundle(style, replace, state)
         end
     end
 
-    self:InvalidateBundleCache()
     LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
     local doneKey = state and "Style bundle applied" or "Style bundle removed"
     self:Print(L[doneKey] .. ": |cFFFFFF00" .. L["Style " .. style] .. "|r")
@@ -1603,7 +1525,6 @@ function Addon:SetTaggedPhrasesEnabled(kind, state)
         end
     end
 
-    self:InvalidateBundleCache()
     LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
     self:Print(L[state and "Phrases enabled on all channels" or "Phrases disabled on all channels"])
 end
