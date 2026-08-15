@@ -143,6 +143,7 @@ L["Delete"] = "Delete"
 
 -- Timing
 L["Timing"] = "Timing"
+L["Limits"] = "Limits"
 L["Message delay"] = "Message delay"
 L["Delay before sending message (seconds)"] = "Delay before sending message (seconds)"
 L["Cooldown"] = "Cooldown"

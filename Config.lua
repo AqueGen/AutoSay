@@ -982,38 +982,6 @@ local function BuildOptions()
                         },
                     },
                 },
-                timingGroup = {
-                    type = "group",
-                    name = L["Timing"],
-                    inline = true,
-                    order = 10,
-                    args = {
-                        messageDelay = {
-                            type = "range",
-                            name = L["Message delay"],
-                            desc = L["Delay before sending message (seconds)"],
-                            order = 1,
-                            min = 0,
-                            max = 10,
-                            step = 0.5,
-                            width = "full",
-                            get = function() return Addon.db.profile.messageDelay end,
-                            set = function(_, val) Addon.db.profile.messageDelay = val end,
-                        },
-                        cooldown = {
-                            type = "range",
-                            name = L["Cooldown"],
-                            desc = L["Minimum time between messages (seconds)"],
-                            order = 2,
-                            min = 0,
-                            max = 60,
-                            step = 1,
-                            width = "full",
-                            get = function() return Addon.db.profile.cooldown end,
-                            set = function(_, val) Addon.db.profile.cooldown = val end,
-                        },
-                    },
-                },
                 testModeGroup = {
                     type = "group",
                     name = L["Test Mode"],
@@ -1049,7 +1017,7 @@ local function BuildOptions()
                     name = L["Reset window size"],
                     desc = L["Reset settings window to default size and position"],
                     order = 19,
-                    width = "full",
+                    width = 1.5,
                     func = function()
                         Addon.db.profile.configWindowStatus = nil
                         local AceConfigDialog = LibStub("AceConfigDialog-3.0")
@@ -1072,7 +1040,7 @@ local function BuildOptions()
                     name = L["Reset to Defaults"],
                     desc = L["Reset all settings to default values"],
                     order = 20,
-                    width = "full",
+                    width = 1.5,
                     confirm = true,
                     confirmText = L["Are you sure you want to reset all settings to defaults?"],
                     func = function()
@@ -1275,35 +1243,61 @@ local function BuildOptions()
             name = L["Social"],
             order = 5,
             args = {
-                budgetPerHour = {
-                    type = "range", order = 1, min = 4, max = 30, step = 1,
-                    name = L["Hourly message budget"],
-                    desc = L["Maximum automatic messages per hour, all triggers combined"],
-                    get = function() return Addon.db.profile.social.budgetPerHour end,
-                    set = function(_, v) Addon.db.profile.social.budgetPerHour = v end,
+                timingGroup = {
+                    type = "group", name = L["Timing"], inline = true, order = 1,
+                    args = {
+                        messageDelay = {
+                            type = "range", order = 1, min = 0, max = 10, step = 0.5,
+                            width = "full",
+                            name = L["Message delay"],
+                            desc = L["Delay before sending message (seconds)"],
+                            get = function() return Addon.db.profile.messageDelay end,
+                            set = function(_, val) Addon.db.profile.messageDelay = val end,
+                        },
+                        cooldown = {
+                            type = "range", order = 2, min = 0, max = 60, step = 1,
+                            width = "full",
+                            name = L["Cooldown"],
+                            desc = L["Minimum time between messages (seconds)"],
+                            get = function() return Addon.db.profile.cooldown end,
+                            set = function(_, val) Addon.db.profile.cooldown = val end,
+                        },
+                        typingDelay = {
+                            type = "toggle", order = 3, width = "full",
+                            name = L["Human typing delay"],
+                            desc = L["Delay messages as if typed by hand"] .. "\n"
+                                .. L["Human typing delay example"],
+                            get = function() return Addon.db.profile.social.typingDelay end,
+                            set = function(_, v) Addon.db.profile.social.typingDelay = v end,
+                        },
+                    },
                 },
-                personCooldownHours = {
-                    type = "range", order = 2, min = 1, max = 24, step = 1,
-                    name = L["Per-person cooldown (hours)"],
-                    desc = L["Do not target the same player more often than this"],
-                    get = function() return Addon.db.profile.social.personCooldownHours end,
-                    set = function(_, v) Addon.db.profile.social.personCooldownHours = v end,
-                },
-                listen = {
-                    type = "toggle", order = 3, width = "full",
-                    name = L["Social listening"],
-                    desc = L["Skip a message if someone else already said it"] .. "\n"
-                        .. L["Social listening example"],
-                    get = function() return Addon.db.profile.social.listen end,
-                    set = function(_, v) Addon.db.profile.social.listen = v end,
-                },
-                typingDelay = {
-                    type = "toggle", order = 4, width = "full",
-                    name = L["Human typing delay"],
-                    desc = L["Delay messages as if typed by hand"] .. "\n"
-                        .. L["Human typing delay example"],
-                    get = function() return Addon.db.profile.social.typingDelay end,
-                    set = function(_, v) Addon.db.profile.social.typingDelay = v end,
+                limitsGroup = {
+                    type = "group", name = L["Limits"], inline = true, order = 2,
+                    args = {
+                        budgetPerHour = {
+                            type = "range", order = 1, min = 4, max = 30, step = 1,
+                            name = L["Hourly message budget"],
+                            desc = L["Maximum automatic messages per hour, all triggers combined"],
+                            get = function() return Addon.db.profile.social.budgetPerHour end,
+                            set = function(_, v) Addon.db.profile.social.budgetPerHour = v end,
+                        },
+                        personCooldownHours = {
+                            type = "range", order = 2, min = 1, max = 24, step = 1,
+                            name = L["Per-person cooldown (hours)"],
+                            desc = L["Do not target the same player more often than this"],
+                            get = function() return Addon.db.profile.social.personCooldownHours end,
+                            set = function(_, v) Addon.db.profile.social.personCooldownHours = v end,
+                        },
+                        listen = {
+                            type = "toggle", order = 3, width = "full",
+                            name = L["Social listening"],
+                            desc = L["Skip a message if someone else already said it"] .. "\n"
+                                .. L["Social listening example"],
+                            get = function() return Addon.db.profile.social.listen end,
+                            set = function(_, v) Addon.db.profile.social.listen = v end,
+                        },
+                    },
                 },
                 guildGrats = {
                     type = "toggle", order = 6, width = "full",
