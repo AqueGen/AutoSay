@@ -138,6 +138,19 @@ local function ChannelIsOff(ch)
     return settings ~= nil and settings.enabled == false
 end
 
+--- Warning row for the channels that are switched off, naming the tab that switches them
+--- back on. Returns an empty string while every channel is live, which hides the row.
+local function ChannelOffNotice(channels)
+    return function()
+        local names = {}
+        for _, ch in ipairs(channels) do
+            if ChannelIsOff(ch) then names[#names + 1] = channelLabel[ch.key] or ch.key end
+        end
+        if #names == 0 then return "" end
+        return "|cFFFF7F3F" .. string.format(L["Channel off notice"], table.concat(names, ", ")) .. "|r"
+    end
+end
+
 -- AceConfig numeric widths are fixed pixels while the flow layout packs a visual line
 -- until it runs out of window: on a wide window two logical rows interleave. A zero-text
 -- full-width description after each row forces the line break, whatever the window width.
@@ -501,6 +514,10 @@ local function BuildGroupGreetings()
     }
 
     local triggers = {}
+    triggers.offNotice = {
+        type = "description", order = 0.5, width = "full",
+        name = ChannelOffNotice(channels),
+    }
     AddCaptionRow(triggers, "captions", 1, channels)
     AddMatrixRow(triggers, "onSelfJoin", 2,
         L["On self join"] .. TagSuffix("self"), nil, channels, function(ch)
@@ -588,6 +605,10 @@ local function BuildGroupGoodbyes()
     }
 
     local triggers = {}
+    triggers.offNotice = {
+        type = "description", order = 0.5, width = "full",
+        name = ChannelOffNotice(channels),
+    }
     AddCaptionRow(triggers, "captions", 1, channels)
     AddMatrixRow(triggers, "sendGoodbye", 2,
         L["Send goodbye on leave"], nil, channels, function(ch)
@@ -622,6 +643,10 @@ local function BuildGroupReconnects()
     }
 
     local triggers = {}
+    triggers.offNotice = {
+        type = "description", order = 0.5, width = "full",
+        name = ChannelOffNotice(channels),
+    }
     AddCaptionRow(triggers, "captions", 1, channels)
     AddMatrixRow(triggers, "onReconnect", 2, L["On reconnect"], nil, channels, function(ch)
         return {
