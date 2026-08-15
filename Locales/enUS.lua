@@ -296,7 +296,7 @@ L["Greet players who join the guild (max 2 per hour, once per player)"] = "Greet
 
 -- Message style bundles
 L["Message style bundles"] = "Message style bundles"
-L["Style bundle desc"] = "A bundle enables its phrases on every channel at once. Fine-tune the selection per channel afterwards on the Group, Guild and Mythic+ tabs."
+L["Style bundle desc"] = "A bundle enables its phrases on every channel at once. Fine-tune the selection per channel afterwards on the Group, Guild and Mythic+ tabs. Role and time-of-day phrases also need their own switch below."
 L["Style"] = "Style"
 L["Style classic"] = "Classic"
 L["Style minimal"] = "Minimal"

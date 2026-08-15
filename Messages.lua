@@ -3,7 +3,8 @@ local ADDON_NAME, AutoSay = ...
 -- Preset phrase model (Greetings / Goodbyes / Reconnects)
 --   key         unique id inside the pool, also the SavedVariables key of the on/off checkbox
 --   text        the phrase itself; {role} is replaced on send, {names} by the joined/current players
---   style       style bundle id (fun, fantasy, dark, light, pirate, faction, zoomer, butler).
+--   style       style bundle id; see AutoSay.MessageStyles for the list. "classic" is not
+--               a value here - it stands for a phrase with no style and no band.
 --               Styled phrases are off by default and toggled by the bundle buttons.
 --   role        only picked while the player has that assigned role (TANK/HEALER/DAMAGER)
 --   faction     only picked for that faction (Horde/Alliance)
@@ -125,7 +126,7 @@ AutoSay.Greetings = {
     { key = "fantasy_dps2", text = "steel and fury, at your service", style = "fantasy", role = "DAMAGER", trigger = "self" },
     { key = "dark_tank1", text = "let them break upon me", style = "dark", role = "TANK", trigger = "self" },
     { key = "dark_tank2", text = "I am the wall before the end", style = "dark", role = "TANK", trigger = "self", keepCase = true },
-    { key = "dark_heal1", text = "I decide who dies today", style = "dark", role = "HEALER", trigger = "self", keepCase = true },
+    { key = "dark_heal1", text = "death can wait, I am here", style = "dark", role = "HEALER", trigger = "self", keepCase = true },
     { key = "dark_heal2", text = "your fate rests in my hands", style = "dark", role = "HEALER", trigger = "self" },
     { key = "dark_dps1", text = "I bring the ending", style = "dark", role = "DAMAGER", trigger = "self", keepCase = true },
     { key = "dark_dps2", text = "the reaping starts now", style = "dark", role = "DAMAGER", trigger = "self" },
@@ -173,8 +174,8 @@ AutoSay.Greetings = {
     { key = "robot_dps2", text = "target acquisition ready", style = "robot", role = "DAMAGER", trigger = "self" },
     { key = "deadpan_tank1", text = "tank. I'll stand in front, as usual.", style = "deadpan", role = "TANK", trigger = "self" },
     { key = "deadpan_tank2", text = "yes, I'll pull", style = "deadpan", role = "TANK", trigger = "self" },
-    { key = "deadpan_heal1", text = "healer. try not to need me.", style = "deadpan", role = "HEALER", trigger = "self" },
-    { key = "deadpan_heal2", text = "I'll heal. probably.", style = "deadpan", role = "HEALER", trigger = "self", keepCase = true },
+    { key = "deadpan_heal1", text = "healer. I will be over here, healing.", style = "deadpan", role = "HEALER", trigger = "self" },
+    { key = "deadpan_heal2", text = "healer. the bars go up, eventually.", style = "deadpan", role = "HEALER", trigger = "self", keepCase = true },
     { key = "deadpan_dps1", text = "dps. I press buttons.", style = "deadpan", role = "DAMAGER", trigger = "self" },
     { key = "deadpan_dps2", text = "I'll do damage. allegedly.", style = "deadpan", role = "DAMAGER", trigger = "self", keepCase = true },
     { key = "minimal_hi", text = "hi", style = "minimal", appendNames = true },
@@ -241,7 +242,7 @@ AutoSay.Goodbyes = {
     { key = "robot_shutdown", text = "shutdown sequence initiated", style = "robot" },
     { key = "robot_farewell", text = "farewell, units", style = "robot" },
     { key = "deadpan_thatsthat", text = "and that's that", style = "deadpan" },
-    { key = "deadpan_itwasfine", text = "leaving. it was fine.", style = "deadpan" },
+    { key = "deadpan_itwasfine", text = "leaving. that worked.", style = "deadpan" },
     { key = "deadpan_iguess", text = "bye I guess", style = "deadpan", keepCase = true },
 }
 
@@ -410,5 +411,5 @@ AutoSay.CompletionDepleted = {
     { key = "butler_valiant", text = "a valiant attempt, thank you all", style = "butler" },
     { key = "minimal_gg", text = "gg", style = "minimal" },
     { key = "robot_recalibrating", text = "objective failed, recalibrating", style = "robot" },
-    { key = "deadpan_asexpected", text = "as expected", style = "deadpan" },
+    { key = "deadpan_asexpected", text = "not clean, but done", style = "deadpan" },
 }

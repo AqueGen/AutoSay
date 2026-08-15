@@ -2378,6 +2378,16 @@ function Addon:TestCancelPendingSends()
     -- without touching a guild send that has nothing to do with the group.
     self.state.testFlowGeneration = self.state.testFlowGeneration + 1
     self.state.mythicPlusFlowActive = false
+    -- The announce timers are held by name rather than in pendingGroupSends, and their own
+    -- revalidation would accept the replacement group, so they have to be dropped here
+    if self.state.keyAnnounceTimer then
+        self:CancelTimer(self.state.keyAnnounceTimer)
+        self.state.keyAnnounceTimer = nil
+    end
+    if self.state.startAnnounceTimer then
+        self:CancelTimer(self.state.startAnnounceTimer)
+        self.state.startAnnounceTimer = nil
+    end
 end
 
 -- Simulate joining a party
@@ -2457,7 +2467,9 @@ function Addon:TestLeaveGroup()
     -- Send goodbye before "leaving"
     self:SendGoodbye(groupType)
 
-    -- Reset simulated group state
+    -- Reset simulated group state. The flow ends with the group: a simulation left behind
+    -- would keep adding fake members to a group that no longer exists
+    self:TestCancelPendingSends()
     self.testState.simulatedGroupType = nil
     self.testState.simulatedRaidInstance = false
     self.state.previousGroup = nil
@@ -2643,9 +2655,11 @@ function Addon:TestMythicPlusFlow()
                         self.state.keyAnnounced = true
                         self:TestPrint("Group full 5/5! Sending key announce...")
                         self:ScheduleTimer(function()
-                            self.state.mythicPlusFlowActive = false
+                            -- Both fences before the shared flag: a stale callback clearing
+                            -- it would hand the next simulation's flow to a third one
                             if generation ~= self.state.sendGeneration then return end
                             if flowGeneration ~= self.state.testFlowGeneration then return end
+                            self.state.mythicPlusFlowActive = false
                             self:SendKeyAnnounce()
                         end, 2)
                     else
