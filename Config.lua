@@ -741,15 +741,20 @@ end
 -- Tooltip body of a style bundle button: its phrases, one line per AutoSay.StylePools header
 -- (both completion pools share the "Completion" header, so they merge into a single line).
 -- Cached per style - eight multi-line listings are not worth building for a tooltip nobody hovers.
---- Does this bundle lean towards the class the player is on right now?
-local function BundleSuitsPlayer(style)
-    local tokens = AutoSay.StyleClasses[style]
-    if not tokens then return false end
-    local _, playerClass = UnitClass("player")
-    for _, token in ipairs(tokens) do
-        if token == playerClass then return true end
+-- Class names in their own colours. The list is built once from the API rather than
+-- hardcoded, so a class Blizzard adds later needs no edit here.
+local classNameCache
+local function ClassLabel(token)
+    if not classNameCache then
+        classNameCache = {}
+        for i = 1, (GetNumClasses and GetNumClasses() or 0) do
+            local name, file = GetClassInfo(i)
+            if name and file then classNameCache[file] = name end
+        end
     end
-    return false
+    local name = classNameCache[token] or token
+    local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[token]
+    return color and color:WrapTextInColorCode(name) or name
 end
 
 local bundleDescCache = {}
@@ -1076,23 +1081,30 @@ local function BuildOptions()
                         -- Under the buttons rather than inside each tooltip: the one line
                         -- that is actually about this character should not need a hover.
                         -- Bundles with no class leaning are simply not mentioned here.
-                        args.classHint = {
+                        -- One row per bundle that leans somewhere, not one per class: four
+                        -- rows say everything thirteen would, and a reader finds their own
+                        -- class in a short line at a glance. Nothing here depends on which
+                        -- character is logged in, because the profile is usually shared.
+                        args.classFlavourHeader = {
                             type = "description", order = 100, width = "full",
-                            name = function()
-                                local names = {}
-                                for _, style in ipairs(AutoSay.MessageStyles) do
-                                    if BundleSuitsPlayer(style) then
-                                        names[#names + 1] = L["Style " .. style]
-                                    end
-                                end
-                                if #names == 0 then return "" end
-                                local _, playerClass = UnitClass("player")
-                                local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[playerClass]
-                                local list = table.concat(names, ", ")
-                                return "|cFFFFD100" .. L["Often suits"] .. ":|r "
-                                    .. (color and color:WrapTextInColorCode(list) or list)
-                            end,
+                            fontSize = "medium",
+                            name = "\n|cFFFFD100" .. L["Class flavour"] .. "|r\n" .. L["Class flavour desc"],
                         }
+                        local flavourOrder = 101
+                        for _, style in ipairs(AutoSay.MessageStyles) do
+                            local tokens = AutoSay.StyleClasses[style]
+                            if tokens then
+                                local names = {}
+                                for i, token in ipairs(tokens) do names[i] = ClassLabel(token) end
+                                table.sort(names)
+                                args["flavour_" .. style] = {
+                                    type = "description", order = flavourOrder, width = "full",
+                                    name = "|cFFFFD100" .. L["Style " .. style] .. "|r  "
+                                        .. table.concat(names, ", "),
+                                }
+                                flavourOrder = flavourOrder + 1
+                            end
+                        end
                         return args
                     end)(),
                 },
