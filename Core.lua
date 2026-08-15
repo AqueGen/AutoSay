@@ -931,7 +931,6 @@ function Addon:OpenConfig()
     end
 end
 
--- Check if cooldown has passed for a specific channel type
 -- True when nothing may go out on this channel right now: the toggle means "say nothing in
 -- an LFR or a battleground", so goodbyes and reconnects obey it as much as greetings.
 -- Asked at preflight so a refused line burns no cooldown or budget, and again at dispatch -
@@ -948,6 +947,7 @@ function Addon:IsChannelSilenced(channel)
     return true
 end
 
+-- Check if cooldown has passed for a specific channel type
 function Addon:CanSendMessage(channelType)
     if self:IsChannelSilenced(channelType) then return false end
 

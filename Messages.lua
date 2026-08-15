@@ -204,7 +204,7 @@ AutoSay.Goodbyes = {
     { key = "later", text = "Later!" },
     { key = "cya", text = "Cya!" },
     { key = "cheers", text = "Cheers!" },
-        -- Time-of-day phrases: only picked while the local hour is in their band
+    -- Time-of-day phrases: only picked while the local hour is in their band
     { key = "eveningbye", text = "have a good evening", band = "evening" },
     { key = "gnall", text = "gn all", band = "night" },
     { key = "goodnightall", text = "good night everyone", band = "night" },
