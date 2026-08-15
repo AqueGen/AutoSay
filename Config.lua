@@ -369,11 +369,21 @@ local function BuildMessageMatrix(poolId, pool, channels)
             }
             order = order + 1
 
+            -- Both buttons grey out once there is nothing left for them to do, the way the
+            -- style rows do it, and neither asks first: the other one puts it all back
             args["all_" .. style] = {
                 type = "execute", order = order, width = 0.7,
                 name = L["Enable all"],
                 desc = L["Enable every phrase of this section on every channel shown"],
                 hidden = folded,
+                disabled = function()
+                    for _, msg in ipairs(entries) do
+                        for _, ch in ipairs(channels) do
+                            if not ch.tableFn()[msg.key] then return false end
+                        end
+                    end
+                    return true
+                end,
                 func = function()
                     for _, msg in ipairs(entries) do
                         for _, ch in ipairs(channels) do ch.tableFn()[msg.key] = true end
@@ -385,9 +395,15 @@ local function BuildMessageMatrix(poolId, pool, channels)
                 type = "execute", order = order + 0.1, width = 0.7,
                 name = L["Disable all"],
                 desc = L["Disable every phrase of this section on every channel shown"],
-                confirm = true,
-                confirmText = L["Disable this section everywhere?"],
                 hidden = folded,
+                disabled = function()
+                    for _, msg in ipairs(entries) do
+                        for _, ch in ipairs(channels) do
+                            if ch.tableFn()[msg.key] then return false end
+                        end
+                    end
+                    return true
+                end,
                 func = function()
                     for _, msg in ipairs(entries) do
                         for _, ch in ipairs(channels) do ch.tableFn()[msg.key] = false end
@@ -962,13 +978,13 @@ end
 --- full     every phrase ticked on every channel that has the pool, which is what
 ---          "Enable all" would produce - a phrase ticked in one channel only must not
 ---          colour the set as finished
-local function StyleCounts(style)
+local function CountPhrases(matches)
     local total, selected, sendable, full = 0, 0, 0, true
     for _, pool in ipairs(AutoSay.StylePools) do
         local poolKind = POOL_KIND_BY_KEY[pool.enabledKey]
         local targets = PoolTargets(pool)
         for _, msg in ipairs(AutoSay[pool.messages]) do
-            if AutoSay.MessageLogic.StyleMatches(msg, style) then
+            if matches(msg) then
                 total = total + 1
                 local on, canSend = false, false
                 for _, target in ipairs(targets) do
@@ -991,6 +1007,20 @@ local function StyleCounts(style)
         end
     end
     return total, selected, sendable, full
+end
+
+local function StyleCounts(style)
+    return CountPhrases(function(msg) return AutoSay.MessageLogic.StyleMatches(msg, style) end)
+end
+
+--- The same numbers for the two tag sets, so their buttons can grey on the same rule the
+--- style rows use. Matchers mirror TagMatchers in Core.
+local tagMatchers = {
+    role = function(msg) return msg.role ~= nil or msg.text:find("{role}", 1, true) ~= nil end,
+    band = function(msg) return msg.band ~= nil end,
+}
+local function TagCounts(kind)
+    return CountPhrases(tagMatchers[kind])
 end
 
 local bundleDescCache = {}
@@ -1298,10 +1328,9 @@ local function BuildOptions()
                             args["off_" .. style] = {
                                 type = "execute", order = order + 3, width = 0.7,
                                 name = L["Disable all"],
-                                -- Asked every time: this reaches every channel and every
-                                -- pool at once, and there is no undo
-                                confirm = true,
-                                confirmText = L["Disable this set everywhere?"],
+                                -- No confirmation: the button greys out when there is
+                                -- nothing to disable, and the one beside it puts the whole
+                                -- set back, so a misclick costs one more click
                                 disabled = function()
                                     local _, selected = StyleCounts(style)
                                     return selected == 0
@@ -1342,18 +1371,26 @@ local function BuildOptions()
                         LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
                     end,
                 },
+                -- Same pair, same rule as the style rows above: grey when there is nothing
+                -- left to do, and no confirmation, since each button undoes the other
                 roleEnableAll = {
                     type = "execute", order = 1.6, width = 0.7,
                     name = L["Enable all"],
                     desc = L["Enable every role phrase on every channel"],
-                    confirm = true, confirmText = L["Enable all role phrases on every channel?"],
+                    disabled = function()
+                        local _, _, _, full = TagCounts("role")
+                        return full
+                    end,
                     func = function() Addon:SetTaggedPhrasesEnabled("role", true) end,
                 },
                 roleDisableAll = {
                     type = "execute", order = 1.7, width = 0.7,
                     name = L["Disable all"],
                     desc = L["Disable every role phrase on every channel"],
-                    confirm = true, confirmText = L["Disable all role phrases on every channel?"],
+                    disabled = function()
+                        local _, selected = TagCounts("role")
+                        return selected == 0
+                    end,
                     func = function() Addon:SetTaggedPhrasesEnabled("role", false) end,
                 },
                 roleRowBreak = {
@@ -1373,14 +1410,20 @@ local function BuildOptions()
                     type = "execute", order = 2.1, width = 0.7,
                     name = L["Enable all"],
                     desc = L["Enable every time-of-day phrase on every channel"],
-                    confirm = true, confirmText = L["Enable all time-of-day phrases on every channel?"],
+                    disabled = function()
+                        local _, _, _, full = TagCounts("band")
+                        return full
+                    end,
                     func = function() Addon:SetTaggedPhrasesEnabled("band", true) end,
                 },
                 bandDisableAll = {
                     type = "execute", order = 2.2, width = 0.7,
                     name = L["Disable all"],
                     desc = L["Disable every time-of-day phrase on every channel"],
-                    confirm = true, confirmText = L["Disable all time-of-day phrases on every channel?"],
+                    disabled = function()
+                        local _, selected = TagCounts("band")
+                        return selected == 0
+                    end,
                     func = function() Addon:SetTaggedPhrasesEnabled("band", false) end,
                 },
                 bandRowBreak = {
