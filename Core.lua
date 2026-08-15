@@ -192,7 +192,7 @@ local defaults = {
         testMode = false,
         instanceMigrated = false, -- Instance channel seeded from the party settings (see MigrateInstanceChannel)
         masterSwitchesMigrated = false, -- Time-of-day switch carried over from 1.5.x (see MigrateMasterSwitches)
-        retiredPhrasesMigrated = false, -- Stock set restored where every chosen phrase was retired
+        retiredPhrasesMigrated = 0, -- Version of the last retired-phrase pass (see RETIRED_PHRASES_VERSION)
 
         -- Minimap icon
         minimap = {
@@ -371,13 +371,14 @@ function Addon:OnInitialize()
     -- Snapshot taken before AceDB fills the store with defaults: afterwards an explicit
     -- "off" from 1.5.x is indistinguishable from the new default of the same value, and
     -- the profile this character uses is only known once the database exists
-    self.isUpgradeInstall = AutoSayDB ~= nil
-    local priorTimeOfDay = {}
+    local priorProfiles, priorTimeOfDay = {}, {}
     if AutoSayDB and AutoSayDB.profiles then
         for name, stored in pairs(AutoSayDB.profiles) do
+            priorProfiles[name] = true
             priorTimeOfDay[name] = stored.social and stored.social.timeOfDay
         end
     end
+    self.priorProfiles = priorProfiles
     self.priorTimeOfDay = priorTimeOfDay
 
     -- Initialize database
@@ -497,6 +498,10 @@ end
 -- Phrases do get retired between versions. Someone whose whole selection was retired would
 -- otherwise go quiet on that channel with no hint why, so a pool left with nothing to say
 -- gets the stock set back. Only pools that are actually empty are touched.
+-- Bumped whenever a release retires phrases, so that release gets its own pass instead of
+-- finding the flag an earlier one left behind
+local RETIRED_PHRASES_VERSION = 1
+
 local RETIRED_POOLS = {
     { messages = "Greetings", enabledKey = "enabledGreetings", customsKey = "customGreetings" },
     { messages = "Goodbyes", enabledKey = "enabledGoodbyes", customsKey = "customGoodbyes" },
@@ -505,9 +510,9 @@ local RETIRED_POOLS = {
 
 function Addon:MigrateRetiredPhrases()
     local profile = self.db.profile
-    if profile.retiredPhrasesMigrated then return end
-    profile.retiredPhrasesMigrated = true
-    if not self.isUpgradeInstall then return end
+    if profile.retiredPhrasesMigrated == RETIRED_PHRASES_VERSION then return end
+    profile.retiredPhrasesMigrated = RETIRED_PHRASES_VERSION
+    if not self.priorProfiles[self.db:GetCurrentProfile()] then return end
 
     local defaults = {
         enabledGreetings = defaultGreetings,
@@ -530,8 +535,14 @@ function Addon:MigrateRetiredPhrases()
     end
 end
 
-function Addon:OnProfileSwitched()
-    self:RunProfileMigrations()
+function Addon:OnProfileSwitched(event)
+    if event == "OnProfileReset" then
+        -- Reset means "give me the defaults", so the upgrade migrations must not touch the
+        -- fresh table. Stamping them keeps the next login from doing it instead.
+        self:StampMigrationsDone()
+    else
+        self:RunProfileMigrations()
+    end
     self:InvalidateBundleCache() -- the cached bundle state belongs to the previous profile
     LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- the open panel shows the old profile
 end
@@ -546,11 +557,22 @@ function Addon:RunProfileMigrations()
     -- Fold the old three-way M+ messageMode into the includeKeyLevel toggle
     self:MigrateKeyLevelMode()
 
+    -- Restore first, suppress second: the stock set includes the band goodbyes, so running
+    -- it after the master-switch migration would undo that migration's suppression
+    self:MigrateRetiredPhrases()
+
     -- Keep the time-of-day phrases an upgrade already had
     self:MigrateMasterSwitches()
+end
 
-    -- Give a channel its stock phrases back if this build retired every one it had
-    self:MigrateRetiredPhrases()
+-- Everything the migrations would have done is already true of a freshly reset profile,
+-- so they only need marking as done - running them would move it off the defaults.
+function Addon:StampMigrationsDone()
+    local profile = self.db.profile
+    profile.instanceMigrated = true
+    profile.masterSwitchesMigrated = true
+    profile.retiredPhrasesMigrated = RETIRED_PHRASES_VERSION
+    if profile.mythicplus then profile.mythicplus.keyLevelMigrated = true end
 end
 
 -- Band goodbyes shipped disabled before this release, so an upgrade never had them
@@ -563,11 +585,14 @@ function Addon:MigrateMasterSwitches()
     local profile = self.db.profile
     if profile.masterSwitchesMigrated then return end
     profile.masterSwitchesMigrated = true
-    if not self.isUpgradeInstall then return end
-    -- Only for a profile that never stored a choice. A stored false is someone who turned
-    -- the phrases off back when the switch defaulted to on, and turning them back on for
-    -- that person would undo a decision they made by hand.
-    if self.priorTimeOfDay[self.db:GetCurrentProfile()] == nil then
+    -- Only a profile that existed before this build can have lost anything. One created or
+    -- copied afterwards already holds whatever it was given, and treating it as an upgrade
+    -- would switch a feature on that its owner never had.
+    local name = self.db:GetCurrentProfile()
+    if not self.priorProfiles[name] then return end
+    -- A stored false is someone who turned the phrases off back when the switch defaulted
+    -- to on; turning them back on would undo a decision made by hand.
+    if self.priorTimeOfDay[name] == nil then
         profile.social.timeOfDay = true
         -- Only the greetings existed before. Band goodbyes are new, and switching the
         -- master on for an upgrade must not start saying "gn all" on their behalf

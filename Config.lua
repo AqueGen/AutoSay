@@ -1000,10 +1000,9 @@ local function BuildOptions()
                         -- The reset wipes the one-shot migration stamps back to their defaults;
                         -- without re-stamping, the next login would re-run MigrateInstanceChannel
                         -- and overwrite the instance settings chosen after this reset
-                        Addon.db.profile.instanceMigrated = true
-                        Addon.db.profile.masterSwitchesMigrated = true
-                        Addon.db.profile.retiredPhrasesMigrated = true
-                        Addon.db.profile.mythicplus.keyLevelMigrated = true
+                        -- The OnProfileReset callback stamps the one-shot migrations; without
+                        -- that, the next login would migrate the freshly reset profile
+                        Addon:StampMigrationsDone()
                         if wasTestMode then
                             Addon:TestReset() -- bumps sendGeneration itself
                         else

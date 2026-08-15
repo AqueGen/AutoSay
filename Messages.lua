@@ -202,7 +202,7 @@ AutoSay.Greetings = {
     { key = "nature_dps2", text = "swift and steady, that is the way", style = "naturewarden", role = "DAMAGER", trigger = "self" },
     { key = "fantasy_skies", text = "well met, may the skies favor our path", style = "fantasy" },
     { key = "fantasy_ancient", text = "the old paths brought us together", style = "fantasy", trigger = "self" },
-    { key = "fantasy_scale", text = "I hold the line, steadfast as dragon scale", style = "fantasy", role = "TANK", trigger = "self", keepCase = true },
+    { key = "fantasy_scale", text = "I hold the line, steady as dragon scales", style = "fantasy", role = "TANK", trigger = "self", keepCase = true },
 }
 
 -- Goodbyes database (enabled by default first)
@@ -383,7 +383,7 @@ AutoSay.CompletionTimed = {
     { key = "minimal_gg", text = "gg", style = "minimal" },
     { key = "robot_nominal", text = "objective complete, efficiency nominal", style = "robot" },
     { key = "deadpan_incredible", text = "we did it. incredible.", style = "deadpan" },
-    { key = "nature_wellwalked", text = "well walked, all of us", style = "naturewarden" },
+    { key = "nature_wellwalked", text = "well walked, everyone", style = "naturewarden" },
 }
 
 -- Guild member login greetings (enabled by default first)
