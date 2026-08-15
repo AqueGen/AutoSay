@@ -61,18 +61,14 @@ local defaultGreetings = {
     greetings = true,
     welcome = true,
     -- Disabled by default
-    wassup = false,
     yo = false,
-    heya = false,
     sup = false,
     howdy = false,
-    hiya = false,
-    yoyo = false,
-    hellothere = false,
     welcomenames = false,
     hinames = false,
     welcomeaboard = false,
-    -- Time-of-day phrases: on by default, gated by social.timeOfDay and the local hour
+    -- Time-of-day phrases: enabled, but silent until the Style tab master switch is on.
+    -- The switch is the feature; the phrases under it are ready so one click is enough
     morning = true,
     goodmorningall = true,
     morningwave = true,
@@ -93,20 +89,16 @@ local defaultGoodbyes = {
     takecare = true,
     peace = true,
     -- Disabled by default
-    seeya = false,
     later = false,
     cya = false,
     cheers = false,
-    gn = false,
-    bb = false,
-    laterall = false,
-    -- Time-of-day phrases: off by default - band goodbyes are new behavior, and AceDB
-    -- merges these keys into existing profiles (a true here would surprise upgraders
-    -- who had turned every stock goodbye off)
-    eveningbye = false,
-    gnall = false,
-    goodnightall = false,
-    sleepwell = false,
+    -- Time-of-day phrases: enabled like the band greetings. Nothing reaches chat until the
+    -- Style tab master switch is on, so an upgrader who muted every goodbye stays muted
+    gn = true,
+    eveningbye = true,
+    gnall = true,
+    goodnightall = true,
+    sleepwell = true,
 }
 
 -- Default enabled reconnect messages
@@ -118,14 +110,10 @@ local defaultReconnects = {
     rehi = false,
     backagain = false,
     herewego = false,
-    missedme = false,
     backinthegame = false,
-    srydc = false,
     sorrydisconnect = false,
-    dcsorry = false,
     mybad = false,
     internetissues = false,
-    laggedout = false,
 }
 
 -- Default enabled key announce messages
@@ -298,8 +286,11 @@ local defaults = {
             personCooldownHours = 4,
             listen = true,
             typingDelay = true,
-            timeOfDay = true,
-            rolePhrases = true, -- Master switch for role-tagged and {role} phrases
+            -- Both off by default: they change what the addon says about YOU (your role,
+            -- your local hour), so they are opt-in. The phrases under them ship enabled,
+            -- so ticking the switch is all it takes
+            timeOfDay = false,
+            rolePhrases = false, -- Master switch for role-tagged and {role} phrases
             lowercaseFirst = false,
             guildGrats = false,
             guildWelcome = false,
@@ -344,6 +335,7 @@ Addon.state = {
     instanceGreeted = false, -- Instance zone-in greeting sent (mirrors db.char.instanceGreeted, see SetInstanceGreeted)
     pendingGroupSends = {}, -- Delayed group sends in flight (handle -> channel), cancelled on GROUP_JOINED
     sendGeneration = 0, -- Bumped on every test-mode toggle: delayed sends from the other mode drop
+    testFlowGeneration = 0, -- Bumped when a simulation is replaced: the previous flow's own timers drop
     pendingGuildLogins = {}, -- Batch guild member login names
     guildLoginTimer = nil, -- Timer for batched guild login greeting
     lastGuildLoginGreetTime = 0, -- Separate cooldown for guild member login greetings
@@ -869,7 +861,7 @@ function Addon:IsChannelSilenced(channel)
     end
     self:DebugPrint("Raid-sized instance group, skipping message")
     if self:IsTestMode() then
-        self:TestPrint("Message blocked: LFR and battlegrounds are skipped (Group tab)")
+        self:TestPrint("Message blocked: LFR and battlegrounds are skipped (General tab)")
     end
     return true
 end
@@ -1450,6 +1442,11 @@ function Addon:SendGreeting(playerNames, reason)
         return false
     end
 
+    -- First of the refusals: this channel is off-limits whatever the budget or the cooldown
+    -- says, so it is the honest reason to report. Nothing below has run yet, so no cooldown
+    -- stamp, phrase history or budget slot is spent on a line that was never going out.
+    if self:IsChannelSilenced(channel) then return false end
+
     if self.socialGate then
         local target = playerNames and playerNames[1] or nil
         local ok, why = self.socialGate:MaySend("greeting", target)
@@ -1462,10 +1459,6 @@ function Addon:SendGreeting(playerNames, reason)
 
     self:DebugPrint("SendGreeting called - reason:", reason, "channel:", channel,
         "names:", playerNames and table.concat(playerNames, ", ") or "none")
-
-    -- Asked before the cooldown check so the refusal is reported once, with the real
-    -- reason: CanSendMessage answers false for both, and the line below blames cooldown
-    if self:IsChannelSilenced(channel) then return false end
 
     -- Check cooldown - if blocked, drop it. A greeting that lands seconds late is a
     -- second greeting, not a delayed one.
@@ -2372,6 +2365,11 @@ function Addon:TestCancelPendingSends()
         self:CancelTimer(handle)
     end
     self.state.pendingGroupSends = {}
+    -- The M+ simulation schedules its own untracked join timers. They are fenced by the
+    -- flow generation rather than sendGeneration, so replacing a simulation strands them
+    -- without touching a guild send that has nothing to do with the group.
+    self.state.testFlowGeneration = self.state.testFlowGeneration + 1
+    self.state.mythicPlusFlowActive = false
 end
 
 -- Simulate joining a party
@@ -2609,9 +2607,12 @@ function Addon:TestMythicPlusFlow()
     -- names would be greeted into the player's REAL party chat.
     local fakeNames = { "Tankmaster", "HolyPala", "Shadowmage", "Hunterbro" }
     local generation = self.state.sendGeneration
+    local flowGeneration = self.state.testFlowGeneration
     for i, name in ipairs(fakeNames) do
         self:ScheduleTimer(function()
             if generation ~= self.state.sendGeneration then return end
+            -- Another simulation replaced this one: its remaining joins are not ours to greet
+            if flowGeneration ~= self.state.testFlowGeneration then return end
             table.insert(self.testState.simulatedGroupMembers, name)
             local count = #self.testState.simulatedGroupMembers
             self:TestPrint(name .. " joined (" .. count .. "/5)")
@@ -2636,6 +2637,7 @@ function Addon:TestMythicPlusFlow()
                         self:ScheduleTimer(function()
                             self.state.mythicPlusFlowActive = false
                             if generation ~= self.state.sendGeneration then return end
+                            if flowGeneration ~= self.state.testFlowGeneration then return end
                             self:SendKeyAnnounce()
                         end, 2)
                     else
