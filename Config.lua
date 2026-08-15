@@ -980,7 +980,9 @@ local function BundleDesc(style)
         lines[j] = "|cFFFFD100" .. L[header] .. ":|r " .. string.format(L["%d phrases"], counts[header])
     end
 
-    desc = table.concat(lines, "\n") .. "\n\n" .. L["Bundle button hint"]
+    -- Only what the row cannot show: the colour rule is visible in the list itself, and the
+    -- counts beside the name already answer how much of the set is on
+    desc = table.concat(lines, "\n")
     bundleDescCache[style] = desc
     return desc
 end
