@@ -59,18 +59,39 @@ end
 -- names option, role phrases need the master switch. An inactive phrase stays visible but
 -- greyed out - the tag on its row points at the switch that re-activates it.
 -- settingsFn is nil for pools without trigger context (goodbyes/reconnects/guild login).
-local function PhraseActive(msg, settingsFn)
+local function PhraseActive(msg, settingsFn, poolKind)
+    -- Nothing is sent at all while the addon is off, so nothing in any list is live
+    if not Addon.db.profile.enabled then return false end
     local roleDependent = msg.role or msg.text:find("{role}", 1, true)
     if roleDependent and not Addon.db.profile.social.rolePhrases then return false end
     if msg.band and not Addon.db.profile.social.timeOfDay then return false end
     if not settingsFn then return true end
     local settings = settingsFn()
-    -- A switched-off channel says nothing at all, and neither does one whose every trigger
-    -- is off: the ticks in that column would otherwise promise a phrase that cannot go out
-    if not settings.enabled then return false end
-    if not (settings.onSelfJoin or settings.onOthersJoin or settings.onReconnect) then return false end
-    if msg.trigger == "others" and not settings.onOthersJoin then return false end
-    if msg.trigger == "self" and not settings.onSelfJoin then return false end
+    if not settings then return true end
+
+    -- The switch that governs this particular list. A channel switched off silences all of
+    -- them; beyond that a goodbye list follows the goodbye toggle, a reconnect list follows
+    -- the reconnect toggle, and so on. Without this only the greetings list ever greyed.
+    if poolKind == "mplus" then
+        if not settings.enabled then return false end
+    else
+        if settings.enabled == false then return false end
+        if poolKind == "goodbyes" then
+            if not settings.sendGoodbye then return false end
+        elseif poolKind == "reconnects" then
+            if not settings.onReconnect then return false end
+        elseif poolKind == "login" then
+            if not settings.onMemberLogin then return false end
+        elseif poolKind == "greetings" then
+            -- A greeting can be triggered by joining, by someone else joining, or by a
+            -- reconnect falling back to this pool: with none of them on, none can fire
+            if not (settings.onSelfJoin or settings.onOthersJoin or settings.onReconnect) then
+                return false
+            end
+            if msg.trigger == "others" and not settings.onOthersJoin then return false end
+            if msg.trigger == "self" and not settings.onSelfJoin then return false end
+        end
+    end
     -- {names} rows are deliberately NOT greyed when the names options are off: the runtime
     -- still sends them with the slot stripped ("welcome {names}!" -> "welcome!"), so a grey
     -- row would claim "unused" about a phrase that is very much in play (and on guild, which
@@ -95,13 +116,16 @@ local channelLabel = {
 local MATRIX_LABEL_WIDTH, MATRIX_COL_WIDTH = 2.0, 0.55
 
 -- Channel descriptors for a shared matrix: which profile table each column writes to
-local function MatrixChannels(keys, enabledKey, withTriggers)
+local function MatrixChannels(keys, enabledKey, poolKind)
     local channels = {}
     for _, key in ipairs(keys) do
         channels[#channels + 1] = {
             key = key,
+            poolKind = poolKind,
             tableFn = function() return Addon.db.profile[key][enabledKey] end,
-            settingsFn = withTriggers and function() return Addon.db.profile[key] end or nil,
+            -- Always exposed now: every list has a switch of its own to follow, not just
+            -- the greetings list with its trigger toggles
+            settingsFn = function() return Addon.db.profile[key] end,
         }
     end
     return channels
@@ -249,7 +273,7 @@ local function BuildMessageMatrix(poolId, pool, channels)
                         local active = 0
                         local flags = channels[1].tableFn()
                         for _, msg in ipairs(entries) do
-                            if flags[msg.key] and PhraseActive(msg, channels[1].settingsFn) then
+                            if flags[msg.key] and PhraseActive(msg, channels[1].settingsFn, channels[1].poolKind) then
                                 active = active + 1
                             end
                         end
@@ -272,12 +296,20 @@ local function BuildMessageMatrix(poolId, pool, channels)
         end
 
         for _, msg in ipairs(entries) do
-            local rowLabel = PresetLabel(msg, msg.style ~= nil)
+            local plainLabel = PresetLabel(msg, msg.style ~= nil)
+            -- AceConfig greys a checkbox but not a description, so a row nothing can send
+            -- would keep its bright label above three dead ticks unless we colour it here
+            local rowLabel = function()
+                for _, ch in ipairs(channels) do
+                    if PhraseActive(msg, ch.settingsFn, ch.poolKind) then return plainLabel end
+                end
+                return "|cFF7F7F7F" .. plainLabel:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "") .. "|r"
+            end
             if matrix then
                 AddMatrixRow(args, "m_" .. msg.key, order, rowLabel, folded, channels, function(ch)
                     return {
                         -- Greyed out, not gone: the row's tag names the switch that re-activates it
-                        disabled = function() return not PhraseActive(msg, ch.settingsFn) end,
+                        disabled = function() return not PhraseActive(msg, ch.settingsFn, ch.poolKind) end,
                         get = function() return ch.tableFn()[msg.key] end,
                         set = function(_, val)
                             ch.tableFn()[msg.key] = val
@@ -289,12 +321,12 @@ local function BuildMessageMatrix(poolId, pool, channels)
                 local ch = channels[1]
                 args["m_" .. msg.key] = {
                     type = "toggle",
-                    name = rowLabel,
+                    name = plainLabel,
                     order = order,
                     -- One column: tags must be readable without hovering, folding beats truncation
                     width = "full",
                     hidden = folded,
-                    disabled = function() return not PhraseActive(msg, ch.settingsFn) end,
+                    disabled = function() return not PhraseActive(msg, ch.settingsFn, ch.poolKind) end,
                     get = function() return ch.tableFn()[msg.key] end,
                     set = function(_, val)
                         ch.tableFn()[msg.key] = val
@@ -437,7 +469,7 @@ end
 -- Group greetings: party, raid and instance share one phrase list, one column each.
 -- The trigger switches use the same grid, so a row reads "this setting, these channels".
 local function BuildGroupGreetings()
-    local channels = MatrixChannels(groupChannelKeys, "enabledGreetings", true)
+    local channels = MatrixChannels(groupChannelKeys, "enabledGreetings", "greetings")
     local selfJoinDesc = {
         party = L["Send greeting when you join a party"],
         raid = L["Send greeting when you join a raid"],
@@ -530,7 +562,7 @@ end
 
 -- Group goodbyes: same grid, a single trigger row
 local function BuildGroupGoodbyes()
-    local channels = MatrixChannels(groupChannelKeys, "enabledGoodbyes")
+    local channels = MatrixChannels(groupChannelKeys, "enabledGoodbyes", "goodbyes")
     local goodbyeDesc = {
         party = L["Send goodbye when leaving party"],
         raid = L["Send goodbye when leaving raid"],
@@ -564,7 +596,7 @@ end
 -- Group reconnects: two columns only - an instance group is rejoined through the queue,
 -- so it has no reconnect trigger and no reconnect phrases
 local function BuildGroupReconnects()
-    local channels = MatrixChannels({ "party", "raid" }, "enabledReconnects")
+    local channels = MatrixChannels({ "party", "raid" }, "enabledReconnects", "reconnects")
     local reconnectDesc = {
         party = L["Send greeting when you reconnect to party"],
         raid = L["Send greeting when you reconnect to raid"],
@@ -624,7 +656,7 @@ local function BuildGuildGreetings()
             inline = true,
             order = 2,
             args = BuildMessageMatrix("guildGreetings", AutoSay.Greetings,
-                MatrixChannels({ "guild" }, "enabledGreetings", true)),
+                MatrixChannels({ "guild" }, "enabledGreetings", "greetings")),
         },
         customGroup = {
             type = "group",
@@ -661,7 +693,7 @@ local function BuildGuildGoodbyes()
             inline = true,
             order = 2,
             args = BuildMessageMatrix("guildGoodbyes", AutoSay.Goodbyes,
-                MatrixChannels({ "guild" }, "enabledGoodbyes")),
+                MatrixChannels({ "guild" }, "enabledGoodbyes", "goodbyes")),
         },
         customGroup = {
             type = "group",
@@ -718,7 +750,7 @@ local function BuildGuildLoginToggles()
         inline = true,
         order = order,
         args = BuildMessageMatrix("guildLoginGreetings", AutoSay.GuildLoginGreetings,
-            MatrixChannels({ "guild" }, "enabledLoginGreetings")),
+            MatrixChannels({ "guild" }, "enabledLoginGreetings", "login")),
     }
     order = order + 1
 
@@ -1418,7 +1450,7 @@ local function BuildOptions()
                             inline = true,
                             order = 10,
                             args = BuildMessageMatrix("mplusKeyAnnounce", AutoSay.KeyAnnounce,
-                                MatrixChannels({ "mythicplus" }, "enabledKeyAnnounce")),
+                                MatrixChannels({ "mythicplus" }, "enabledKeyAnnounce", "mplus")),
                         },
                         customGroup = {
                             type = "group",
@@ -1463,7 +1495,7 @@ local function BuildOptions()
                                     inline = true,
                                     order = 1,
                                     args = BuildMessageMatrix("mplusCompletionTimed", AutoSay.CompletionTimed,
-                                        MatrixChannels({ "mythicplus" }, "enabledCompletionTimed")),
+                                        MatrixChannels({ "mythicplus" }, "enabledCompletionTimed", "mplus")),
                                 },
                                 customs = {
                                     type = "group",
@@ -1491,7 +1523,7 @@ local function BuildOptions()
                                     inline = true,
                                     order = 1,
                                     args = BuildMessageMatrix("mplusCompletionDepleted", AutoSay.CompletionDepleted,
-                                        MatrixChannels({ "mythicplus" }, "enabledCompletionDepleted")),
+                                        MatrixChannels({ "mythicplus" }, "enabledCompletionDepleted", "mplus")),
                                 },
                                 customs = {
                                     type = "group",
