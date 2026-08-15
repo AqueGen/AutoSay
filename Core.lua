@@ -858,16 +858,24 @@ function Addon:OpenConfig()
 end
 
 -- Check if cooldown has passed for a specific channel type
-function Addon:CanSendMessage(channelType)
-    -- Checked here rather than per greeting: the toggle means "say nothing in an LFR or a
-    -- battleground", so goodbyes and reconnects have to obey it too
-    if Logic.SkipsRaidInstanceGroup(channelType, self.db.profile.instance, self:IsRaidInstanceGroupOrTest()) then
-        self:DebugPrint("Raid-sized instance group, skipping message")
-        if self:IsTestMode() then
-            self:TestPrint("Message blocked: LFR and battlegrounds are skipped (Group tab)")
-        end
+-- True when nothing may go out on this channel right now: the toggle means "say nothing in
+-- an LFR or a battleground", so goodbyes and reconnects obey it as much as greetings.
+-- Asked at preflight so a refused line burns no cooldown or budget, and again at dispatch -
+-- goodbyes dispatch with no preflight at all, and a delayed send can outlive the group
+-- state it was scheduled in.
+function Addon:IsChannelSilenced(channel)
+    if not Logic.SkipsRaidInstanceGroup(channel, self.db.profile.instance, self:IsRaidInstanceGroupOrTest()) then
         return false
     end
+    self:DebugPrint("Raid-sized instance group, skipping message")
+    if self:IsTestMode() then
+        self:TestPrint("Message blocked: LFR and battlegrounds are skipped (Group tab)")
+    end
+    return true
+end
+
+function Addon:CanSendMessage(channelType)
+    if self:IsChannelSilenced(channelType) then return false end
 
     local now = GetTime()
     local cooldown = self.db.profile.cooldown
@@ -989,6 +997,10 @@ function Addon:DoSendMessage(message, channel, target, keepCase)
         self:DebugPrint("No message to send")
         return false
     end
+
+    -- Last gate before the line leaves: goodbyes come straight here without a preflight,
+    -- and a scheduled send is only checked against the group it was scheduled in
+    if self:IsChannelSilenced(channel) then return false end
 
     message = TruncateToChatLimit(self:PolishMessage(message, keepCase))
 
