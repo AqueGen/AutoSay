@@ -377,12 +377,14 @@ function Addon:OnInitialize()
     local priorProfiles, priorTimeOfDay, priorBandGoodbyes = {}, {}, {}
     if AutoSayDB and AutoSayDB.profiles then
         for name, stored in pairs(AutoSayDB.profiles) do
+            if type(stored) ~= "table" then stored = {} end
             priorProfiles[name] = true
-            priorTimeOfDay[name] = stored.social and stored.social.timeOfDay
+            priorTimeOfDay[name] = type(stored.social) == "table" and stored.social.timeOfDay or nil
             local ticked = {}
             for _, channel in ipairs(AutoSay.Channels) do
                 local settings = stored[channel.key]
-                local goodbyes = settings and settings.enabledGoodbyes
+                local goodbyes = type(settings) == "table" and type(settings.enabledGoodbyes) == "table"
+                    and settings.enabledGoodbyes or nil
                 if goodbyes then
                     for _, key in ipairs(BAND_GOODBYE_KEYS) do
                         if goodbyes[key] then ticked[channel.key .. ":" .. key] = true end
@@ -518,12 +520,19 @@ end
 -- gets the stock set back. Only pools that are actually empty are touched.
 -- Bumped whenever a release retires phrases, so that release gets its own pass instead of
 -- finding the flag an earlier one left behind
-local RETIRED_PHRASES_VERSION = 1
+local RETIRED_PHRASES_VERSION = 2
 
 local RETIRED_POOLS = {
     { messages = "Greetings", enabledKey = "enabledGreetings", customsKey = "customGreetings" },
     { messages = "Goodbyes", enabledKey = "enabledGoodbyes", customsKey = "customGoodbyes" },
     { messages = "Reconnects", enabledKey = "enabledReconnects", customsKey = "customReconnects" },
+}
+
+-- The M+ pools live once under db.profile.mythicplus rather than per channel
+local RETIRED_MPLUS_POOLS = {
+    { messages = "KeyAnnounce", enabledKey = "enabledKeyAnnounce", customsKey = "customKeyAnnounce" },
+    { messages = "CompletionTimed", enabledKey = "enabledCompletionTimed", customsKey = "customCompletionTimed" },
+    { messages = "CompletionDepleted", enabledKey = "enabledCompletionDepleted", customsKey = "customCompletionDepleted" },
 }
 
 function Addon:MigrateRetiredPhrases()
@@ -536,10 +545,19 @@ function Addon:MigrateRetiredPhrases()
         enabledGreetings = defaultGreetings,
         enabledGoodbyes = defaultGoodbyes,
         enabledReconnects = defaultReconnects,
+        enabledKeyAnnounce = defaultKeyAnnounce,
+        enabledCompletionTimed = defaultCompletionTimed,
+        enabledCompletionDepleted = defaultCompletionDepleted,
     }
+    local targets = {}
     for _, channel in ipairs(AutoSay.Channels) do
-        local settings = profile[channel.key]
-        for _, pool in ipairs(RETIRED_POOLS) do
+        targets[#targets + 1] = { settings = profile[channel.key], pools = RETIRED_POOLS, label = channel.key }
+    end
+    targets[#targets + 1] = { settings = profile.mythicplus, pools = RETIRED_MPLUS_POOLS, label = "mythicplus" }
+
+    for _, target in ipairs(targets) do
+        local settings = target.settings
+        for _, pool in ipairs(target.pools) do
             local enabled = settings and settings[pool.enabledKey]
             if enabled then
                 local live = {}
@@ -553,7 +571,7 @@ function Addon:MigrateRetiredPhrases()
                         if not live[key] then enabled[key] = nil end
                     end
                     for key, on in pairs(defaults[pool.enabledKey]) do enabled[key] = on end
-                    self:DebugPrint("Restored stock", pool.messages, "for", channel.key)
+                    self:DebugPrint("Restored stock", pool.messages, "for", target.label)
                 end
             end
         end
@@ -564,6 +582,7 @@ function Addon:OnProfileDeleted(_, _, name)
     if name then
         self.priorProfiles[name] = nil
         self.priorTimeOfDay[name] = nil
+        self.priorBandGoodbyes[name] = nil
     end
 end
 
@@ -1380,7 +1399,7 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
     -- role) - otherwise "your {role} is here" announces "dps" for an unassigned tank.
     if settings[customsKey] then
         for _, entry in ipairs(settings[customsKey]) do
-            if entry.enabled and entry.text and entry.text ~= "" and self:CustomTextUsable(entry.text) then
+            if entry.enabled and entry.text and entry.text ~= "" and self:CustomTextUsable(entry.text, channel) then
                 local mode = entry.text:find("{names}", 1, true) and "slot" or "append"
                 AddCandidate(entry.text, mode)
             end

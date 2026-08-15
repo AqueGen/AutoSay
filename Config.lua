@@ -302,32 +302,61 @@ local function BuildMessageMatrix(poolId, pool, channels)
                 dialogControl = "AutoSayCollapse",
                 -- The leading "-"/"+" is the fold-state contract: AutoSayCollapse
                 -- strips it and renders it as the [-]/[+] expand icon.
-                -- Single channel: "active right now / whole category", active meaning enabled
-                -- AND currently eligible by the tag filters. In the matrix a summed count over
-                -- three channels would mean nothing, so it shows the category size instead -
-                -- the checkboxes already say which channel uses what.
+                -- "active right now / whole category" either way: with the section folded
+                -- this count is the only thing saying whether a style is on, half on, or
+                -- off, and "17 phrases" answered none of those. In the matrix a phrase
+                -- counts as active when at least one channel can currently send it.
                 name = function()
-                    local count
-                    if matrix then
-                        count = string.format(L["%d phrases"], #entries)
-                    else
-                        local active = 0
-                        local flags = channels[1].tableFn()
-                        for _, msg in ipairs(entries) do
-                            if flags[msg.key] and PhraseActive(msg, channels[1].settingsFn, channels[1].poolKind, channels[1].key) then
+                    local active = 0
+                    for _, msg in ipairs(entries) do
+                        for _, ch in ipairs(channels) do
+                            if ch.tableFn()[msg.key]
+                                and PhraseActive(msg, ch.settingsFn, ch.poolKind, ch.key) then
                                 active = active + 1
+                                break
                             end
                         end
-                        count = string.format("%d/%d", active, #entries)
                     end
-                    return string.format("%s %s  |cFF888888(%s)|r",
-                        open[style] and "-" or "+", label, count)
+                    local colour = (active == 0 and "|cFF888888")
+                        or (active == #entries and "|cFF00FF00")
+                        or "|cFFFFD100"
+                    return string.format("%s %s  %s(%d/%d)|r",
+                        open[style] and "-" or "+", label, colour, active, #entries)
                 end,
                 func = function()
                     open[style] = not open[style]
                     LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
                 end,
             }
+            order = order + 1
+
+            args["all_" .. style] = {
+                type = "execute", order = order, width = 0.7,
+                name = L["Enable all"],
+                desc = L["Enable every phrase of this section on every channel shown"],
+                hidden = folded,
+                func = function()
+                    for _, msg in ipairs(entries) do
+                        for _, ch in ipairs(channels) do ch.tableFn()[msg.key] = true end
+                    end
+                    Addon:InvalidateBundleCache()
+                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+                end,
+            }
+            args["none_" .. style] = {
+                type = "execute", order = order + 0.1, width = 0.7,
+                name = L["Disable all"],
+                desc = L["Disable every phrase of this section on every channel shown"],
+                hidden = folded,
+                func = function()
+                    for _, msg in ipairs(entries) do
+                        for _, ch in ipairs(channels) do ch.tableFn()[msg.key] = false end
+                    end
+                    Addon:InvalidateBundleCache()
+                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+                end,
+            }
+            AddRowBreak(args, "allrow_" .. style, order + 0.2, folded)
             order = order + 1
 
             if matrix then

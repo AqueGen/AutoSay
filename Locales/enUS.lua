@@ -144,6 +144,8 @@ L["Delete"] = "Delete"
 -- Timing
 L["Timing"] = "Timing"
 L["Limits"] = "Limits"
+L["Enable every phrase of this section on every channel shown"] = "Enable every phrase of this section, on every channel shown here"
+L["Disable every phrase of this section on every channel shown"] = "Disable every phrase of this section, on every channel shown here"
 L["Message delay"] = "Message delay"
 L["Delay before sending message (seconds)"] = "Delay before sending message (seconds)"
 L["Cooldown"] = "Cooldown"
