@@ -895,6 +895,60 @@ local function ClassLabel(token)
     return color and color:WrapTextInColorCode(name) or name
 end
 
+--- Which switch governs a pool, keyed by the settings table it writes to
+local POOL_KIND_BY_KEY = {
+    enabledGreetings = "greetings",
+    enabledGoodbyes = "goodbyes",
+    enabledReconnects = "reconnects",
+    enabledLoginGreetings = "login",
+    enabledKeyAnnounce = "mplusKey",
+    enabledCompletionTimed = "mplusCompletion",
+    enabledCompletionDepleted = "mplusCompletion",
+}
+
+--- Every settings table a pool can be enabled in: the channels, or the single M+ table
+local function PoolTargets(pool)
+    local targets = {}
+    if pool.mplus then
+        targets[1] = { key = "mythicplus", settings = Addon.db.profile.mythicplus }
+    else
+        for _, c in ipairs(AutoSay.Channels) do
+            targets[#targets + 1] = { key = c.key, settings = Addon.db.profile[c.key] }
+        end
+    end
+    return targets
+end
+
+--- total = phrases the bundle owns, enabled = ticked somewhere, live = ticked somewhere it
+--- can actually be sent right now. The gap between the last two is the useful number: it is
+--- what a master switch being off, or a channel being off, costs this bundle.
+local function StyleCounts(style)
+    local total, enabled, live = 0, 0, 0
+    for _, pool in ipairs(AutoSay.StylePools) do
+        local poolKind = POOL_KIND_BY_KEY[pool.enabledKey]
+        local targets = PoolTargets(pool)
+        for _, msg in ipairs(AutoSay[pool.messages]) do
+            if AutoSay.MessageLogic.StyleMatches(msg, style) then
+                total = total + 1
+                local on, canSend = false, false
+                for _, target in ipairs(targets) do
+                    local flags = target.settings and target.settings[pool.enabledKey]
+                    if flags and flags[msg.key] then
+                        on = true
+                        if PhraseActive(msg, function() return target.settings end, poolKind, target.key) then
+                            canSend = true
+                            break
+                        end
+                    end
+                end
+                if on then enabled = enabled + 1 end
+                if canSend then live = live + 1 end
+            end
+        end
+    end
+    return total, enabled, live
+end
+
 local bundleDescCache = {}
 local function BundleDesc(style)
     local desc = bundleDescCache[style]
@@ -1159,77 +1213,69 @@ local function BuildOptions()
                                 set = function(_, v) replaceOnApply = v end,
                             },
                         }
-                        -- One button per bundle: click applies it; the tooltip counts what it
-                        -- holds, built on first hover of that button (see BundleDesc)
+                        -- One row per bundle rather than a grid of buttons: a button could
+                        -- only say "all on" or "not all on", and half-enabled bundles were
+                        -- indistinguishable from off ones. A row has space for both counts
+                        -- and for the same pair of buttons the role and time-of-day
+                        -- switches use, so the whole tab reads the same way.
                         for i, style in ipairs(AutoSay.MessageStyles) do
-                            args["bundle_" .. style] = {
-                                type = "execute", order = 10 + i, width = 0.9,
-                                -- Green name = bundle fully enabled; clicking then disables it
+                            local order = 10 + i * 10
+                            args["row_" .. style] = {
+                                type = "description", order = order, width = 1.2,
+                                fontSize = "medium",
                                 name = function()
-                                    local label = NewTag(L["Style " .. style], "1.6")
-                                    if Addon:IsStyleBundleEnabled(style) then
-                                        return "|cFF00FF00" .. label .. "|r"
-                                    end
-                                    return label
-                                end,
-                                desc = function() return BundleDesc(style) end,
-                                confirm = function()
-                                    return Addon:IsStyleBundleEnabled(style)
-                                        and L["Disable this bundle on all channels?"]
-                                        or L["Apply this bundle to all channels?"]
-                                end,
-                                func = function()
-                                    local state = not Addon:IsStyleBundleEnabled(style)
-                                    Addon:ApplyStyleBundle(style, replaceOnApply, state)
+                                    local total, enabled, live = StyleCounts(style)
+                                    local colour = (enabled == 0 and "|cFF888888")
+                                        or (enabled == total and "|cFF00FF00")
+                                        or "|cFFFFD100"
+                                    return colour .. L["Style " .. style] .. "|r"
                                 end,
                             }
-                        end
-                        -- Under the buttons rather than inside each tooltip: the one line
-                        -- that is actually about this character should not need a hover.
-                        -- Bundles with no class leaning are simply not mentioned here.
-                        -- One row per bundle that leans somewhere, not one per class: four
-                        -- rows say everything thirteen would, and a reader finds their own
-                        -- class in a short line at a glance. Nothing here depends on which
-                        -- character is logged in, because the profile is usually shared.
-                        args.classFlavourHeader = {
-                            type = "description", order = 100, width = "full",
-                            fontSize = "medium",
-                            name = "\n|cFFFFD100" .. L["Class flavour"] .. "|r\n" .. L["Class flavour desc"],
-                        }
-                        local flavourOrder = 101
-                        for _, style in ipairs(AutoSay.MessageStyles) do
-                            local tokens = AutoSay.StyleClasses[style]
-                            if tokens then
-                                local names = {}
-                                for i, token in ipairs(tokens) do names[i] = ClassLabel(token) end
-                                -- Sorted before colouring: a colour code in front of the
-                                -- name would order the list by hex digits instead
-                                table.sort(names, function(a, b)
-                                    return a:gsub("|c%x%x%x%x%x%x%x%x", "") < b:gsub("|c%x%x%x%x%x%x%x%x", "")
-                                end)
-                                args["flavour_" .. style] = {
-                                    type = "description", order = flavourOrder, width = "full",
-                                    name = "|cFFFFD100" .. L["Style " .. style] .. "|r  "
-                                        .. table.concat(names, ", "),
-                                }
-                                flavourOrder = flavourOrder + 1
-                            end
-                        end
-                        -- Naming the rest closes the obvious question: a style missing from
-                        -- the rows above is universal, not forgotten
-                        args.flavourNeutral = {
-                            type = "description", order = flavourOrder, width = "full",
-                            name = function()
-                                local names = {}
-                                for _, style in ipairs(AutoSay.MessageStyles) do
-                                    if not AutoSay.StyleClasses[style] then
-                                        names[#names + 1] = L["Style " .. style]
+                            args["count_" .. style] = {
+                                type = "description", order = order + 1, width = 1.1,
+                                name = function()
+                                    local total, enabled, live = StyleCounts(style)
+                                    -- The second number only earns its place when it differs:
+                                    -- "8/16" plus "8 live" side by side is noise
+                                    if live == enabled then
+                                        return string.format("|cFFAAAAAA%d/%d|r", enabled, total)
                                     end
-                                end
-                                return "|cFF808080" .. L["Class neutral"] .. ":|r |cFFAAAAAA"
-                                    .. table.concat(names, ", ") .. "|r"
-                            end,
-                        }
+                                    return string.format("|cFFAAAAAA%d/%d|r  |cFFFF7F3F%s|r",
+                                        enabled, total, string.format(L["%d live"], live))
+                                end,
+                                desc = function() return BundleDesc(style) end,
+                            }
+                            args["on_" .. style] = {
+                                type = "execute", order = order + 2, width = 0.7,
+                                name = L["Enable all"],
+                                desc = function() return BundleDesc(style) end,
+                                func = function() Addon:ApplyStyleBundle(style, replaceOnApply, true) end,
+                            }
+                            args["off_" .. style] = {
+                                type = "execute", order = order + 3, width = 0.7,
+                                name = L["Disable all"],
+                                func = function() Addon:ApplyStyleBundle(style, false, false) end,
+                            }
+                            -- The classes this bundle leans towards, on its own row under
+                            -- it. Bundles that suit everyone simply have no such row.
+                            if AutoSay.StyleClasses[style] then
+                                args["classes_" .. style] = {
+                                    type = "description", order = order + 4, width = "full",
+                                    name = function()
+                                        local names = {}
+                                        for i, token in ipairs(AutoSay.StyleClasses[style]) do
+                                            names[i] = ClassLabel(token)
+                                        end
+                                        table.sort(names, function(a, b)
+                                            return a:gsub("|c%x%x%x%x%x%x%x%x", "") < b:gsub("|c%x%x%x%x%x%x%x%x", "")
+                                        end)
+                                        return "      |cFF808080" .. L["Class flavour"] .. ":|r "
+                                            .. table.concat(names, ", ")
+                                    end,
+                                }
+                            end
+                            AddRowBreak(args, "stylerow_" .. style, order + 5)
+                        end
                         return args
                     end)(),
                 },
