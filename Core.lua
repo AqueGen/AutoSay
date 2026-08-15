@@ -1463,6 +1463,10 @@ function Addon:SendGreeting(playerNames, reason)
     self:DebugPrint("SendGreeting called - reason:", reason, "channel:", channel,
         "names:", playerNames and table.concat(playerNames, ", ") or "none")
 
+    -- Asked before the cooldown check so the refusal is reported once, with the real
+    -- reason: CanSendMessage answers false for both, and the line below blames cooldown
+    if self:IsChannelSilenced(channel) then return false end
+
     -- Check cooldown - if blocked, drop it. A greeting that lands seconds late is a
     -- second greeting, not a delayed one.
     if not self:CanSendMessage(channel) then
@@ -2298,8 +2302,10 @@ function Addon:TestReset()
         self.humanizer.history = {}
     end
     -- Delayed sends from an earlier simulation must not fire into the next one (the
-    -- sendGeneration bump on the test-mode toggle covers mode changes; this covers resets)
+    -- sendGeneration bump on the test-mode toggle covers mode changes; this covers resets).
+    -- The bump also invalidates untracked simulation timers (the M+ flow's join closures).
     self:TestCancelPendingSends()
+    self.state.sendGeneration = self.state.sendGeneration + 1
     self:TestPrint("Test state reset")
 end
 
@@ -2357,13 +2363,15 @@ end
 -- way GROUP_JOINED does for real groups. Without it a greeting built for one simulation
 -- lands in the next: schedule a 5-player instance greeting, switch to /as test lfr inside
 -- the typing delay, and the old timer would speak in a group that must stay silent.
+-- Deliberately only the tracked group sends, with no sendGeneration bump: the bump reaches
+-- further than a group change should (it would drop a pending guild greeting and strand the
+-- M+ simulation's own closures, which a live GROUP_JOINED leaves alone). Full teardown of a
+-- simulation is TestReset's job.
 function Addon:TestCancelPendingSends()
     for handle in pairs(self.state.pendingGroupSends) do
         self:CancelTimer(handle)
     end
     self.state.pendingGroupSends = {}
-    -- Also invalidates the simulation timers that are not tracked by handle (M+ flow)
-    self.state.sendGeneration = self.state.sendGeneration + 1
 end
 
 -- Simulate joining a party

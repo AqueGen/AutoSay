@@ -761,7 +761,8 @@ local function BundleDesc(style)
         end
     end
     -- Classic holds every untagged phrase, far too many to read in a tooltip: list a
-    -- sample and say how many are left rather than covering half the screen
+    -- sample and say how many are left rather than covering half the screen. The cap
+    -- applies to every bundle - the styled ones simply never reach it.
     local PREVIEW = 8
     for j, line in ipairs(lines) do
         local shown, extra = line.texts, #line.texts - PREVIEW
