@@ -184,7 +184,178 @@ function Addon:RunSelfTest()
     check("every ActivityToDungeon map id resolves in DungeonNames", #orphanActivities == 0,
         "orphans: " .. table.concat(orphanActivities, ", ") .. " - regenerate both via /as dumpdungeons")
 
+    -- Group E: 1.6 content (read-only)
+    local L = LibStub("AceLocale-3.0"):GetLocale(ADDON_NAME)
+    local Logic = AutoSay.MessageLogic
+
+    local styleSet = {}
+    for _, style in ipairs(AutoSay.MessageStyles) do styleSet[style] = true end
+
+    -- rawget rather than L[key]: a missing key must be reported, not raised
+    local unnamed = {}
+    for _, style in ipairs(AutoSay.MessageStyles) do
+        if type(rawget(L, "Style " .. style)) ~= "string" then unnamed[#unnamed + 1] = style end
+    end
+    check("every style bundle has a name in the locale", #unnamed == 0,
+        'no L["Style <id>"] for: ' .. table.concat(unnamed, ", "))
+
+    -- A phrase tagged with a style the tab does not list can never be switched on
+    local stray, dupes = {}, {}
+    for _, pool in ipairs(AutoSay.StylePools) do
+        local seen = {}
+        for _, msg in ipairs(AutoSay[pool.messages]) do
+            if msg.style and not styleSet[msg.style] then
+                stray[#stray + 1] = format("%s (%s)", msg.key, msg.style)
+            end
+            if seen[msg.key] then dupes[#dupes + 1] = pool.messages .. ":" .. msg.key end
+            seen[msg.key] = true
+        end
+    end
+    check("no phrase carries a style the Style tab does not list", #stray == 0,
+        table.concat(stray, ", "))
+    check("phrase keys are unique inside their pool", #dupes == 0, table.concat(dupes, ", "))
+
+    local roleGaps = {}
+    for _, style in ipairs(AutoSay.MessageStyles) do
+        for _, role in ipairs({ "TANK", "HEALER", "DAMAGER" }) do
+            local found = false
+            for _, msg in ipairs(AutoSay.Greetings) do
+                if msg.role == role and Logic.StyleMatches(msg, style) then found = true break end
+            end
+            if not found then roleGaps[#roleGaps + 1] = style .. "/" .. role end
+        end
+    end
+    check("every style bundle has a phrase for every role", #roleGaps == 0,
+        "missing: " .. table.concat(roleGaps, ", "))
+
+    local classTokens = {}
+    for i = 1, GetNumClasses() do
+        local _, token = GetClassInfo(i)
+        if token then classTokens[token] = true end
+    end
+    local badHints, hinted = {}, {}
+    for style, list in pairs(AutoSay.StyleClasses) do
+        if not styleSet[style] then badHints[#badHints + 1] = "style " .. style end
+        for _, token in ipairs(list) do
+            if not classTokens[token] then badHints[#badHints + 1] = "class " .. token end
+            hinted[token] = true
+        end
+    end
+    check("class hints name a real bundle and a real class", #badHints == 0,
+        table.concat(badHints, ", "))
+    local unhinted = {}
+    for token in pairs(classTokens) do
+        if not hinted[token] then unhinted[#unhinted + 1] = token end
+    end
+    check("every class this client knows is named by some bundle", #unhinted == 0,
+        "no hint mentions: " .. table.concat(unhinted, ", "))
+
+    -- The LFR gate, asked the way the sender asks it. Test mode and the toggle are put back
+    -- immediately afterwards, whatever the answers were.
+    do
+        local instance = self.db.profile.instance
+        local savedSkip, savedMode = instance.skipRaidGroups, self.db.profile.testMode
+        local savedType, savedRaid =
+            self.testState.simulatedGroupType, self.testState.simulatedRaidInstance
+        self.db.profile.testMode = true
+        self.testState.simulatedGroupType = "INSTANCE_CHAT"
+
+        instance.skipRaidGroups = true
+        self.testState.simulatedRaidInstance = true
+        local silencedInLFR = self:IsChannelSilenced("INSTANCE_CHAT")
+        self.testState.simulatedRaidInstance = false
+        local silencedInDungeon = self:IsChannelSilenced("INSTANCE_CHAT")
+        instance.skipRaidGroups = false
+        self.testState.simulatedRaidInstance = true
+        local silencedWithToggleOff = self:IsChannelSilenced("INSTANCE_CHAT")
+        local partyUntouched = self:IsChannelSilenced("PARTY")
+
+        instance.skipRaidGroups = savedSkip
+        self.db.profile.testMode = savedMode
+        self.testState.simulatedGroupType = savedType
+        self.testState.simulatedRaidInstance = savedRaid
+
+        check("the instance channel is silent in a raid-sized group", silencedInLFR == true,
+            "a raid finder run would have been greeted")
+        check("a 5-player instance group still speaks", silencedInDungeon == false,
+            "the gate caught the groups it is meant to allow")
+        check("the toggle switched off lets LFR through", silencedWithToggleOff == false,
+            "the gate ignored its own setting")
+        check("the gate is limited to INSTANCE_CHAT", partyUntouched == false,
+            "party chat was silenced by an instance rule")
+    end
+
+    -- Group F: profile migrations, on a scratch profile that is deleted again
+    local SCRATCH = "AutoSay self-test"
+    local home = self.db:GetCurrentProfile()
+    if home == SCRATCH then
+        self:Print("|cFFFFCC00SKIP|r migrations - already sitting on the scratch profile")
+    else
+        local function Dump(value)
+            if type(value) ~= "table" then return tostring(value) end
+            local keys = {}
+            for k in pairs(value) do keys[#keys + 1] = k end
+            table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+            local parts = {}
+            for _, k in ipairs(keys) do
+                parts[#parts + 1] = tostring(k) .. "=" .. Dump(value[k])
+            end
+            return "{" .. table.concat(parts, ",") .. "}"
+        end
+
+        local ok, err = pcall(function()
+            self.db:SetProfile(SCRATCH)
+            local profile = self.db.profile
+            -- Pretend this profile came from 1.5.x: it existed before the upgrade, its whole
+            -- greeting selection has since been retired, and it never met a master switch
+            self.priorProfiles[SCRATCH] = { party = {} }
+            self.priorTimeOfDay[SCRATCH] = nil
+            self.priorBandGoodbyes[SCRATCH] = nil
+            wipe(profile.party.enabledGreetings)
+            profile.party.enabledGreetings["retired_in_1_6"] = true
+            profile.instanceMigrated = nil
+            profile.masterSwitchesMigrated = nil
+            profile.retiredPhrasesMigrated = nil
+            profile.social.timeOfDay = false
+
+            self:RunProfileMigrations()
+
+            local rescued = 0
+            for _ in pairs(profile.party.enabledGreetings) do rescued = rescued + 1 end
+            check("a pool whose phrases were all retired gets the stock set back",
+                rescued > 1 and profile.party.enabledGreetings["retired_in_1_6"] == nil,
+                format("%d keys left, stale key %s", rescued,
+                    tostring(profile.party.enabledGreetings["retired_in_1_6"])))
+            check("an upgrade keeps the time-of-day phrases it already had",
+                profile.social.timeOfDay == true, "the master switch was left off")
+
+            local afterFirst = Dump(profile)
+            self:RunProfileMigrations()
+            check("a second login changes nothing", Dump(profile) == afterFirst,
+                "the migrations are not idempotent")
+
+            self.db:ResetProfile()
+            profile = self.db.profile
+            local afterReset = Dump(profile)
+            self:RunProfileMigrations()
+            check("a reset profile stays on the defaults",
+                Dump(profile) == afterReset and profile.social.timeOfDay == false,
+                "the migrations undid Reset Profile")
+        end)
+
+        self.db:SetProfile(home)
+        self.db:DeleteProfile(SCRATCH, true)
+        self.priorProfiles[SCRATCH] = nil
+        self.priorTimeOfDay[SCRATCH] = nil
+        self.priorBandGoodbyes[SCRATCH] = nil
+        if not ok then
+            check("the migration checks ran to the end", false, tostring(err))
+        end
+    end
+
     self:Print(format("Self-test: %d/%d passed", passed, total))
+    self:Print("|cFFFFCC00Still needs eyes:|r the Style tab layout and its colours, "
+        .. "the greyed-out rows and columns, and the Social sliders sharing a row.")
 end
 
 -- Maintenance: harvest the current season's M+ pool as paste-ready Lua for Messages.lua.

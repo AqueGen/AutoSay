@@ -63,3 +63,8 @@ Releases are driven by [release-please](https://github.com/googleapis/release-pl
   `MSYS_NO_PATHCONV=1 wsl bash -lc 'cd "/mnt/g/Games/World of Warcraft/_retail_/Interface/AddOns/AutoSay" && ~/luaenv/bin/busted'`
 - In-game smoke: `/as testmode`, then `/as test`, `/as test grats`,
   `/as test guildjoin`. Gate rejections print their reason.
+- In-game regression pass: `/as selftest`. Besides the gate and humanizer wiring it
+  checks the phrase data (styles, role coverage, class hints, locale names), the LFR
+  gate through `IsChannelSilenced`, and the profile migrations - those run on a scratch
+  profile it creates and deletes again, so the player's own profile is not touched.
+  What it cannot check is layout: colours, greyed rows and widths still need eyes.
