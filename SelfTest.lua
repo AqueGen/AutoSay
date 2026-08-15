@@ -228,6 +228,22 @@ function Addon:RunSelfTest()
     check("every style bundle has a phrase for every role", #roleGaps == 0,
         "missing: " .. table.concat(roleGaps, ", "))
 
+    -- The guild login list and the three M+ lists are picked without MessageLogic.FitsContext,
+    -- so a tag on one of them would be greyed by the panel and ignored by the sender. The
+    -- panel is right about the ones that go through FitsContext, so keep these tag-free.
+    local taggedPlain = {}
+    for _, name in ipairs({ "GuildLoginGreetings", "KeyAnnounce",
+                            "CompletionTimed", "CompletionDepleted" }) do
+        for _, msg in ipairs(AutoSay[name] or {}) do
+            if msg.role or msg.band or msg.faction or msg.trigger
+                or msg.text:find("{role}", 1, true) then
+                taggedPlain[#taggedPlain + 1] = name .. ":" .. msg.key
+            end
+        end
+    end
+    check("the lists sent without a context filter carry no tags", #taggedPlain == 0,
+        "tagged: " .. table.concat(taggedPlain, ", ") .. " - the sender ignores those tags")
+
     local classTokens = {}
     for i = 1, GetNumClasses() do
         local _, token = GetClassInfo(i)
