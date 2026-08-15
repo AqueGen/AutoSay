@@ -216,6 +216,7 @@ local defaults = {
             includeNames = false, -- Include names of players who joined (others join)
             includeGroupNames = false, -- Include names of existing group members (self join)
             sendGoodbye = true,
+            sendGoodbyeOnRunEnd = false, -- Also say goodbye the moment the dungeon or key ends
             enabledGreetings = DeepCopy(defaultGreetings),
             enabledGoodbyes = DeepCopy(defaultGoodbyes),
             enabledReconnects = DeepCopy(defaultReconnects),
@@ -234,6 +235,7 @@ local defaults = {
             includeNames = false, -- Include names of players who joined (others join)
             includeGroupNames = false, -- Include names of existing group members (self join)
             sendGoodbye = false,
+            sendGoodbyeOnRunEnd = false,
             enabledGreetings = DeepCopy(defaultGreetings),
             enabledGoodbyes = DeepCopy(defaultGoodbyes),
             enabledReconnects = DeepCopy(defaultReconnects),
@@ -252,6 +254,7 @@ local defaults = {
             includeNames = false,
             includeGroupNames = false,
             sendGoodbye = true,
+            sendGoodbyeOnRunEnd = false,
             enabledGreetings = DeepCopy(defaultGreetings),
             enabledGoodbyes = DeepCopy(defaultGoodbyes),
             customGreetings = {},
@@ -347,6 +350,7 @@ Addon.state = {
     startAnnounceTimer = nil, -- Pending key start announce (initial delay or its one retry)
     groupGoodbyeTimer = {}, -- Per-channel self-reset timers for the goodbye guard
     instanceGreeted = false, -- Instance zone-in greeting sent (mirrors db.char.instanceGreeted, see SetInstanceGreeted)
+    runEndGoodbyeSent = false, -- Run-end goodbye already said for the current dungeon or key
     pendingGroupSends = {}, -- Delayed group sends in flight (handle -> channel), cancelled on GROUP_JOINED
     sendGeneration = 0, -- Bumped on every test-mode toggle: delayed sends from the other mode drop
     testFlowGeneration = 0, -- Bumped when a simulation is replaced: the previous flow's own timers drop
@@ -917,6 +921,14 @@ function Addon:SlashCommand(input)
             self:TestJoinInstance(true)
         elseif subcmd == "leave" or subcmd == "l" then
             self:TestLeaveGroup()
+        elseif subcmd == "runend" then
+            self:TestPrint("=== Simulating RUN END (dungeon or key finished) ===")
+            -- The flag is what a real ending clears, so a second /as test runend in the
+            -- same simulated group is meant to stay silent, exactly like the real one
+            if not self:SendRunEndGoodbye(false) then
+                self:TestPrint("Nothing sent: either this run already said goodbye, or "
+                    .. "\"Send goodbye when the run ends\" is off for this channel")
+            end
         elseif subcmd == "guild" or subcmd == "g" then
             self:TestGuildGreeting()
         elseif subcmd == "guildbye" or subcmd == "gb" then
@@ -969,6 +981,7 @@ function Addon:SlashCommand(input)
             self:Print("  /as test instance - Simulate zoning into a 5-player instance group")
             self:Print("  /as test lfr (or bg) - Simulate zoning into an LFR or battleground")
             self:Print("  /as test leave - Simulate leaving group")
+            self:Print("  /as test runend - Simulate a dungeon or key finishing")
             self:Print("  /as test guild - Simulate guild login greeting")
             self:Print("  /as test guildbye - Simulate guild logout goodbye")
             self:Print("  /as test grats - Simulate guild achievement congrats")
@@ -1177,6 +1190,17 @@ local ChannelColor = {}
 for _, c in ipairs(AutoSay.Channels) do ChannelColor[c.chat] = c.color end
 
 -- Returns true when a message actually went out (or was simulated in test mode) - callers
+-- The line actually leaving the addon. C_ChatInfo.SendChatMessage is the modern entry point
+-- and the one that survives the restrictions WoW 12.0 put on chat from inside instances, with
+-- the old global kept as the fallback for anything that lacks it. Both are wrapped: a refusal
+-- is a normal outcome here, not an error worth breaking the caller for.
+local function RawSend(message, channel, target)
+    if C_ChatInfo and C_ChatInfo.SendChatMessage then
+        if pcall(C_ChatInfo.SendChatMessage, message, channel, nil, target) then return true end
+    end
+    return (pcall(SendChatMessage, message, channel, nil, target))
+end
+
 -- that spend a budget slot on the dispatch must not spend it on a drop
 function Addon:DoSendMessage(message, channel, target, keepCase)
     if not message then
@@ -1215,15 +1239,25 @@ function Addon:DoSendMessage(message, channel, target, keepCase)
         return true
     end
 
-    -- WoW 12.0+ restricts SendChatMessage in certain instance contexts
-    -- (active M+ key, PvP match, boss encounter). Use pcall to handle gracefully.
-    local ok, err = pcall(SendChatMessage, message, channel, nil, target)
-    if ok then
+    if RawSend(message, channel, target) then
         updateCooldown()
         self:DebugPrint("Sent to", channel, ":", message)
         return true
     end
-    self:DebugPrint("Failed to send to", channel, ":", tostring(err))
+
+    -- Refused where we stand. The usual reason is the call stack rather than the message:
+    -- we are inside a hook on a Blizzard function or in the tail of an encounter, and chat
+    -- is closed to anything running there. One clean frame is enough to get out of it.
+    if C_Timer and C_Timer.After then
+        self:DebugPrint("Send refused, retrying next frame for", channel, ":", message)
+        C_Timer.After(0, function() RawSend(message, channel, target) end)
+        -- Counted as sent: the retry is the send, and a caller that spends its budget slot
+        -- here must not spend a second one on the same line
+        updateCooldown()
+        return true
+    end
+
+    self:DebugPrint("Failed to send to", channel, ":", message)
     return false
 end
 
@@ -1640,6 +1674,18 @@ end
 -- Send goodbye. Returns true only when a line actually went out, so the caller's
 -- once-per-leave guard is not burned on a bail-out.
 function Addon:SendGoodbye(channel)
+    local settings = self:GetChannelSettings(channel)
+    if settings and not settings.sendGoodbye then
+        self:DebugPrint(channel, "goodbyes disabled")
+        return false
+    end
+    return self:DispatchGoodbye(channel)
+end
+
+-- The goodbye itself, without the switch that decides the occasion. Leaving the group asks
+-- through SendGoodbye, the end of a run asks through SendRunEndGoodbye, and both land here
+-- so a goodbye is picked, gated and recorded exactly the same way whichever brought it out.
+function Addon:DispatchGoodbye(channel)
     local db = self.db.profile
 
     if not db.enabled then return false end
@@ -1651,12 +1697,6 @@ function Addon:SendGoodbye(channel)
     -- goodbyes included, whatever the per-channel goodbye toggle inherited
     if not settings.enabled then
         self:DebugPrint(channel, "channel disabled, no goodbye")
-        return false
-    end
-
-    -- Check if goodbye is enabled for this channel
-    if not settings.sendGoodbye then
-        self:DebugPrint(channel, "goodbyes disabled")
         return false
     end
 
@@ -1683,6 +1723,31 @@ function Addon:SendGoodbye(channel)
         self.socialGate:Record("goodbye")
     end
     return sent
+end
+
+-- The end of a run is its own occasion, independent of leaving: a dungeon can end with
+-- everyone standing around for another minute, and "Send goodbye" would still be waiting for
+-- someone to press leave. Both switches can be on - then the group hears one line when the
+-- run ends and another when you actually go.
+-- completionSpoke says an M+ completion line is already going out for this very ending, and
+-- that one has the floor: two of our lines in the same second read as a bot, not a person.
+function Addon:SendRunEndGoodbye(completionSpoke)
+    local channel = self:GetChatChannel()
+    if not channel then return false end
+
+    local settings = self:GetChannelSettings(channel)
+    if not Logic.SaysGoodbyeOnRunEnd(settings, self.state.runEndGoodbyeSent, completionSpoke) then
+        if completionSpoke and settings and settings.sendGoodbyeOnRunEnd then
+            self:DebugPrint("Run-end goodbye skipped - the M+ completion line speaks for this run")
+        end
+        return false
+    end
+
+    -- Burn the once-per-run flag on the attempt, not on the result: a goodbye the cooldown
+    -- or the budget refused must not come back a second later from the leave path's event
+    self.state.runEndGoodbyeSent = true
+    self:DebugPrint("Run ended, saying goodbye on", channel)
+    return self:DispatchGoodbye(channel)
 end
 
 -- Send congrats when a guildmate earns an achievement

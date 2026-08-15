@@ -124,6 +124,8 @@ L["Send goodbye on leave"] = "Send goodbye on leave"
 L["Send goodbye when leaving"] = "Send goodbye when leaving"
 L["Send goodbye when leaving party"] = "Send goodbye when leaving party"
 L["Send goodbye when leaving raid"] = "Send goodbye when leaving raid"
+L["Send goodbye when the run ends"] = "Send goodbye when the run ends"
+L["Send goodbye when the run ends desc"] = "Say goodbye the moment a dungeon or keystone run finishes, without waiting for anyone to leave. Independent of the row above, so you can have one, both or neither. A Mythic+ completion message speaks for its own run, so the goodbye stays quiet for that ending."
 L["Send goodbye when leaving instance group"] = "Send goodbye when leaving the instance group. Note: leaving a battleground from inside it teleports you out without a leave action, so no goodbye is sent there."
 
 -- Messages

@@ -118,7 +118,8 @@ local function PhraseActive(msg, settingsFn, poolKind, channelKey)
     else
         if settings.enabled == false then return false end
         if poolKind == "goodbyes" then
-            if not settings.sendGoodbye then return false end
+            -- Two occasions feed this list now, and either one keeps it alive
+            if not (settings.sendGoodbye or settings.sendGoodbyeOnRunEnd) then return false end
         elseif poolKind == "reconnects" then
             if not settings.onReconnect then return false end
         elseif poolKind == "login" then
@@ -727,6 +728,17 @@ local function BuildGroupGoodbyes()
                 desc = goodbyeDesc[ch.key],
                 get = function() return Addon.db.profile[ch.key].sendGoodbye end,
                 set = function(_, val) Addon.db.profile[ch.key].sendGoodbye = val end,
+            }
+        end)
+    -- Its own row rather than a qualifier under the one above: the two occasions are
+    -- independent, and either can be on without the other
+    AddMatrixRow(triggers, "sendGoodbyeOnRunEnd", 3,
+        NewTag(L["Send goodbye when the run ends"], "1.7"), nil, channels, function(ch)
+            return {
+                disabled = function() return ChannelIsOff(ch) end,
+                desc = L["Send goodbye when the run ends desc"],
+                get = function() return Addon.db.profile[ch.key].sendGoodbyeOnRunEnd end,
+                set = function(_, val) Addon.db.profile[ch.key].sendGoodbyeOnRunEnd = val end,
             }
         end)
 
