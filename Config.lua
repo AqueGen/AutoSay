@@ -276,7 +276,9 @@ local function BuildMessageMatrix(poolId, pool, channels)
         table.sort(bucket, PhraseSort)
     end
 
-    shownStyle[poolId] = shownStyle[poolId] or { classic = true }
+    -- Everything starts folded: fifteen sections open on Classic pushed the rest of
+    -- the list, and the custom-message boxes below it, off the visible area
+    shownStyle[poolId] = shownStyle[poolId] or {}
     local open = shownStyle[poolId]
 
     local order = 1
