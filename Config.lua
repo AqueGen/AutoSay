@@ -741,6 +741,33 @@ end
 -- Tooltip body of a style bundle button: its phrases, one line per AutoSay.StylePools header
 -- (both completion pools share the "Completion" header, so they merge into a single line).
 -- Cached per style - eight multi-line listings are not worth building for a tooltip nobody hovers.
+-- Class names in their own colours, for the advisory "often suits" line. The class list is
+-- built once from the API rather than hardcoded, so a class added later needs no edit here.
+local classNameCache
+local function ClassLabel(token)
+    if not classNameCache then
+        classNameCache = {}
+        for i = 1, (GetNumClasses and GetNumClasses() or 0) do
+            local name, file = GetClassInfo(i)
+            if name and file then classNameCache[file] = name end
+        end
+    end
+    local name = classNameCache[token] or token
+    local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[token]
+    return color and color:WrapTextInColorCode(name) or name
+end
+
+--- Does this bundle lean towards the class the player is on right now?
+local function BundleSuitsPlayer(style)
+    local tokens = AutoSay.StyleClasses[style]
+    if not tokens then return false end
+    local _, playerClass = UnitClass("player")
+    for _, token in ipairs(tokens) do
+        if token == playerClass then return true end
+    end
+    return false
+end
+
 local bundleDescCache = {}
 local function BundleDesc(style)
     local desc = bundleDescCache[style]
@@ -774,6 +801,15 @@ local function BundleDesc(style)
         if extra > 0 then
             lines[j] = lines[j] .. "  |cFF888888" .. string.format(L["+%d more"], extra) .. "|r"
         end
+    end
+
+    -- Only bundles with a genuine class leaning carry the line. A bundle that suits
+    -- everyone says nothing rather than showing an empty row that reads as "fits nobody".
+    local classes = AutoSay.StyleClasses[style]
+    if classes then
+        local names = {}
+        for i, token in ipairs(classes) do names[i] = ClassLabel(token) end
+        lines[#lines + 1] = "|cFFFFD100" .. L["Often suits"] .. ":|r " .. table.concat(names, ", ")
     end
 
     desc = table.concat(lines, "\n") .. "\n\n" .. L["Bundle button hint"]
@@ -1057,6 +1093,13 @@ local function BuildOptions()
                                 -- Green name = bundle fully enabled; clicking then disables it
                                 name = function()
                                     local label = NewTag(L["Style " .. style], "1.6")
+                                    -- A dot in your class colour: the bundles that suit
+                                    -- this character stand out without reading the tooltips
+                                    if BundleSuitsPlayer(style) then
+                                        local _, playerClass = UnitClass("player")
+                                        local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[playerClass]
+                                        label = (color and color:WrapTextInColorCode("*") or "*") .. label
+                                    end
                                     if Addon:IsStyleBundleEnabled(style) then
                                         return "|cFF00FF00" .. label .. "|r"
                                     end

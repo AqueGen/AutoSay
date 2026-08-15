@@ -190,6 +190,19 @@ AutoSay.Greetings = {
     { key = "deadpan_another", text = "another one", style = "deadpan", trigger = "self" },
     { key = "deadpan_herewego", text = "here we go then", style = "deadpan", trigger = "self" },
     { key = "deadpan_someone", text = "someone new. hello.", style = "deadpan", trigger = "others" },
+    { key = "nature_paths", text = "our paths cross well today", style = "naturewarden" },
+    { key = "nature_wind", text = "the wind is with us o/", style = "naturewarden" },
+    { key = "nature_grove", text = "greetings from the grove", style = "naturewarden", trigger = "self" },
+    { key = "nature_welcomenames", text = "the wilds welcome you, {names}", style = "naturewarden", trigger = "others" },
+    { key = "nature_tank1", text = "I stand where the storm hits first", style = "naturewarden", role = "TANK", trigger = "self", keepCase = true },
+    { key = "nature_tank2", text = "roots hold, and so do I", style = "naturewarden", role = "TANK", trigger = "self" },
+    { key = "nature_heal1", text = "the healing winds are with us", style = "naturewarden", role = "HEALER", trigger = "self" },
+    { key = "nature_heal2", text = "I tend the wounded, call out early", style = "naturewarden", role = "HEALER", trigger = "self", keepCase = true },
+    { key = "nature_dps1", text = "the hunt begins o/", style = "naturewarden", role = "DAMAGER", trigger = "self" },
+    { key = "nature_dps2", text = "swift and steady, that is the way", style = "naturewarden", role = "DAMAGER", trigger = "self" },
+    { key = "fantasy_skies", text = "well met, may the skies favor our path", style = "fantasy" },
+    { key = "fantasy_ancient", text = "the old paths brought us together", style = "fantasy", trigger = "self" },
+    { key = "fantasy_scale", text = "I hold the line, steadfast as dragon scale", style = "fantasy", role = "TANK", trigger = "self", keepCase = true },
 }
 
 -- Goodbyes database (enabled by default first)
@@ -244,6 +257,10 @@ AutoSay.Goodbyes = {
     { key = "deadpan_thatsthat", text = "and that's that", style = "deadpan" },
     { key = "deadpan_itwasfine", text = "leaving. that worked.", style = "deadpan" },
     { key = "deadpan_iguess", text = "bye I guess", style = "deadpan", keepCase = true },
+    { key = "nature_road", text = "may the road be gentle", style = "naturewarden" },
+    { key = "nature_seasons", text = "good hunting, until the seasons turn", style = "naturewarden" },
+    { key = "nature_still", text = "safe travels, keep to the still paths", style = "naturewarden" },
+    { key = "fantasy_flytrue", text = "fly true, friends, until our paths cross again", style = "fantasy" },
 }
 
 -- Reconnect messages database (enabled by default first)
@@ -277,6 +294,9 @@ AutoSay.Reconnects = {
     { key = "robot_online", text = "systems back online", style = "robot" },
     { key = "deadpan_apparently", text = "internet exists, apparently", style = "deadpan" },
     { key = "deadpan_thrilling", text = "back. thrilling.", style = "deadpan" },
+    { key = "nature_roots", text = "the roots led me back", style = "naturewarden" },
+    { key = "nature_storm", text = "the storm passed, I am back", style = "naturewarden", keepCase = true },
+    { key = "fantasy_horizon", text = "back from beyond the horizon", style = "fantasy" },
 }
 
 -- Style bundle ids, in UI order
@@ -284,7 +304,18 @@ AutoSay.Reconnects = {
 -- stock phrases can be switched on and off as fast as a style bundle (see StyleMatches)
 AutoSay.MessageStyles = {
     "classic", "minimal", "fun", "fantasy", "dark", "deadpan", "light", "pirate", "faction",
-    "zoomer", "butler", "robot",
+    "zoomer", "butler", "robot", "naturewarden",
+}
+
+-- Style bundles that lean towards particular classes. Advisory only - every bundle works
+-- for every class, and a bundle missing here shows no class hint rather than an empty one.
+-- Kept sparse on purpose: a hint for every plausible pairing would stop meaning anything,
+-- and "light" is wholesome rather than Holy Light, so it earns no class of its own.
+AutoSay.StyleClasses = {
+    fantasy = { "WARRIOR", "PALADIN", "PRIEST", "MAGE", "MONK", "EVOKER" },
+    dark = { "DEATHKNIGHT", "WARLOCK", "DEMONHUNTER" },
+    pirate = { "ROGUE", "HUNTER" },
+    naturewarden = { "DRUID", "SHAMAN", "HUNTER" },
 }
 
 -- Every phrase pool a style bundle can toggle, in UI order. One inventory, three consumers:
@@ -325,6 +356,7 @@ AutoSay.KeyAnnounce = {
     { key = "minimal_key", text = "{dungeon} {key}", style = "minimal" },
     { key = "robot_objective", text = "objective loaded: {dungeon} {key}", style = "robot" },
     { key = "deadpan_sure", text = "{dungeon} {key}. sure.", style = "deadpan" },
+    { key = "nature_trail", text = "the trail leads to {dungeon} {key}", style = "naturewarden" },
 }
 
 -- M+ completion messages - timed (enabled by default first)
@@ -351,6 +383,7 @@ AutoSay.CompletionTimed = {
     { key = "minimal_gg", text = "gg", style = "minimal" },
     { key = "robot_nominal", text = "objective complete, efficiency nominal", style = "robot" },
     { key = "deadpan_incredible", text = "we did it. incredible.", style = "deadpan" },
+    { key = "nature_wellwalked", text = "well walked, all of us", style = "naturewarden" },
 }
 
 -- Guild member login greetings (enabled by default first)
@@ -412,4 +445,5 @@ AutoSay.CompletionDepleted = {
     { key = "minimal_gg", text = "gg", style = "minimal" },
     { key = "robot_recalibrating", text = "objective failed, recalibrating", style = "robot" },
     { key = "deadpan_asexpected", text = "not clean, but done", style = "deadpan" },
+    { key = "nature_longpath", text = "a long path, but we walked it", style = "naturewarden" },
 }
