@@ -163,6 +163,11 @@ end
 -- inventory (phrases do get retired between versions) and no custom line fills the gap.
 -- Restoring the defaults there is the difference between "my list changed" and "the addon
 -- went quiet". validKeys is the set of keys the current build still ships for that pool.
+-- validKeys maps a key to true when the phrase counts as something the pool can say, to
+-- false when the build still ships it but it cannot speak for itself (a time-of-day phrase
+-- waits on a master switch, and AceDB hands those out enabled), and to nil when the phrase
+-- is gone. Counting a default-injected band phrase as content is what let a pool look alive
+-- right up to the moment the band phrases were switched off again.
 function MessageLogic.PoolIsSilent(enabled, validKeys, customs)
     if customs then
         for _, entry in ipairs(customs) do
@@ -171,7 +176,7 @@ function MessageLogic.PoolIsSilent(enabled, validKeys, customs)
     end
     if enabled then
         for key, on in pairs(enabled) do
-            if on and validKeys[key] then return false end
+            if on and validKeys[key] == true then return false end
         end
     end
     return true
@@ -185,7 +190,7 @@ function MessageLogic.PoolLostItsPhrases(enabled, validKeys, customs)
     if not enabled then return false end
     if not MessageLogic.PoolIsSilent(enabled, validKeys, customs) then return false end
     for key, on in pairs(enabled) do
-        if on and not validKeys[key] then return true end
+        if on and validKeys[key] == nil then return true end
     end
     return false
 end

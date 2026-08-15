@@ -291,6 +291,11 @@ describe("PoolIsSilent", function()
     assert.is_true(f({}, valid, nil))
     assert.is_true(f(nil, valid, nil))
   end)
+  it("does not count a phrase that waits on a master switch", function()
+    -- false = still shipped, but it cannot speak until its master switch is on
+    assert.is_true(f({ gnall = true }, { hi = true, gnall = false }, {}))
+    assert.is_false(f({ gnall = true, hi = true }, { hi = true, gnall = false }, {}))
+  end)
 end)
 
 describe("PoolLostItsPhrases", function()

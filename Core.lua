@@ -89,6 +89,9 @@ local defaultGreetings = {
     nightowls = true,
 }
 
+-- Band goodbyes shipped disabled before this release, so an upgrade never had them
+local BAND_GOODBYE_KEYS = { "eveningbye", "gnall", "goodnightall", "sleepwell" }
+
 -- Default enabled goodbyes
 local defaultGoodbyes = {
     bye = true,
@@ -371,15 +374,27 @@ function Addon:OnInitialize()
     -- Snapshot taken before AceDB fills the store with defaults: afterwards an explicit
     -- "off" from 1.5.x is indistinguishable from the new default of the same value, and
     -- the profile this character uses is only known once the database exists
-    local priorProfiles, priorTimeOfDay = {}, {}
+    local priorProfiles, priorTimeOfDay, priorBandGoodbyes = {}, {}, {}
     if AutoSayDB and AutoSayDB.profiles then
         for name, stored in pairs(AutoSayDB.profiles) do
             priorProfiles[name] = true
             priorTimeOfDay[name] = stored.social and stored.social.timeOfDay
+            local ticked = {}
+            for _, channel in ipairs(AutoSay.Channels) do
+                local settings = stored[channel.key]
+                local goodbyes = settings and settings.enabledGoodbyes
+                if goodbyes then
+                    for _, key in ipairs(BAND_GOODBYE_KEYS) do
+                        if goodbyes[key] then ticked[channel.key .. ":" .. key] = true end
+                    end
+                end
+            end
+            priorBandGoodbyes[name] = ticked
         end
     end
     self.priorProfiles = priorProfiles
     self.priorTimeOfDay = priorTimeOfDay
+    self.priorBandGoodbyes = priorBandGoodbyes
 
     -- Initialize database
     self.db = LibStub("AceDB-3.0"):New("AutoSayDB", defaults, true)
@@ -488,8 +503,8 @@ end
 
 -- The instance channel is new: before it existed LFG groups used the party settings, so seed
 -- it from them once. On a fresh install the party values are the defaults, so this is a no-op.
--- Nobody is dropped into an LFR by the upgrade: 1.5.x routed a raid-sized instance group to
--- the raid settings (off by default), and skipRaidGroups keeps that same silence.
+-- skipRaidGroups is what keeps an upgrade out of LFR and battlegrounds; 1.5.x had no such
+-- guard, so the channel inheriting the party toggles is only safe alongside it.
 -- Only the active profile is migrated - the addon registers no AceDB profile callbacks, so a
 -- profile switched to later keeps its own (defaults-equal) instance settings.
 function Addon:MigrateInstanceChannel()
@@ -528,7 +543,11 @@ function Addon:MigrateRetiredPhrases()
             local enabled = settings and settings[pool.enabledKey]
             if enabled then
                 local live = {}
-                for _, msg in ipairs(AutoSay[pool.messages]) do live[msg.key] = true end
+                for _, msg in ipairs(AutoSay[pool.messages]) do
+                    -- false rather than true for a band phrase: it is still shipped, so it
+                    -- is not evidence of a retirement, but it cannot carry the pool either
+                    live[msg.key] = msg.band == nil
+                end
                 if Logic.PoolLostItsPhrases(enabled, live, settings[pool.customsKey]) then
                     for key in pairs(enabled) do
                         if not live[key] then enabled[key] = nil end
@@ -588,9 +607,6 @@ function Addon:StampMigrationsDone()
     if profile.mythicplus then profile.mythicplus.keyLevelMigrated = true end
 end
 
--- Band goodbyes shipped disabled before this release, so an upgrade never had them
-local BAND_GOODBYE_KEYS = { "eveningbye", "gnall", "goodnightall", "sleepwell" }
-
 -- The master switches are new, and they ship off. 1.5.x had no switch and spoke its
 -- time-of-day phrases for everyone, so defaulting an upgrade to off would read as "the
 -- morning greetings broke", not as a setting. Roles are genuinely new, so they stay off.
@@ -609,10 +625,16 @@ function Addon:MigrateMasterSwitches()
         profile.social.timeOfDay = true
         -- Only the greetings existed before. Band goodbyes are new, and switching the
         -- master on for an upgrade must not start saying "gn all" on their behalf
+        local ticked = self.priorBandGoodbyes[name] or {}
         for _, key in ipairs(BAND_GOODBYE_KEYS) do
             for _, channel in ipairs(AutoSay.Channels) do
                 local settings = profile[channel.key]
-                if settings and settings.enabledGoodbyes then settings.enabledGoodbyes[key] = false end
+                -- Leave alone anything the profile itself had ticked: only the values this
+                -- build handed out are being taken back
+                if settings and settings.enabledGoodbyes
+                    and not ticked[channel.key .. ":" .. key] then
+                    settings.enabledGoodbyes[key] = false
+                end
             end
         end
         self:DebugPrint("Kept time-of-day phrases on for an upgraded profile")
@@ -1261,8 +1283,10 @@ end
 -- (master switch on, an actual role assigned) - PolishMessage would otherwise confidently
 -- substitute "dps" for an unassigned or role-phrases-off player. Applies to EVERY custom
 -- pool: channel messages, guild login, key announce, completion.
-function Addon:CustomTextUsable(text)
+function Addon:CustomTextUsable(text, channel)
     if not text:find("{role}", 1, true) then return true end
+    -- Same rule the presets follow: a role means nothing to a guild reading it
+    if channel == "GUILD" then return false end
     return self.db.profile.social.rolePhrases and self:GetPlayerRoleOrTest() ~= "NONE"
 end
 
@@ -1996,7 +2020,7 @@ function Addon:GetRandomGuildLoginGreeting()
     -- Add enabled custom messages
     if settings.customLoginGreetings then
         for _, entry in ipairs(settings.customLoginGreetings) do
-            if entry.enabled and entry.text and entry.text ~= "" and self:CustomTextUsable(entry.text) then
+            if entry.enabled and entry.text and entry.text ~= "" and self:CustomTextUsable(entry.text, "GUILD") then
                 table.insert(enabled, entry.text)
             end
         end

@@ -237,7 +237,7 @@ local function BuildMessageMatrix(poolId, pool, channels)
     local args = {}
 
     -- Greyed rows are gated elsewhere - point at the tab that re-activates them
-    if channels[1].settingsFn then
+    if channels[1].poolKind ~= "mplusKey" and channels[1].poolKind ~= "mplusCompletion" then
         args.tagNote = {
             type = "description", order = 0.5, fontSize = "small",
             name = "|cFF888888" .. L["Tag navigation note"] .. "|r",
@@ -420,6 +420,8 @@ local function BuildCustomMessageList(channel, customsKey, labelKey, poolKind)
                 if not entry or not entry.text then return false end
                 return not PhraseActive({ key = "custom", text = entry.text },
                     function() return Addon.db.profile[channel] end, poolKind, channel)
+                    -- channel is the profile key here ("guild"), which is what the guild
+                    -- role rule inside PhraseActive matches on
             end,
             get = function()
                 local entry = (Addon.db.profile[channel][customsKey] or {})[idx]
@@ -1169,7 +1171,11 @@ local function BuildOptions()
                             if tokens then
                                 local names = {}
                                 for i, token in ipairs(tokens) do names[i] = ClassLabel(token) end
-                                table.sort(names)
+                                -- Sorted before colouring: a colour code in front of the
+                                -- name would order the list by hex digits instead
+                                table.sort(names, function(a, b)
+                                    return a:gsub("|c%x%x%x%x%x%x%x%x", "") < b:gsub("|c%x%x%x%x%x%x%x%x", "")
+                                end)
                                 args["flavour_" .. style] = {
                                     type = "description", order = flavourOrder, width = "full",
                                     name = "|cFFFFD100" .. L["Style " .. style] .. "|r  "
