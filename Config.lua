@@ -1303,7 +1303,7 @@ local function BuildOptions()
                     end)(),
                 },
                 rolePhrases = {
-                    type = "toggle", order = 1.5, width = "full",
+                    type = "toggle", order = 1.5, width = 2.3,
                     name = NewTag(L["Role-based phrases"], "1.6")
                         .. " |A:roleicon-tiny-tank:14:14|a|A:roleicon-tiny-healer:14:14|a|A:roleicon-tiny-dps:14:14|a",
                     desc = L["Role-based phrases desc"],
@@ -1327,8 +1327,11 @@ local function BuildOptions()
                     confirm = true, confirmText = L["Disable all role phrases on every channel?"],
                     func = function() Addon:SetTaggedPhrasesEnabled("role", false) end,
                 },
+                roleRowBreak = {
+                    type = "description", name = "", order = 1.75, width = "full",
+                },
                 timeOfDay = {
-                    type = "toggle", order = 2, width = "full",
+                    type = "toggle", order = 2, width = 2.3,
                     name = L["Time-of-day phrases"] .. TagSuffix("morning/evening/night"),
                     desc = L["Time-of-day phrases desc"],
                     get = function() return Addon.db.profile.social.timeOfDay end,
@@ -1350,6 +1353,9 @@ local function BuildOptions()
                     desc = L["Disable every time-of-day phrase on every channel"],
                     confirm = true, confirmText = L["Disable all time-of-day phrases on every channel?"],
                     func = function() Addon:SetTaggedPhrasesEnabled("band", false) end,
+                },
+                bandRowBreak = {
+                    type = "description", name = "", order = 2.3, width = "full",
                 },
                 tone = {
                     type = "group", order = 4, inline = true,
