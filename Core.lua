@@ -391,6 +391,9 @@ function Addon:OnInitialize()
     for _, event in ipairs({ "OnProfileChanged", "OnProfileCopied", "OnProfileReset" }) do
         self.db.RegisterCallback(self, event, "OnProfileSwitched")
     end
+    -- A name freed by a deletion belongs to nobody: whoever takes it next is a new profile,
+    -- not the one that predated this build
+    self.db.RegisterCallback(self, "OnProfileDeleted", "OnProfileDeleted")
 
     self:RunProfileMigrations()
 
@@ -527,11 +530,21 @@ function Addon:MigrateRetiredPhrases()
                 local live = {}
                 for _, msg in ipairs(AutoSay[pool.messages]) do live[msg.key] = true end
                 if Logic.PoolLostItsPhrases(enabled, live, settings[pool.customsKey]) then
+                    for key in pairs(enabled) do
+                        if not live[key] then enabled[key] = nil end
+                    end
                     for key, on in pairs(defaults[pool.enabledKey]) do enabled[key] = on end
                     self:DebugPrint("Restored stock", pool.messages, "for", channel.key)
                 end
             end
         end
+    end
+end
+
+function Addon:OnProfileDeleted(_, _, name)
+    if name then
+        self.priorProfiles[name] = nil
+        self.priorTimeOfDay[name] = nil
     end
 end
 

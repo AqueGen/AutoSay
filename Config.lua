@@ -59,11 +59,13 @@ end
 -- names option, role phrases need the master switch. An inactive phrase stays visible but
 -- greyed out - the tag on its row points at the switch that re-activates it.
 -- settingsFn is nil for pools without trigger context (goodbyes/reconnects/guild login).
-local function PhraseActive(msg, settingsFn, poolKind)
+local function PhraseActive(msg, settingsFn, poolKind, channelKey)
     -- Nothing is sent at all while the addon is off, so nothing in any list is live
     if not Addon.db.profile.enabled then return false end
     local roleDependent = msg.role or msg.text:find("{role}", 1, true)
     if roleDependent and not Addon.db.profile.social.rolePhrases then return false end
+    -- The runtime refuses role phrases on guild chat whatever the master switch says
+    if roleDependent and channelKey == "guild" then return false end
     if msg.band and not Addon.db.profile.social.timeOfDay then return false end
     if not settingsFn then return true end
     local settings = settingsFn()
@@ -72,8 +74,15 @@ local function PhraseActive(msg, settingsFn, poolKind)
     -- The switch that governs this particular list. A channel switched off silences all of
     -- them; beyond that a goodbye list follows the goodbye toggle, a reconnect list follows
     -- the reconnect toggle, and so on. Without this only the greetings list ever greyed.
-    if poolKind == "mplus" then
+    if poolKind == "mplusKey" or poolKind == "mplusCompletion" then
         if not settings.enabled then return false end
+        -- Beyond the master switch each M+ pool has its own trigger: a completion line
+        -- cannot go out with completion messages off, and the key announce needs one of
+        -- its two announce moments switched on
+        if poolKind == "mplusCompletion" and not settings.completionEnabled then return false end
+        if poolKind == "mplusKey" and not (settings.announceOnFull or settings.announceOnStart) then
+            return false
+        end
     else
         if settings.enabled == false then return false end
         if poolKind == "goodbyes" then
@@ -89,7 +98,11 @@ local function PhraseActive(msg, settingsFn, poolKind)
                 return false
             end
             if msg.trigger == "others" and not settings.onOthersJoin then return false end
-            if msg.trigger == "self" and not settings.onSelfJoin then return false end
+            -- A reconnect falls back into this pool and deliberately accepts [self] lines,
+            -- so they stay live while either switch can bring them out
+            if msg.trigger == "self" and not (settings.onSelfJoin or settings.onReconnect) then
+                return false
+            end
         end
     end
     -- {names} rows are deliberately NOT greyed when the names options are off: the runtime
@@ -299,7 +312,7 @@ local function BuildMessageMatrix(poolId, pool, channels)
                         local active = 0
                         local flags = channels[1].tableFn()
                         for _, msg in ipairs(entries) do
-                            if flags[msg.key] and PhraseActive(msg, channels[1].settingsFn, channels[1].poolKind) then
+                            if flags[msg.key] and PhraseActive(msg, channels[1].settingsFn, channels[1].poolKind, channels[1].key) then
                                 active = active + 1
                             end
                         end
@@ -327,7 +340,7 @@ local function BuildMessageMatrix(poolId, pool, channels)
             -- would keep its bright label above three dead ticks unless we colour it here
             local rowLabel = function()
                 for _, ch in ipairs(channels) do
-                    if PhraseActive(msg, ch.settingsFn, ch.poolKind) then return plainLabel end
+                    if PhraseActive(msg, ch.settingsFn, ch.poolKind, ch.key) then return plainLabel end
                 end
                 return "|cFF7F7F7F" .. plainLabel:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "") .. "|r"
             end
@@ -335,7 +348,7 @@ local function BuildMessageMatrix(poolId, pool, channels)
                 AddMatrixRow(args, "m_" .. msg.key, order, rowLabel, folded, channels, function(ch)
                     return {
                         -- Greyed out, not gone: the row's tag names the switch that re-activates it
-                        disabled = function() return not PhraseActive(msg, ch.settingsFn, ch.poolKind) end,
+                        disabled = function() return not PhraseActive(msg, ch.settingsFn, ch.poolKind, ch.key) end,
                         get = function() return ch.tableFn()[msg.key] end,
                         set = function(_, val)
                             ch.tableFn()[msg.key] = val
@@ -352,7 +365,7 @@ local function BuildMessageMatrix(poolId, pool, channels)
                     -- One column: tags must be readable without hovering, folding beats truncation
                     width = "full",
                     hidden = folded,
-                    disabled = function() return not PhraseActive(msg, ch.settingsFn, ch.poolKind) end,
+                    disabled = function() return not PhraseActive(msg, ch.settingsFn, ch.poolKind, ch.key) end,
                     get = function() return ch.tableFn()[msg.key] end,
                     set = function(_, val)
                         ch.tableFn()[msg.key] = val
@@ -370,7 +383,7 @@ end
 -- Build a custom message list UI group for any message type
 -- Pre-allocates all MAX_CUSTOM_MESSAGES slots with hidden functions
 -- so that add/delete dynamically shows/hides entries via NotifyChange.
-local function BuildCustomMessageList(channel, customsKey, labelKey)
+local function BuildCustomMessageList(channel, customsKey, labelKey, poolKind)
     local args = {}
 
     -- Header showing count
@@ -400,12 +413,13 @@ local function BuildCustomMessageList(channel, customsKey, labelKey)
             hidden = function()
                 return idx > #(Addon.db.profile[channel][customsKey] or {})
             end,
-            -- A custom {role} text obeys the same master switch as the preset role rows -
-            -- grey it the same way, or the list would show an active row that never fires
+            -- Greyed by the same rules as a preset row: the switch governing this pool,
+            -- the channel's own switch, and for a {role} text the role master switch
             disabled = function()
                 local entry = (Addon.db.profile[channel][customsKey] or {})[idx]
-                return entry and entry.text and entry.text:find("{role}", 1, true)
-                    and not Addon.db.profile.social.rolePhrases or false
+                if not entry or not entry.text then return false end
+                return not PhraseActive({ key = "custom", text = entry.text },
+                    function() return Addon.db.profile[channel] end, poolKind, channel)
             end,
             get = function()
                 local entry = (Addon.db.profile[channel][customsKey] or {})[idx]
@@ -481,13 +495,14 @@ end
 
 -- Custom messages stay per channel - one inline list each, under the shared matrix
 local function AddCustomGroups(args, channels, customsKey, labelKey, order)
+    local poolKind = channels[1] and channels[1].poolKind
     for i, ch in ipairs(channels) do
         args["custom_" .. ch.key] = {
             type = "group",
             name = channelLabel[ch.key],
             inline = true,
             order = order + i,
-            args = BuildCustomMessageList(ch.key, customsKey, labelKey),
+            args = BuildCustomMessageList(ch.key, customsKey, labelKey, poolKind),
         }
     end
 end
@@ -535,9 +550,12 @@ local function BuildGroupGreetings()
         L["Include group member names"] .. TagSuffix("{names}"),
         NoneOn(channels, "onSelfJoin"), channels, function(ch)
             return {
-                disabled = function() return ChannelIsOff(ch) end,
+                -- Off with its channel as well as with its parent trigger: two reasons,
+                -- one cell, and the channel one has to win rather than be overwritten
+                disabled = function()
+                    return ChannelIsOff(ch) or not Addon.db.profile[ch.key].onSelfJoin
+                end,
                 desc = L["Add names of current group members to the greeting"],
-                disabled = function() return not Addon.db.profile[ch.key].onSelfJoin end,
                 get = function() return Addon.db.profile[ch.key].includeGroupNames end,
                 set = function(_, val)
                     Addon.db.profile[ch.key].includeGroupNames = val
@@ -560,9 +578,12 @@ local function BuildGroupGreetings()
     AddMatrixRow(triggers, "onOthersJoinLeaderOnly", 5,
         L["Only if leader"], NoneOn(channels, "onOthersJoin"), channels, function(ch)
             return {
-                disabled = function() return ChannelIsOff(ch) end,
+                -- Off with its channel as well as with its parent trigger: two reasons,
+                -- one cell, and the channel one has to win rather than be overwritten
+                disabled = function()
+                    return ChannelIsOff(ch) or not Addon.db.profile[ch.key].onOthersJoin
+                end,
                 desc = leaderOnlyDesc[ch.key],
-                disabled = function() return not Addon.db.profile[ch.key].onOthersJoin end,
                 get = function() return Addon.db.profile[ch.key].onOthersJoinLeaderOnly end,
                 set = function(_, val) Addon.db.profile[ch.key].onOthersJoinLeaderOnly = val end,
             }
@@ -571,9 +592,12 @@ local function BuildGroupGreetings()
         L["Include player names"] .. TagSuffix("{names}"),
         NoneOn(channels, "onOthersJoin"), channels, function(ch)
             return {
-                disabled = function() return ChannelIsOff(ch) end,
+                -- Off with its channel as well as with its parent trigger: two reasons,
+                -- one cell, and the channel one has to win rather than be overwritten
+                disabled = function()
+                    return ChannelIsOff(ch) or not Addon.db.profile[ch.key].onOthersJoin
+                end,
                 desc = L["Add joined player names to the greeting"],
-                disabled = function() return not Addon.db.profile[ch.key].onOthersJoin end,
                 get = function() return Addon.db.profile[ch.key].includeNames end,
                 set = function(_, val)
                     Addon.db.profile[ch.key].includeNames = val
@@ -708,7 +732,7 @@ local function BuildGuildGreetings()
             name = L["Custom greetings"],
             inline = true,
             order = 3,
-            args = BuildCustomMessageList("guild", "customGreetings", "Custom greetings"),
+            args = BuildCustomMessageList("guild", "customGreetings", "Custom greetings", "greetings"),
         },
     }
 end
@@ -745,7 +769,7 @@ local function BuildGuildGoodbyes()
             name = L["Custom goodbyes"],
             inline = true,
             order = 3,
-            args = BuildCustomMessageList("guild", "customGoodbyes", "Custom goodbyes"),
+            args = BuildCustomMessageList("guild", "customGoodbyes", "Custom goodbyes", "goodbyes"),
         },
     }
 end
@@ -805,7 +829,7 @@ local function BuildGuildLoginToggles()
         name = L["Custom login greetings"],
         inline = true,
         order = order,
-        args = BuildCustomMessageList("guild", "customLoginGreetings", "Custom login greetings"),
+        args = BuildCustomMessageList("guild", "customLoginGreetings", "Custom login greetings", "login"),
     }
     order = order + 1
 
@@ -1489,14 +1513,14 @@ local function BuildOptions()
                             inline = true,
                             order = 10,
                             args = BuildMessageMatrix("mplusKeyAnnounce", AutoSay.KeyAnnounce,
-                                MatrixChannels({ "mythicplus" }, "enabledKeyAnnounce", "mplus")),
+                                MatrixChannels({ "mythicplus" }, "enabledKeyAnnounce", "mplusKey")),
                         },
                         customGroup = {
                             type = "group",
                             name = L["Custom Messages"],
                             inline = true,
                             order = 12,
-                            args = BuildCustomMessageList("mythicplus", "customKeyAnnounce", "Custom Messages"),
+                            args = BuildCustomMessageList("mythicplus", "customKeyAnnounce", "Custom Messages", "mplusKey"),
                         },
                         placeholderNote = {
                             type = "description",
@@ -1534,14 +1558,14 @@ local function BuildOptions()
                                     inline = true,
                                     order = 1,
                                     args = BuildMessageMatrix("mplusCompletionTimed", AutoSay.CompletionTimed,
-                                        MatrixChannels({ "mythicplus" }, "enabledCompletionTimed", "mplus")),
+                                        MatrixChannels({ "mythicplus" }, "enabledCompletionTimed", "mplusCompletion")),
                                 },
                                 customs = {
                                     type = "group",
                                     name = L["Custom timed messages"],
                                     inline = true,
                                     order = 2,
-                                    args = BuildCustomMessageList("mythicplus", "customCompletionTimed", "Custom timed messages"),
+                                    args = BuildCustomMessageList("mythicplus", "customCompletionTimed", "Custom timed messages", "mplusCompletion"),
                                 },
                                 placeholderNote = {
                                     type = "description",
@@ -1562,14 +1586,14 @@ local function BuildOptions()
                                     inline = true,
                                     order = 1,
                                     args = BuildMessageMatrix("mplusCompletionDepleted", AutoSay.CompletionDepleted,
-                                        MatrixChannels({ "mythicplus" }, "enabledCompletionDepleted", "mplus")),
+                                        MatrixChannels({ "mythicplus" }, "enabledCompletionDepleted", "mplusCompletion")),
                                 },
                                 customs = {
                                     type = "group",
                                     name = L["Custom depleted messages"],
                                     inline = true,
                                     order = 2,
-                                    args = BuildCustomMessageList("mythicplus", "customCompletionDepleted", "Custom depleted messages"),
+                                    args = BuildCustomMessageList("mythicplus", "customCompletionDepleted", "Custom depleted messages", "mplusCompletion"),
                                 },
                                 placeholderNote = {
                                     type = "description",
