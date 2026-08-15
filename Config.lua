@@ -846,17 +846,29 @@ local function BuildOptions()
                                 LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
                             end,
                         },
+                        -- Narrower than the other channel rows so its own qualifier sits
+                        -- beside it instead of on a line of its own
                         enableInstance = {
                             type = "toggle",
                             name = NewTag(L["Enable Instance"], "1.6"),
                             desc = L["Send greetings and goodbyes in instance chat"],
                             order = 3,
-                            width = "full",
+                            width = 1.0,
                             get = function() return Addon.db.profile.instance.enabled end,
                             set = function(_, val)
                                 Addon.db.profile.instance.enabled = val
                                 LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
                             end,
+                        },
+                        skipRaidGroups = {
+                            type = "toggle",
+                            name = NewTag(L["Skip LFR and battlegrounds"], "1.6"),
+                            desc = L["Skip LFR and battlegrounds desc"],
+                            order = 3.5,
+                            width = 1.6,
+                            hidden = function() return not Addon.db.profile.instance.enabled end,
+                            get = function() return Addon.db.profile.instance.skipRaidGroups end,
+                            set = function(_, val) Addon.db.profile.instance.skipRaidGroups = val end,
                         },
                         enableGuild = {
                             type = "toggle",
@@ -1190,15 +1202,6 @@ local function BuildOptions()
             order = 10,
             childGroups = "tab",
             args = {
-                -- Above the tabs on purpose: it silences the instance channel outright,
-                -- so it is not a greeting setting any more than a goodbye one
-                skipRaidGroups = {
-                    type = "toggle", order = 0, width = "full",
-                    name = NewTag(L["Skip LFR and battlegrounds"], "1.6"),
-                    desc = L["Skip LFR and battlegrounds desc"],
-                    get = function() return Addon.db.profile.instance.skipRaidGroups end,
-                    set = function(_, v) Addon.db.profile.instance.skipRaidGroups = v end,
-                },
                 greetings = {
                     type = "group",
                     name = L["Greetings"],
