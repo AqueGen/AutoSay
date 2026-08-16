@@ -119,9 +119,12 @@ L["Only greet newcomers when you are the group leader"] = "Only greet newcomers 
 -- Names
 L["Player Names"] = "Player Names"
 L["Include player names"] = "Include player names"
-L["Add joined player names to the greeting"] = "Add joined player names to the greeting"
+L["Add joined player names to the greeting"] = "Name the players who just joined. Any phrase can carry them: a phrase with a {names} slot fills it, the rest take the names on the end."
 L["Include group member names"] = "Include group member names"
-L["Add names of current group members to the greeting"] = "Add names of current group members to the greeting"
+L["Name the group when I join"] = "Name the group when I join"
+L["Name whoever joined"] = "Name whoever joined"
+L["Leader only note"] = "Only the group leader announces the key: the listing that carries the dungeon and level belongs to whoever created it. On someone else's key this switch stays quiet."
+L["Add names of current group members to the greeting"] = "Add the names of the people already in the group to your own join greeting. Any phrase can carry them: a phrase with a {names} slot fills it, the rest take the names on the end."
 
 -- Goodbyes
 L["Send Goodbye"] = "Send Goodbye"

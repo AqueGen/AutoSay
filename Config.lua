@@ -634,7 +634,7 @@ local function BuildGroupGreetings()
             }
         end)
     AddMatrixRow(triggers, "includeGroupNames", 3,
-        L["Include group member names"] .. TagSuffix("{names}"),
+        NewTag(L["Name the group when I join"], "1.7"),
         NoneOn(channels, "onSelfJoin"), channels, function(ch)
             return {
                 -- Off with its channel as well as with its parent trigger: two reasons,
@@ -676,7 +676,7 @@ local function BuildGroupGreetings()
             }
         end)
     AddMatrixRow(triggers, "includeNames", 6,
-        L["Include player names"] .. TagSuffix("{names}"),
+        NewTag(L["Name whoever joined"], "1.7"),
         NoneOn(channels, "onOthersJoin"), channels, function(ch)
             return {
                 -- Off with its channel as well as with its parent trigger: two reasons,
@@ -1622,8 +1622,9 @@ local function BuildOptions()
                             args = {
                                 announceOnFull = {
                                     type = "toggle",
-                                    name = L["Announce when group is full"],
-                                    desc = L["Send a message when your M+ group reaches 5 players"],
+                                    name = L["Announce when group is full"] .. TagSuffix("leader"),
+                                    desc = L["Send a message when your M+ group reaches 5 players"]
+                                        .. "\n\n" .. L["Leader only note"],
                                     order = 1,
                                     width = "full",
                                     get = function() return Addon.db.profile.mythicplus.announceOnFull end,
@@ -1631,8 +1632,9 @@ local function BuildOptions()
                                 },
                                 announceOnStart = {
                                     type = "toggle",
-                                    name = NewTag(L["Announce at key start"], "1.6"),
-                                    desc = L["Announce at key start desc"],
+                                    name = NewTag(L["Announce at key start"], "1.6") .. TagSuffix("leader"),
+                                    desc = L["Announce at key start desc"]
+                                        .. "\n\n" .. L["Leader only note"],
                                     order = 2,
                                     width = "full",
                                     get = function() return Addon.db.profile.mythicplus.announceOnStart end,

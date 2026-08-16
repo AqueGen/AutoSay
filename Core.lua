@@ -1639,7 +1639,7 @@ function Addon:BuildAndSendGreeting(channel, reason, playerNames)
     local hasNames = playerNames ~= nil and #playerNames > 0
     local wantNames = hasNames and (reason == "self_join" or settings.includeNames or false)
 
-    -- Pick a message based on reason (humanizer history avoids immediate repeats)
+    -- Pick a message based on reason (the humanizer rotates through the whole pool)
     local message, nameMode, keepCase
     if reason == "reconnect" then
         message, nameMode, keepCase = self:GetRandomMessageForChannel("reconnects", channel, reason, wantNames)
@@ -1748,8 +1748,15 @@ function Addon:SendRunEndGoodbye(completionSpoke)
         return false
     end
 
-    -- Burn the once-per-run flag on the attempt, not on the result: a goodbye the cooldown
-    -- or the budget refused must not come back a second later from the leave path's event
+    -- The cooldown is asked before the flag is burned: a goodbye refused for talking too
+    -- recently has not been said, and the leave that follows should still get its chance
+    if not self:CanSendMessage(channel) then
+        self:DebugPrint("Run-end goodbye dropped - cooldown active")
+        return false
+    end
+
+    -- Burn the once-per-run flag on the attempt, not on the result: a goodbye the budget
+    -- refused must not come back a second later from the leave path's event
     self.state.runEndGoodbyeSent = true
     self:DebugPrint("Run ended, saying goodbye on", channel)
     return self:DispatchGoodbye(channel)
@@ -2421,13 +2428,13 @@ end
 -- Send completion message to party chat
 function Addon:SendCompletionMessage(dungeon, keyLevel, onTime, upgrade, timeFormatted)
     local db = self.db.profile
-    if not db.enabled or not db.mythicplus.enabled or not db.mythicplus.completionEnabled then return end
-    if not self:MythicPlusChannelOpen() then return end
+    if not db.enabled or not db.mythicplus.enabled or not db.mythicplus.completionEnabled then return false end
+    if not self:MythicPlusChannelOpen() then return false end
 
     local template = self:GetRandomCompletionMessage(onTime, upgrade)
     if not template then
         self:DebugPrint("SendCompletionMessage: no completion messages enabled for", onTime and "timed" or "depleted")
-        return
+        return false
     end
 
     local extra = {
@@ -2446,7 +2453,9 @@ function Addon:SendCompletionMessage(dungeon, keyLevel, onTime, upgrade, timeFor
     if not self:SendMessageToChat(message, channel, nil, true) then
         -- A completion line that lands half a minute late is noise, so no retry
         self:DebugPrint("Completion message dropped (cooldown or addon disabled)")
+        return false
     end
+    return true
 end
 
 --------------------------------------------------------------------------------
@@ -2502,7 +2511,7 @@ function Addon:TestReset()
         self.socialGate.pending = {}
     end
     if self.humanizer then
-        self.humanizer.history = {}
+        self.humanizer.rounds = {}
     end
     -- Delayed sends from an earlier simulation must not fire into the next one (the
     -- sendGeneration bump on the test-mode toggle covers mode changes; this covers resets).
@@ -2958,11 +2967,13 @@ function Addon:TestStatus()
     local guildCooldown = math.max(0, self.db.profile.cooldown - (GetTime() - self.state.lastGuildMessageTime))
     self:Print("Cooldown remaining: Group:", string.format("%.1fs", groupCooldown), "| Guild:", string.format("%.1fs", guildCooldown))
 
-    -- Humanizer pick history status
-    if self.humanizer and self.humanizer.history then
-        local poolCount = 0
-        for _ in pairs(self.humanizer.history) do poolCount = poolCount + 1 end
-        self:Print("Humanizer history pools:", "|cFFFFFF00" .. poolCount .. "|r")
+    -- Where each pool stands in its rotation: how many of its phrases are already spent
+    if self.humanizer and self.humanizer.rounds then
+        for poolId, round in pairs(self.humanizer.rounds) do
+            local spent = 0
+            for _ in pairs(round.used or {}) do spent = spent + 1 end
+            self:Print("Rotation:", poolId, "|cFFFFFF00" .. spent .. "|r said this round")
+        end
     end
 
     -- Show channel status
