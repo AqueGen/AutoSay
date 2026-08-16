@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.7.0](https://github.com/AqueGen/AutoSay/compare/v1.6.0...v1.7.0) (2026-08-16)
+
+
+### Features
+
+* record a session log you can copy out ([#9](https://github.com/AqueGen/AutoSay/issues/9)) ([c8a194e](https://github.com/AqueGen/AutoSay/commit/c8a194ee6d68715693da75fc813df073dc1e209e))
+* say goodbye when the run ends, not only when you leave ([#8](https://github.com/AqueGen/AutoSay/issues/8)) ([660b04e](https://github.com/AqueGen/AutoSay/commit/660b04e41959a3dc748ae3b55cced301f92cd930))
+* split greetings by occasion, rotate phrases properly, log a session ([#11](https://github.com/AqueGen/AutoSay/issues/11)) ([2fd10ee](https://github.com/AqueGen/AutoSay/commit/2fd10ee2b804b78db4f9704575624b8aa329d29e))
+
 ## [1.6.0](https://github.com/AqueGen/AutoSay/compare/v1.5.0...v1.6.0) (2026-08-15)
 
 
