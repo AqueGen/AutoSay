@@ -570,8 +570,10 @@ local RETIRED_MPLUS_POOLS = {
 function Addon:MigrateRetiredPhrases(historyOf)
     local profile = self.db.profile
     if profile.retiredPhrasesMigrated == RETIRED_PHRASES_VERSION then return end
-    profile.retiredPhrasesMigrated = RETIRED_PHRASES_VERSION
-    if not self.priorProfiles[historyOf or self.db:GetCurrentProfile()] then return end
+    if not self.priorProfiles[historyOf or self.db:GetCurrentProfile()] then
+        profile.retiredPhrasesMigrated = RETIRED_PHRASES_VERSION
+        return
+    end
 
     local defaults = {
         enabledGreetingsSelf = defaultGreetingsSelf,
@@ -618,6 +620,8 @@ function Addon:MigrateRetiredPhrases(historyOf)
             end
         end
     end
+    -- Stamped once every pool has been through, so a raise leaves the pass to be retried
+    profile.retiredPhrasesMigrated = RETIRED_PHRASES_VERSION
 end
 
 function Addon:OnProfileDeleted(_, _, name)
@@ -633,17 +637,14 @@ function Addon:OnProfileSwitched(event, _, sourceName)
     -- you left stay spent under the one you arrived at
     if self.humanizer then self.humanizer.rounds = {} end
     if event == "OnProfileCopied" then
-        -- The copy carries the source's stored tables, so the structural conversions still
-        -- have real work to do. Only the snapshot-dependent ones are stamped: their evidence
-        -- is keyed by profile name, and the name here belongs to the destination.
+        -- The copy carries the source's stored tables, so every migration still has real
+        -- work to do. The two that judge a profile by its own past are told whose past to
+        -- read: the source's, since that is where these settings come from.
         self:MigrateCustomMessages()
         self:MigrateGreetingSides()
         self:MigrateInstanceChannel()
         self:MigrateKeyLevelMode()
-        local profile = self.db.profile
-        -- The master-switch pass asks what this profile chose before the upgrade, and the
-        -- copy has no past of its own: its answer would belong to the profile it replaced.
-        profile.masterSwitchesMigrated = true
+        self:MigrateMasterSwitches(sourceName)
         -- The rescue asks a different question - "did the phrases in these tables get
         -- retired" - and the tables came from the source, so the source's history is the
         -- right one to read.
@@ -686,11 +687,13 @@ end
 -- on the phrase. Each occasion owns its own list now, so the stored one is dealt into both:
 -- every phrase keeps the state it had, on the occasions it can actually serve.
 -- The stored choices land on top of whatever the defaults already put in the list
-local function ApplySelection(settings, key, values)
+local function ApplySelection(settings, key, values, fallbackDefaults)
     local target = settings[key]
     if type(target) ~= "table" then
-        settings[key] = values
-        return
+        -- Never the sparse stored list on its own: that is exactly what broke 1.7.0. Start
+        -- from the full default set, then let the stored choices land on top of it.
+        target = DeepCopy(fallbackDefaults)
+        settings[key] = target
     end
     for phrase, state in pairs(values) do target[phrase] = state end
 end
@@ -703,7 +706,9 @@ function Addon:MigrateGreetingSides()
     local pending = false
     for _, channel in ipairs(AutoSay.Channels) do
         local settings = profile[channel.key]
-        if settings and type(settings.enabledGreetings) == "table" then pending = true end
+        if type(settings) == "table" and type(settings.enabledGreetings) == "table" then
+            pending = true
+        end
     end
     if not pending then
         profile.greetingSidesMigrated = true
@@ -712,17 +717,18 @@ function Addon:MigrateGreetingSides()
 
     for _, channel in ipairs(AutoSay.Channels) do
         local settings = profile[channel.key]
-        local stored = settings and settings.enabledGreetings
+        local stored = type(settings) == "table" and settings.enabledGreetings or nil
         if type(stored) == "table" then
             local selfSide, others = Logic.SplitGreetingSelection(stored, AutoSay.Greetings)
             -- Written over the defaults, never in place of them. AceDB stores only what
             -- differs from a default and copies the rest back in at load, so the stored list
             -- holds the player's changes alone. Replacing the table with it would drop every
             -- phrase they never touched, which is most of them.
-            ApplySelection(settings, "enabledGreetingsSelf", selfSide)
+            ApplySelection(settings, "enabledGreetingsSelf", selfSide, defaultGreetingsSelf)
             -- The guild never welcomes anyone through this list: its arrivals have their own
             if channel.key ~= "guild" then
-                ApplySelection(settings, "enabledGreetingsOthers", others)
+                ApplySelection(settings, "enabledGreetingsOthers", others,
+                    defaultGreetingsOthers)
             end
             settings.enabledGreetings = nil
             self:DebugPrint("Split the greeting selection for", channel.key)
@@ -749,15 +755,19 @@ end
 -- The master switches are new, and they ship off. 1.5.x had no switch and spoke its
 -- time-of-day phrases for everyone, so defaulting an upgrade to off would read as "the
 -- morning greetings broke", not as a setting. Roles are genuinely new, so they stay off.
-function Addon:MigrateMasterSwitches()
+--- historyOf names the profile whose past decides this, as in MigrateRetiredPhrases: a copy
+--- inherited both the settings and the question, so it answers with the source's history.
+function Addon:MigrateMasterSwitches(historyOf)
     local profile = self.db.profile
     if profile.masterSwitchesMigrated then return end
-    profile.masterSwitchesMigrated = true
-    -- Only a profile that existed before this build can have lost anything. One created or
-    -- copied afterwards already holds whatever it was given, and treating it as an upgrade
-    -- would switch a feature on that its owner never had.
-    local name = self.db:GetCurrentProfile()
-    if not self.priorProfiles[name] then return end
+    -- Only a profile that existed before this build can have lost anything. One created
+    -- afterwards already holds whatever it was given, and treating it as an upgrade would
+    -- switch a feature on that its owner never had.
+    local name = historyOf or self.db:GetCurrentProfile()
+    if not self.priorProfiles[name] then
+        profile.masterSwitchesMigrated = true
+        return
+    end
     -- A stored false is someone who turned the phrases off back when the switch defaulted
     -- to on; turning them back on would undo a decision made by hand.
     if self.priorTimeOfDay[name] == nil then
@@ -778,6 +788,8 @@ function Addon:MigrateMasterSwitches()
         end
         self:DebugPrint("Kept time-of-day phrases on for an upgraded profile")
     end
+    -- Stamped once the work is behind us, so a raise above leaves it to be retried
+    profile.masterSwitchesMigrated = true
 end
 
 function Addon:MigrateKeyLevelMode()
@@ -1381,6 +1393,10 @@ function Addon:DoSendMessage(message, channel, target, keepCase)
             -- One frame is enough for the group to change under us, and a line meant for
             -- the party we just left must not land in the one we just joined
             if generation ~= self.state.sendGeneration then return end
+            if not self.db.profile.enabled or not self:IsEnabled() then
+                self:DebugPrint("Retry dropped - the addon was switched off", channel)
+                return
+            end
             if self:GetChatChannel() ~= channel and channel ~= "GUILD" then
                 self:DebugPrint("Retry dropped - the group changed", channel)
                 return

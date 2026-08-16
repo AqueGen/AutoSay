@@ -362,17 +362,24 @@ function Addon:RunSelfTest()
             check("a pool whose phrases were all retired gets the stock set back",
                 Dump(profile.party.enabledGreetingsSelf) == Dump(profile.raid.enabledGreetingsSelf),
                 "the restored set is not the stock one")
-            -- The stored list holds only what the player changed, so a migration that
-            -- replaced the list instead of writing over it would drop everything else
-            local defaultsKept = 0
-            for _ in pairs(profile.party.enabledGreetingsSelf) do
-                defaultsKept = defaultsKept + 1
-            end
-            check("the split keeps the phrases the profile never touched",
-                defaultsKept > 5, format("only %d phrase(s) survived the split", defaultsKept))
 
             check("an upgrade keeps the time-of-day phrases it already had",
                 profile.social.timeOfDay == true, "the master switch was left off")
+
+            -- On its own, away from the rescue: a stored list holds only what its owner
+            -- changed, so a split that replaced the list instead of writing over it would
+            -- take every untouched phrase with it - and the rescue would hide that by
+            -- handing the stock set back.
+            self.priorProfiles[SCRATCH] = nil -- no history, so nothing is rescued here
+            profile.greetingSidesMigrated = nil
+            profile.raid.enabledGreetings = { hi = false }
+            self:MigrateGreetingSides()
+            local kept, stored = 0, profile.raid.enabledGreetingsSelf
+            for _ in pairs(stored) do kept = kept + 1 end
+            check("a sparse stored list keeps the phrases it never mentioned",
+                kept > 5 and stored.hi == false,
+                format("%d phrase(s) left, hi=%s", kept, tostring(stored.hi)))
+            self.priorProfiles[SCRATCH] = { party = {} }
 
             local afterFirst = Dump(profile)
             self:RunProfileMigrations()
