@@ -47,8 +47,8 @@ local function PresetLabel(msg, ownStyleGroup)
         table.insert(tags, msg.faction:lower())
     end
     -- No trigger tag: the phrase lists are split by occasion now, so the tab already said it.
-    -- A name slot is worth marking, since it is the one thing a row still depends on.
-    if msg.text:find("{names}", 1, true) then table.insert(tags, "names") end
+    -- A {names} slot needs no tag either - it is written in the phrase for anyone to see,
+    -- and the switch that fills it carries the matching [names] tag of its own.
     if #tags == 0 then return msg.text end
     return msg.text .. " |cFF888888[" .. table.concat(tags, ", ") .. "]|r"
 end
@@ -57,10 +57,10 @@ end
 -- shared across characters (mage today, tank alt tomorrow), so every role stays configurable.
 -- The runtime pick already filters by the actual current role.
 
--- A phrase is ACTIVE only while every tag it depends on is switched on (AND semantics):
--- [newcomers] needs On others join, [self] needs On self join, a {names} slot needs the
--- names option, role phrases need the master switch. An inactive phrase stays visible but
--- greyed out - the tag on its row points at the switch that re-activates it.
+-- A phrase is ACTIVE only while everything it depends on is switched on (AND semantics):
+-- the occasion is the tab it sits on, a {names} slot needs that tab's naming switch, and a
+-- role or time-of-day tag needs its master switch on the Style tab. An inactive phrase stays
+-- visible but greyed out, next to the switch that would bring it back.
 -- settingsFn always resolves to the channel's settings; poolKind says which switch of that
 -- table governs this list.
 -- A reconnect draws from the Reconnects list and only falls back to the greetings when that
@@ -706,7 +706,7 @@ local function BuildGroupGreetingsSelf()
             }
         end)
     AddMatrixRow(triggers, "includeGroupNames", 3,
-        NewTag(L["Name the group when I join"], NEW_IN),
+        NewTag(L["Name the group when I join"], NEW_IN) .. TagSuffix("names"),
         NoneOn(channels, "onSelfJoin"), channels, function(ch)
             return {
                 -- Off with its channel as well as with its parent trigger: two reasons,
@@ -779,7 +779,7 @@ local function BuildGroupGreetingsOthers()
             }
         end)
     AddMatrixRow(triggers, "includeNames", 4,
-        NewTag(L["Name whoever joined"], NEW_IN),
+        NewTag(L["Name whoever joined"], NEW_IN) .. TagSuffix("names"),
         NoneOn(channels, "onOthersJoin"), channels, function(ch)
             return {
                 disabled = function()
