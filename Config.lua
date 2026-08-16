@@ -163,12 +163,24 @@ local channelLabel = {
 local MATRIX_LABEL_WIDTH, MATRIX_COL_WIDTH = 2.0, 0.55
 
 -- Channel descriptors for a shared matrix: which profile table each column writes to
+-- enabledGreetings -> customGreetings: the custom list that feeds the same occasion
+local CUSTOMS_BY_ENABLED_KEY = {
+    enabledGreetings = "customGreetings",
+    enabledGoodbyes = "customGoodbyes",
+    enabledReconnects = "customReconnects",
+    enabledLoginGreetings = "customLoginGreetings",
+    enabledKeyAnnounce = "customKeyAnnounce",
+    enabledCompletionTimed = "customCompletionTimed",
+    enabledCompletionDepleted = "customCompletionDepleted",
+}
+
 local function MatrixChannels(keys, enabledKey, poolKind)
     local channels = {}
     for _, key in ipairs(keys) do
         channels[#channels + 1] = {
             key = key,
             poolKind = poolKind,
+            customsKey = CUSTOMS_BY_ENABLED_KEY[enabledKey],
             tableFn = function() return Addon.db.profile[key][enabledKey] end,
             -- Always exposed now: every list has a switch of its own to follow, not just
             -- the greetings list with its trigger toggles
@@ -272,9 +284,68 @@ end
 -- "Classic" (every untagged phrase) starts open, styles start folded.
 -- poolId keys the fold state; channels is a list of { key, tableFn, settingsFn } - one entry
 -- renders the plain single-column list, several render the shared checkbox matrix.
+--- Channels that could speak but have nothing to say: the trigger is on, the channel is on,
+--- and not one phrase of this pool is ticked for it. Silence with no explanation anywhere,
+--- until now.
+local function EmptyPoolNotice(pool, channels)
+    return function()
+        local names = {}
+        for _, ch in ipairs(channels) do
+            local settings = ch.settingsFn and ch.settingsFn()
+            local flags = settings and ch.tableFn and ch.tableFn()
+            if flags and not ChannelIsOff(ch) then
+                local anyLive = false
+                for _, msg in ipairs(pool) do
+                    if flags[msg.key] and PhraseActive(msg, ch.settingsFn, ch.poolKind, ch.key) then
+                        anyLive = true
+                        break
+                    end
+                end
+                -- A custom line counts as content the same way the phrase list does
+                if not anyLive and ch.customsKey and settings[ch.customsKey] then
+                    for _, entry in ipairs(settings[ch.customsKey]) do
+                        if entry.enabled and entry.text and entry.text:match("%S") then
+                            anyLive = true
+                            break
+                        end
+                    end
+                end
+                -- Only worth saying when something upstream would have let a line out
+                if not anyLive and PhraseActive({ key = "probe", text = "probe" },
+                    ch.settingsFn, ch.poolKind, ch.key) then
+                    names[#names + 1] = channelLabel[ch.key] or ch.key
+                end
+            end
+        end
+        if #names == 0 then return "" end
+        return "|cFFFF7F3F" .. string.format(L["Nothing selected notice"],
+            table.concat(names, ", ")) .. "|r"
+    end
+end
+
+--- Phrases this channel could never say, whatever is ticked: the guild has no group role and
+--- no newcomers of its own (guild member logins have their own list), so those rows would be
+--- permanently dead decoration on that tab.
+local function PoolForChannels(pool, channels)
+    local guildOnly = #channels == 1 and channels[1].key == "guild"
+    if not guildOnly then return pool end
+    local kept = {}
+    for _, msg in ipairs(pool) do
+        local roleBound = msg.role ~= nil or msg.text:find("{role}", 1, true) ~= nil
+        if not roleBound and msg.trigger ~= "others" then kept[#kept + 1] = msg end
+    end
+    return kept
+end
+
 local function BuildMessageMatrix(poolId, pool, channels)
     local matrix = #channels > 1
+    pool = PoolForChannels(pool, channels)
     local args = {}
+
+    args.emptyNotice = {
+        type = "description", order = 0.4, width = "full",
+        name = EmptyPoolNotice(pool, channels),
+    }
 
     -- Greyed rows are gated elsewhere - point at the tab that re-activates them
     if channels[1].poolKind ~= "mplusKey" and channels[1].poolKind ~= "mplusCompletion" then
