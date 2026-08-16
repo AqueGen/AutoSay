@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.8.0](https://github.com/AqueGen/AutoSay/compare/v1.7.0...v1.8.0) (2026-08-16)
+
+
+### Features
+
+* three of everything in every style ([#13](https://github.com/AqueGen/AutoSay/issues/13)) ([e774cd5](https://github.com/AqueGen/AutoSay/commit/e774cd5b3f8eb3deb2ef993473e2c3586ce74d00))
+
+
+### Bug Fixes
+
+* repair what the 1.7.0 greeting migration did to saved profiles ([#14](https://github.com/AqueGen/AutoSay/issues/14)) ([687ce6d](https://github.com/AqueGen/AutoSay/commit/687ce6d7ed90bbc69451a1ca985a488183d489ea))
+* what two independent reviews found in the migration repair ([#16](https://github.com/AqueGen/AutoSay/issues/16)) ([8c8cae5](https://github.com/AqueGen/AutoSay/commit/8c8cae5d092ed82354d22d94c8f513c690893e57))
+
 ## [1.7.0](https://github.com/AqueGen/AutoSay/compare/v1.6.0...v1.7.0) (2026-08-16)
 
 
