@@ -57,10 +57,10 @@ end
 -- shared across characters (mage today, tank alt tomorrow), so every role stays configurable.
 -- The runtime pick already filters by the actual current role.
 
--- A phrase is ACTIVE only while every tag it depends on is switched on (AND semantics):
--- [newcomers] needs On others join, [self] needs On self join, a {names} slot needs the
--- names option, role phrases need the master switch. An inactive phrase stays visible but
--- greyed out - the tag on its row points at the switch that re-activates it.
+-- A phrase is ACTIVE only while everything it depends on is switched on (AND semantics):
+-- the occasion is the tab it sits on, a {names} slot needs that tab's naming switch, and a
+-- role or time-of-day tag needs its master switch on the Style tab. An inactive phrase stays
+-- visible but greyed out, next to the switch that would bring it back.
 -- settingsFn always resolves to the channel's settings; poolKind says which switch of that
 -- table governs this list.
 -- A reconnect draws from the Reconnects list and only falls back to the greetings when that
