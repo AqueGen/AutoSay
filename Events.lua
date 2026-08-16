@@ -26,6 +26,9 @@ function Addon:RegisterEvents()
     self:RegisterEvent("LFG_LIST_ENTRY_EXPIRED_TOO_MANY_PLAYERS")
 
     -- M+ keystone activated / dungeon completion
+    -- The reward hand-out at the end of a Dungeon Finder run: the dungeon is over while
+    -- everyone is still standing in the same group
+    self:RegisterEvent("LFG_COMPLETION_REWARD")
     self:RegisterEvent("CHALLENGE_MODE_START")
     self:RegisterEvent("CHALLENGE_MODE_RESET")
     self:RegisterEvent("CHALLENGE_MODE_COMPLETED")
@@ -114,6 +117,7 @@ function Addon:GROUP_JOINED(event, category)
         -- Clear stale M+ listing cache when joining a new group
         -- (prevents announce from firing with old data when joining someone else's group)
         self.state.cachedLFGListing = nil
+        self.state.runEndGoodbyeSent = false
         self.state.keyAnnounced = false
         self.state.keyAnnounceRetried = false
         self.state.announcedKey = nil
@@ -398,6 +402,15 @@ function Addon:GROUP_ROSTER_UPDATE()
                         self:DebugPrint("Dropping newcomer batch - group category changed since it was collected")
                         return
                     end
+                    -- The trigger that admitted this batch belonged to the channel it was
+                    -- collected in. A party turning into a raid keeps the audience but not
+                    -- the settings, so the channel we are about to speak in has to want
+                    -- newcomer greetings too, leader rule included.
+                    if not self:ShouldGreetOnOthersJoin(nowChannel) then
+                        self:DebugPrint("Dropping newcomer batch -", nowChannel,
+                            "does not greet newcomers")
+                        return
+                    end
                     if #names > 0 then
                         self:DebugPrint("Sending batched greeting for:", table.concat(names, ", "))
                         self:SendGreeting(names, "others_join")
@@ -542,6 +555,10 @@ end
 function Addon:CHALLENGE_MODE_START(event, mapID)
     self:DebugPrint("EVENT: CHALLENGE_MODE_START")
 
+    -- A fresh run, whatever the announce settings say below: the next ending earns its own
+    -- goodbye even when the same group chains a second key
+    self.state.runEndGoodbyeSent = false
+
     local db = self.db.profile
     if not db.enabled then return end
     if not db.mythicplus or not db.mythicplus.enabled or not db.mythicplus.announceOnStart then return end
@@ -590,6 +607,26 @@ function Addon:CHALLENGE_MODE_RESET()
     end
 end
 
+-- Handle LFG_COMPLETION_REWARD - a Dungeon Finder run paid out, so the dungeon is done.
+-- A keystone run ends through CHALLENGE_MODE_COMPLETED instead, and the once-per-run flag
+-- keeps the two from doubling up if a client ever fires both.
+function Addon:LFG_COMPLETION_REWARD()
+    self:DebugPrint("EVENT: LFG_COMPLETION_REWARD")
+
+    -- Same delay and cancellation the completion line uses: it lands after Blizzard's reward
+    -- frame, and joining another group in the meantime drops it instead of saying goodbye to
+    -- people who were never there
+    local handles = self.state.pendingGroupSends
+    local channel = self:GetChatChannel()
+    if not channel then return end
+    local handle
+    handle = self:ScheduleTimer(function()
+        handles[handle] = nil
+        self:SendRunEndGoodbye(false)
+    end, 3)
+    handles[handle] = channel
+end
+
 -- Handle CHALLENGE_MODE_COMPLETED - M+ dungeon finished (timed or depleted)
 function Addon:CHALLENGE_MODE_COMPLETED()
     self:DebugPrint("EVENT: CHALLENGE_MODE_COMPLETED")
@@ -603,6 +640,22 @@ function Addon:CHALLENGE_MODE_COMPLETED()
     end
 
     local db = self.db.profile
+    local completionWanted = db.enabled and db.mythicplus and db.mythicplus.enabled
+        and db.mythicplus.completionEnabled and true or false
+    if not completionWanted then
+        -- Nothing is going to sum this run up, so the goodbye is free to mark the ending
+        local handles = self.state.pendingGroupSends
+        local channel = self:GetChatChannel()
+        if channel then
+            local handle
+            handle = self:ScheduleTimer(function()
+                handles[handle] = nil
+                self:SendRunEndGoodbye(false)
+            end, 3)
+            handles[handle] = channel
+        end
+    end
+
     if not db.enabled then return end
     if not db.mythicplus or not db.mythicplus.enabled or not db.mythicplus.completionEnabled then return end
 
@@ -614,9 +667,19 @@ function Addon:CHALLENGE_MODE_COMPLETED()
         return
     end
 
-    -- Skip practice runs
+    -- Skip practice runs. The goodbye still gets its chance: nothing summed this run up.
     if info.practiceRun then
         self:DebugPrint("Practice run, skipping completion message")
+        local handles = self.state.pendingGroupSends
+        local channel = self:GetChatChannel()
+        if channel then
+            local handle
+            handle = self:ScheduleTimer(function()
+                handles[handle] = nil
+                self:SendRunEndGoodbye(false)
+            end, 3)
+            handles[handle] = channel
+        end
         return
     end
 
@@ -646,7 +709,11 @@ function Addon:CHALLENGE_MODE_COMPLETED()
     local handle
     handle = self:ScheduleTimer(function()
         handles[handle] = nil
-        self:SendCompletionMessage(dungeonName, keyLevel, onTime, upgrade, timeFormatted)
+        -- Whether the summary actually reached chat, not whether it was switched on: a
+        -- practice run, an empty completion list or a refused send all leave the ending
+        -- unspoken, and then the goodbye is the one that should mark it
+        local spoke = self:SendCompletionMessage(dungeonName, keyLevel, onTime, upgrade, timeFormatted)
+        self:SendRunEndGoodbye(spoke and true or false)
     end, 3)
     handles[handle] = "PARTY"
 end

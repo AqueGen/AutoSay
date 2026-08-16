@@ -8,7 +8,7 @@ local MAX_CUSTOM_MESSAGES = 10
 
 local ADDON_VERSION = (C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata)(ADDON_NAME, "Version") or ""
 -- Append a green "New!" while the addon version still matches the minor release the option shipped in.
--- Auto-expires on the next minor: NewTag("Style", "1.6") stops matching once 1.7.0 ships.
+-- Auto-expires on the next minor: NewTag("Style", "1.7") stops matching once 1.7.0 ships.
 local function NewTag(name, ver)
     if AutoSay.MessageLogic.VersionMatchesMinor(ADDON_VERSION, ver) then
         return name .. " |cFF00FF00New!|r"
@@ -20,9 +20,6 @@ end
 
 -- Per-pool accordion fold state: shownStyle[poolId][style] = open (UI only, not saved)
 local shownStyle = {}
-
--- Word shown for a per-phrase trigger tag
-local triggerWords = { self = "self", others = "newcomers" }
 
 -- The same grey [tag] the phrase rows use, for the switches that control that tag -
 -- seeing [newcomers] on both ends makes the wiring obvious
@@ -44,7 +41,7 @@ local function PresetLabel(msg, ownStyleGroup)
     elseif msg.faction then
         table.insert(tags, msg.faction:lower())
     end
-    if msg.trigger then table.insert(tags, triggerWords[msg.trigger] or msg.trigger) end
+    -- No trigger tag: the phrase lists are split by occasion now, so the tab already said it
     if #tags == 0 then return msg.text end
     return msg.text .. " |cFF888888[" .. table.concat(tags, ", ") .. "]|r"
 end
@@ -118,24 +115,20 @@ local function PhraseActive(msg, settingsFn, poolKind, channelKey)
     else
         if settings.enabled == false then return false end
         if poolKind == "goodbyes" then
-            if not settings.sendGoodbye then return false end
+            -- Two occasions feed this list now, and either one keeps it alive
+            if not (settings.sendGoodbye or settings.sendGoodbyeOnRunEnd) then return false end
         elseif poolKind == "reconnects" then
             if not settings.onReconnect then return false end
         elseif poolKind == "login" then
             if not settings.onMemberLogin then return false end
-        elseif poolKind == "greetings" then
-            -- A greeting can be triggered by joining, by someone else joining, or by a
-            -- reconnect falling back to this pool: with none of them on, none can fire
-            local viaReconnect = ReconnectFallsBackToGreetings(settings, channelKey)
-            if not (settings.onSelfJoin or settings.onOthersJoin or viaReconnect) then
+        elseif poolKind == "greetingsSelf" then
+            -- This list is what goes out when you arrive, and a reconnect borrows it when
+            -- the reconnect list has nothing the addon could say
+            if not (settings.onSelfJoin or ReconnectFallsBackToGreetings(settings, channelKey)) then
                 return false
             end
-            if msg.trigger == "others" and not settings.onOthersJoin then return false end
-            -- That fallback deliberately accepts [self] lines, since a reconnect is a self
-            -- event, so they stay live while either switch can bring them out
-            if msg.trigger == "self" and not (settings.onSelfJoin or viaReconnect) then
-                return false
-            end
+        elseif poolKind == "greetingsOthers" then
+            if not settings.onOthersJoin then return false end
         end
     end
     -- {names} rows are deliberately NOT greyed when the names options are off: the runtime
@@ -162,12 +155,25 @@ local channelLabel = {
 local MATRIX_LABEL_WIDTH, MATRIX_COL_WIDTH = 2.0, 0.55
 
 -- Channel descriptors for a shared matrix: which profile table each column writes to
+-- enabled<Pool> -> custom<Pool>: the custom list that feeds the same occasion
+local CUSTOMS_BY_ENABLED_KEY = {
+    enabledGreetingsSelf = "customGreetings",
+    enabledGreetingsOthers = "customGreetings",
+    enabledGoodbyes = "customGoodbyes",
+    enabledReconnects = "customReconnects",
+    enabledLoginGreetings = "customLoginGreetings",
+    enabledKeyAnnounce = "customKeyAnnounce",
+    enabledCompletionTimed = "customCompletionTimed",
+    enabledCompletionDepleted = "customCompletionDepleted",
+}
+
 local function MatrixChannels(keys, enabledKey, poolKind)
     local channels = {}
     for _, key in ipairs(keys) do
         channels[#channels + 1] = {
             key = key,
             poolKind = poolKind,
+            customsKey = CUSTOMS_BY_ENABLED_KEY[enabledKey],
             tableFn = function() return Addon.db.profile[key][enabledKey] end,
             -- Always exposed now: every list has a switch of its own to follow, not just
             -- the greetings list with its trigger toggles
@@ -271,9 +277,73 @@ end
 -- "Classic" (every untagged phrase) starts open, styles start folded.
 -- poolId keys the fold state; channels is a list of { key, tableFn, settingsFn } - one entry
 -- renders the plain single-column list, several render the shared checkbox matrix.
+--- Channels that could speak but have nothing to say: the trigger is on, the channel is on,
+--- and not one phrase of this pool is ticked for it. Silence with no explanation anywhere,
+--- until now.
+local function EmptyPoolNotice(pool, channels)
+    return function()
+        local names = {}
+        for _, ch in ipairs(channels) do
+            local settings = ch.settingsFn and ch.settingsFn()
+            local flags = settings and ch.tableFn and ch.tableFn()
+            if flags and not ChannelIsOff(ch) then
+                local anyLive = false
+                for _, msg in ipairs(pool) do
+                    if flags[msg.key] and PhraseActive(msg, ch.settingsFn, ch.poolKind, ch.key) then
+                        anyLive = true
+                        break
+                    end
+                end
+                -- A custom line counts as content the same way the phrase list does
+                if not anyLive and ch.customsKey and settings[ch.customsKey] then
+                    for _, entry in ipairs(settings[ch.customsKey]) do
+                        if entry.enabled and entry.text and entry.text:match("%S") then
+                            anyLive = true
+                            break
+                        end
+                    end
+                end
+                -- Only worth saying when something upstream would have let a line out
+                if not anyLive and PhraseActive({ key = "probe", text = "probe" },
+                    ch.settingsFn, ch.poolKind, ch.key) then
+                    names[#names + 1] = channelLabel[ch.key] or ch.key
+                end
+            end
+        end
+        if #names == 0 then return "" end
+        return "|cFFFF7F3F" .. string.format(L["Nothing selected notice"],
+            table.concat(names, ", ")) .. "|r"
+    end
+end
+
+--- Phrases this channel could never say, whatever is ticked: the guild has no group role and
+--- no newcomers of its own (guild member logins have their own list), so those rows would be
+--- permanently dead decoration on that tab.
+local function PoolForChannels(pool, channels)
+    local kind = channels[1].poolKind
+    local side = (kind == "greetingsSelf" and "self")
+        or (kind == "greetingsOthers" and "others") or nil
+    local guildOnly = #channels == 1 and channels[1].key == "guild"
+    if not side and not guildOnly then return pool end
+    local kept = {}
+    for _, msg in ipairs(pool) do
+        local roleBound = msg.role ~= nil or msg.text:find("{role}", 1, true) ~= nil
+        local fitsSide = AutoSay.MessageLogic.PhraseInPool(msg, { side = side })
+        -- Guild chat has no group role, and its arrivals have their own list
+        if fitsSide and not (guildOnly and roleBound) then kept[#kept + 1] = msg end
+    end
+    return kept
+end
+
 local function BuildMessageMatrix(poolId, pool, channels)
     local matrix = #channels > 1
+    pool = PoolForChannels(pool, channels)
     local args = {}
+
+    args.emptyNotice = {
+        type = "description", order = 0.4, width = "full",
+        name = EmptyPoolNotice(pool, channels),
+    }
 
     -- Greyed rows are gated elsewhere - point at the tab that re-activates them
     if channels[1].poolKind ~= "mplusKey" and channels[1].poolKind ~= "mplusCompletion" then
@@ -327,9 +397,9 @@ local function BuildMessageMatrix(poolId, pool, channels)
         if style == "classic" then
             label = L["Classic"]
         elseif style == "timeofday" then
-            label = NewTag(L["Time of day"], "1.6")
+            label = NewTag(L["Time of day"], "1.7")
         else
-            label = NewTag(L["Style " .. style], "1.6")
+            label = NewTag(L["Style " .. style], "1.7")
         end
 
         local folded = function() return #styles > 1 and not open[style] end
@@ -369,11 +439,21 @@ local function BuildMessageMatrix(poolId, pool, channels)
             }
             order = order + 1
 
+            -- Both buttons grey out once there is nothing left for them to do, the way the
+            -- style rows do it, and neither asks first: the other one puts it all back
             args["all_" .. style] = {
                 type = "execute", order = order, width = 0.7,
                 name = L["Enable all"],
                 desc = L["Enable every phrase of this section on every channel shown"],
                 hidden = folded,
+                disabled = function()
+                    for _, msg in ipairs(entries) do
+                        for _, ch in ipairs(channels) do
+                            if not ch.tableFn()[msg.key] then return false end
+                        end
+                    end
+                    return true
+                end,
                 func = function()
                     for _, msg in ipairs(entries) do
                         for _, ch in ipairs(channels) do ch.tableFn()[msg.key] = true end
@@ -385,9 +465,15 @@ local function BuildMessageMatrix(poolId, pool, channels)
                 type = "execute", order = order + 0.1, width = 0.7,
                 name = L["Disable all"],
                 desc = L["Disable every phrase of this section on every channel shown"],
-                confirm = true,
-                confirmText = L["Disable this section everywhere?"],
                 hidden = folded,
+                disabled = function()
+                    for _, msg in ipairs(entries) do
+                        for _, ch in ipairs(channels) do
+                            if ch.tableFn()[msg.key] then return false end
+                        end
+                    end
+                    return true
+                end,
                 func = function()
                     for _, msg in ipairs(entries) do
                         for _, ch in ipairs(channels) do ch.tableFn()[msg.key] = false end
@@ -577,16 +663,69 @@ local function AddCustomGroups(args, channels, customsKey, labelKey, order)
     end
 end
 
--- Group greetings: party, raid and instance share one phrase list, one column each.
--- The trigger switches use the same grid, so a row reads "this setting, these channels".
-local function BuildGroupGreetings()
-    local channels = MatrixChannels(groupChannelKeys, "enabledGreetings", "greetings")
+-- Group greetings, one builder per occasion: arriving and welcoming are different moments
+-- with different phrases, so each gets its own tab, its own trigger row and its own ticks.
+-- Party, raid and instance share the grid, so a row reads "this setting, these channels".
+local function BuildGroupGreetingsSelf()
+    local channels = MatrixChannels(groupChannelKeys, "enabledGreetingsSelf", "greetingsSelf")
     local selfJoinDesc = {
         party = L["Send greeting when you join a party"],
         raid = L["Send greeting when you join a raid"],
         -- Instance groups greet on zone-in instead of on group form
         instance = L["Send greeting once after you zone into the instance"],
     }
+
+    local triggers = {}
+    triggers.offNotice = {
+        type = "description", order = 0.5, width = "full",
+        name = ChannelOffNotice(channels),
+    }
+    AddCaptionRow(triggers, "captions", 1, channels)
+    AddMatrixRow(triggers, "onSelfJoin", 2, L["On self join"], nil, channels, function(ch)
+            return {
+                disabled = function() return ChannelIsOff(ch) end,
+                desc = selfJoinDesc[ch.key],
+                get = function() return Addon.db.profile[ch.key].onSelfJoin end,
+                set = function(_, val)
+                    Addon.db.profile[ch.key].onSelfJoin = val
+                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
+                end,
+            }
+        end)
+    AddMatrixRow(triggers, "includeGroupNames", 3,
+        NewTag(L["Name the group when I join"], "1.7"),
+        NoneOn(channels, "onSelfJoin"), channels, function(ch)
+            return {
+                -- Off with its channel as well as with its parent trigger: two reasons,
+                -- one cell, and the channel one has to win rather than be overwritten
+                disabled = function()
+                    return ChannelIsOff(ch) or not Addon.db.profile[ch.key].onSelfJoin
+                end,
+                desc = L["Add names of current group members to the greeting"],
+                get = function() return Addon.db.profile[ch.key].includeGroupNames end,
+                set = function(_, val)
+                    Addon.db.profile[ch.key].includeGroupNames = val
+                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+                end,
+            }
+        end)
+
+    local args = {
+        triggersGroup = {
+            type = "group", name = L["Triggers"], inline = true, order = 1, args = triggers,
+        },
+        messagesGroup = {
+            type = "group", name = L["Messages"], inline = true, order = 2,
+            args = BuildMessageMatrix("groupGreetingsSelf", AutoSay.Greetings, channels),
+        },
+    }
+    AddCustomGroups(args, channels, "customGreetings", "Custom greetings", 10)
+    return args
+end
+
+-- The other half of the same tab: what goes out when somebody arrives after you.
+local function BuildGroupGreetingsOthers()
+    local channels = MatrixChannels(groupChannelKeys, "enabledGreetingsOthers", "greetingsOthers")
     local othersJoinDesc = {
         party = L["Send greeting when others join your party"],
         raid = L["Send greeting when others join your raid"],
@@ -604,37 +743,7 @@ local function BuildGroupGreetings()
         name = ChannelOffNotice(channels),
     }
     AddCaptionRow(triggers, "captions", 1, channels)
-    AddMatrixRow(triggers, "onSelfJoin", 2,
-        L["On self join"] .. TagSuffix("self"), nil, channels, function(ch)
-            return {
-                disabled = function() return ChannelIsOff(ch) end,
-                desc = selfJoinDesc[ch.key],
-                get = function() return Addon.db.profile[ch.key].onSelfJoin end,
-                set = function(_, val)
-                    Addon.db.profile[ch.key].onSelfJoin = val
-                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
-                end,
-            }
-        end)
-    AddMatrixRow(triggers, "includeGroupNames", 3,
-        L["Include group member names"] .. TagSuffix("{names}"),
-        NoneOn(channels, "onSelfJoin"), channels, function(ch)
-            return {
-                -- Off with its channel as well as with its parent trigger: two reasons,
-                -- one cell, and the channel one has to win rather than be overwritten
-                disabled = function()
-                    return ChannelIsOff(ch) or not Addon.db.profile[ch.key].onSelfJoin
-                end,
-                desc = L["Add names of current group members to the greeting"],
-                get = function() return Addon.db.profile[ch.key].includeGroupNames end,
-                set = function(_, val)
-                    Addon.db.profile[ch.key].includeGroupNames = val
-                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
-                end,
-            }
-        end)
-    AddMatrixRow(triggers, "onOthersJoin", 4,
-        L["On others join"] .. TagSuffix("newcomers"), nil, channels, function(ch)
+    AddMatrixRow(triggers, "onOthersJoin", 2, L["On others join"], nil, channels, function(ch)
             return {
                 disabled = function() return ChannelIsOff(ch) end,
                 desc = othersJoinDesc[ch.key],
@@ -645,11 +754,9 @@ local function BuildGroupGreetings()
                 end,
             }
         end)
-    AddMatrixRow(triggers, "onOthersJoinLeaderOnly", 5,
+    AddMatrixRow(triggers, "onOthersJoinLeaderOnly", 3,
         L["Only if leader"], NoneOn(channels, "onOthersJoin"), channels, function(ch)
             return {
-                -- Off with its channel as well as with its parent trigger: two reasons,
-                -- one cell, and the channel one has to win rather than be overwritten
                 disabled = function()
                     return ChannelIsOff(ch) or not Addon.db.profile[ch.key].onOthersJoin
                 end,
@@ -658,12 +765,10 @@ local function BuildGroupGreetings()
                 set = function(_, val) Addon.db.profile[ch.key].onOthersJoinLeaderOnly = val end,
             }
         end)
-    AddMatrixRow(triggers, "includeNames", 6,
-        L["Include player names"] .. TagSuffix("{names}"),
+    AddMatrixRow(triggers, "includeNames", 4,
+        NewTag(L["Name whoever joined"], "1.7"),
         NoneOn(channels, "onOthersJoin"), channels, function(ch)
             return {
-                -- Off with its channel as well as with its parent trigger: two reasons,
-                -- one cell, and the channel one has to win rather than be overwritten
                 disabled = function()
                     return ChannelIsOff(ch) or not Addon.db.profile[ch.key].onOthersJoin
                 end,
@@ -671,7 +776,7 @@ local function BuildGroupGreetings()
                 get = function() return Addon.db.profile[ch.key].includeNames end,
                 set = function(_, val)
                     Addon.db.profile[ch.key].includeNames = val
-                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
+                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
                 end,
             }
         end)
@@ -682,7 +787,7 @@ local function BuildGroupGreetings()
         },
         messagesGroup = {
             type = "group", name = L["Messages"], inline = true, order = 2,
-            args = BuildMessageMatrix("groupGreetings", AutoSay.Greetings, channels),
+            args = BuildMessageMatrix("groupGreetingsOthers", AutoSay.Greetings, channels),
         },
     }
     AddCustomGroups(args, channels, "customGreetings", "Custom greetings", 10)
@@ -711,6 +816,17 @@ local function BuildGroupGoodbyes()
                 desc = goodbyeDesc[ch.key],
                 get = function() return Addon.db.profile[ch.key].sendGoodbye end,
                 set = function(_, val) Addon.db.profile[ch.key].sendGoodbye = val end,
+            }
+        end)
+    -- Its own row rather than a qualifier under the one above: the two occasions are
+    -- independent, and either can be on without the other
+    AddMatrixRow(triggers, "sendGoodbyeOnRunEnd", 3,
+        NewTag(L["Send goodbye when the run ends"], "1.7"), nil, channels, function(ch)
+            return {
+                disabled = function() return ChannelIsOff(ch) end,
+                desc = L["Send goodbye when the run ends desc"],
+                get = function() return Addon.db.profile[ch.key].sendGoodbyeOnRunEnd end,
+                set = function(_, val) Addon.db.profile[ch.key].sendGoodbyeOnRunEnd = val end,
             }
         end)
 
@@ -795,7 +911,7 @@ local function BuildGuildGreetings()
             inline = true,
             order = 2,
             args = BuildMessageMatrix("guildGreetings", AutoSay.Greetings,
-                MatrixChannels({ "guild" }, "enabledGreetings", "greetings")),
+                MatrixChannels({ "guild" }, "enabledGreetingsSelf", "greetingsSelf")),
         },
         customGroup = {
             type = "group",
@@ -934,7 +1050,8 @@ end
 
 --- Which switch governs a pool, keyed by the settings table it writes to
 local POOL_KIND_BY_KEY = {
-    enabledGreetings = "greetings",
+    enabledGreetingsSelf = "greetingsSelf",
+    enabledGreetingsOthers = "greetingsOthers",
     enabledGoodbyes = "goodbyes",
     enabledReconnects = "reconnects",
     enabledLoginGreetings = "login",
@@ -962,13 +1079,13 @@ end
 --- full     every phrase ticked on every channel that has the pool, which is what
 ---          "Enable all" would produce - a phrase ticked in one channel only must not
 ---          colour the set as finished
-local function StyleCounts(style)
+local function CountPhrases(matches)
     local total, selected, sendable, full = 0, 0, 0, true
     for _, pool in ipairs(AutoSay.StylePools) do
         local poolKind = POOL_KIND_BY_KEY[pool.enabledKey]
         local targets = PoolTargets(pool)
         for _, msg in ipairs(AutoSay[pool.messages]) do
-            if AutoSay.MessageLogic.StyleMatches(msg, style) then
+            if matches(msg) and AutoSay.MessageLogic.PhraseInPool(msg, pool) then
                 total = total + 1
                 local on, canSend = false, false
                 for _, target in ipairs(targets) do
@@ -991,6 +1108,20 @@ local function StyleCounts(style)
         end
     end
     return total, selected, sendable, full
+end
+
+local function StyleCounts(style)
+    return CountPhrases(function(msg) return AutoSay.MessageLogic.StyleMatches(msg, style) end)
+end
+
+--- The same numbers for the two tag sets, so their buttons can grey on the same rule the
+--- style rows use. Matchers mirror TagMatchers in Core.
+local tagMatchers = {
+    role = function(msg) return msg.role ~= nil or msg.text:find("{role}", 1, true) ~= nil end,
+    band = function(msg) return msg.band ~= nil end,
+}
+local function TagCounts(kind)
+    return CountPhrases(tagMatchers[kind])
 end
 
 local bundleDescCache = {}
@@ -1093,7 +1224,7 @@ local function BuildOptions()
                         -- beside it instead of on a line of its own
                         enableInstance = {
                             type = "toggle",
-                            name = NewTag(L["Enable Instance"], "1.6"),
+                            name = NewTag(L["Enable Instance"], "1.7"),
                             desc = L["Send greetings and goodbyes in instance chat"],
                             order = 3,
                             width = 1.0,
@@ -1105,7 +1236,7 @@ local function BuildOptions()
                         },
                         skipRaidGroups = {
                             type = "toggle",
-                            name = NewTag(L["Skip LFR and battlegrounds"], "1.6"),
+                            name = NewTag(L["Skip LFR and battlegrounds"], "1.7"),
                             desc = L["Skip LFR and battlegrounds desc"],
                             order = 3.5,
                             width = 1.6,
@@ -1235,12 +1366,12 @@ local function BuildOptions()
         -- === STYLE ===
         style = {
             type = "group",
-            name = NewTag(L["Style"], "1.6"),
+            name = NewTag(L["Style"], "1.7"),
             order = 3,
             args = {
                 styleBundles = {
                     type = "group", order = 1, inline = true,
-                    name = NewTag(L["Message style bundles"], "1.6"),
+                    name = NewTag(L["Message style bundles"], "1.7"),
                     args = (function()
                         local args = {
                             desc = {
@@ -1266,7 +1397,7 @@ local function BuildOptions()
                                     -- The tag rides the whole row: the two buttons next to
                                     -- it repeat for all thirteen sets, so badging them too
                                     -- would just be thirteen more "New!" on one screen
-                                    return NewTag(colour .. L["Style " .. style] .. "|r", "1.6")
+                                    return NewTag(colour .. L["Style " .. style] .. "|r", "1.7")
                                 end,
                             }
                             args["count_" .. style] = {
@@ -1298,10 +1429,9 @@ local function BuildOptions()
                             args["off_" .. style] = {
                                 type = "execute", order = order + 3, width = 0.7,
                                 name = L["Disable all"],
-                                -- Asked every time: this reaches every channel and every
-                                -- pool at once, and there is no undo
-                                confirm = true,
-                                confirmText = L["Disable this set everywhere?"],
+                                -- No confirmation: the button greys out when there is
+                                -- nothing to disable, and the one beside it puts the whole
+                                -- set back, so a misclick costs one more click
                                 disabled = function()
                                     local _, selected = StyleCounts(style)
                                     return selected == 0
@@ -1333,7 +1463,7 @@ local function BuildOptions()
                 },
                 rolePhrases = {
                     type = "toggle", order = 1.5, width = 2.3,
-                    name = NewTag(L["Role-based phrases"], "1.6")
+                    name = NewTag(L["Role-based phrases"], "1.7")
                         .. " |A:roleicon-tiny-tank:14:14|a|A:roleicon-tiny-healer:14:14|a|A:roleicon-tiny-dps:14:14|a",
                     desc = L["Role-based phrases desc"],
                     get = function() return Addon.db.profile.social.rolePhrases end,
@@ -1342,18 +1472,26 @@ local function BuildOptions()
                         LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
                     end,
                 },
+                -- Same pair, same rule as the style rows above: grey when there is nothing
+                -- left to do, and no confirmation, since each button undoes the other
                 roleEnableAll = {
                     type = "execute", order = 1.6, width = 0.7,
                     name = L["Enable all"],
                     desc = L["Enable every role phrase on every channel"],
-                    confirm = true, confirmText = L["Enable all role phrases on every channel?"],
+                    disabled = function()
+                        local _, _, _, full = TagCounts("role")
+                        return full
+                    end,
                     func = function() Addon:SetTaggedPhrasesEnabled("role", true) end,
                 },
                 roleDisableAll = {
                     type = "execute", order = 1.7, width = 0.7,
                     name = L["Disable all"],
                     desc = L["Disable every role phrase on every channel"],
-                    confirm = true, confirmText = L["Disable all role phrases on every channel?"],
+                    disabled = function()
+                        local _, selected = TagCounts("role")
+                        return selected == 0
+                    end,
                     func = function() Addon:SetTaggedPhrasesEnabled("role", false) end,
                 },
                 roleRowBreak = {
@@ -1373,14 +1511,20 @@ local function BuildOptions()
                     type = "execute", order = 2.1, width = 0.7,
                     name = L["Enable all"],
                     desc = L["Enable every time-of-day phrase on every channel"],
-                    confirm = true, confirmText = L["Enable all time-of-day phrases on every channel?"],
+                    disabled = function()
+                        local _, _, _, full = TagCounts("band")
+                        return full
+                    end,
                     func = function() Addon:SetTaggedPhrasesEnabled("band", true) end,
                 },
                 bandDisableAll = {
                     type = "execute", order = 2.2, width = 0.7,
                     name = L["Disable all"],
                     desc = L["Disable every time-of-day phrase on every channel"],
-                    confirm = true, confirmText = L["Disable all time-of-day phrases on every channel?"],
+                    disabled = function()
+                        local _, selected = TagCounts("band")
+                        return selected == 0
+                    end,
                     func = function() Addon:SetTaggedPhrasesEnabled("band", false) end,
                 },
                 bandRowBreak = {
@@ -1388,11 +1532,11 @@ local function BuildOptions()
                 },
                 tone = {
                     type = "group", order = 4, inline = true,
-                    name = NewTag(L["Tone"], "1.6"),
+                    name = NewTag(L["Tone"], "1.7"),
                     args = {
                         lowercaseFirst = {
                             type = "toggle", order = 1, width = "full",
-                            name = NewTag(L["Lowercase first letter"], "1.6"),
+                            name = NewTag(L["Lowercase first letter"], "1.7"),
                             desc = L["Lowercase first letter desc"],
                             get = function() return Addon.db.profile.social.lowercaseFirst end,
                             set = function(_, v) Addon.db.profile.social.lowercaseFirst = v end,
@@ -1486,7 +1630,7 @@ local function BuildOptions()
         -- switches say, and those switches keep doing the only job they ever had - gating sends.
         group = {
             type = "group",
-            name = NewTag("|cFF33DDAA" .. L["Group"] .. "|r", "1.6"),
+            name = NewTag("|cFF33DDAA" .. L["Group"] .. "|r", "1.7"),
             order = 10,
             childGroups = "tab",
             args = {
@@ -1494,7 +1638,21 @@ local function BuildOptions()
                     type = "group",
                     name = L["Greetings"],
                     order = 1,
-                    args = BuildGroupGreetings(),
+                    childGroups = "tab",
+                    args = {
+                        -- Two occasions, two tabs: the tab is the trigger, so no phrase
+                        -- needs a [self] or [newcomers] tag to say which one it serves
+                        selfJoin = {
+                            type = "group", order = 1,
+                            name = NewTag(L["When I join"], "1.7"),
+                            args = BuildGroupGreetingsSelf(),
+                        },
+                        othersJoin = {
+                            type = "group", order = 2,
+                            name = NewTag(L["When someone joins"], "1.7"),
+                            args = BuildGroupGreetingsOthers(),
+                        },
+                    },
                 },
                 goodbyes = {
                     type = "group",
@@ -1567,8 +1725,9 @@ local function BuildOptions()
                             args = {
                                 announceOnFull = {
                                     type = "toggle",
-                                    name = L["Announce when group is full"],
-                                    desc = L["Send a message when your M+ group reaches 5 players"],
+                                    name = L["Announce when group is full"] .. TagSuffix("leader"),
+                                    desc = L["Send a message when your M+ group reaches 5 players"]
+                                        .. "\n\n" .. L["Leader only note"],
                                     order = 1,
                                     width = "full",
                                     get = function() return Addon.db.profile.mythicplus.announceOnFull end,
@@ -1576,8 +1735,9 @@ local function BuildOptions()
                                 },
                                 announceOnStart = {
                                     type = "toggle",
-                                    name = NewTag(L["Announce at key start"], "1.6"),
-                                    desc = L["Announce at key start desc"],
+                                    name = NewTag(L["Announce at key start"], "1.7") .. TagSuffix("leader"),
+                                    desc = L["Announce at key start desc"]
+                                        .. "\n\n" .. L["Leader only note"],
                                     order = 2,
                                     width = "full",
                                     get = function() return Addon.db.profile.mythicplus.announceOnStart end,
@@ -1591,7 +1751,7 @@ local function BuildOptions()
                                 },
                                 includeKeyLevel = {
                                     type = "toggle",
-                                    name = NewTag(L["Include key level"], "1.6"),
+                                    name = NewTag(L["Include key level"], "1.7"),
                                     desc = L["Include key level desc"],
                                     order = 4,
                                     width = "full",
@@ -1796,7 +1956,7 @@ local function BuildOptions()
                         },
                         simulateInstance = {
                             type = "execute",
-                            name = NewTag(L["Enter Instance"], "1.6"),
+                            name = NewTag(L["Enter Instance"], "1.7"),
                             desc = L["Simulate zoning into an instance group"],
                             order = 2.5,
                             width = 1.0,
@@ -1900,7 +2060,7 @@ local function BuildOptions()
                         },
                         simulateKeyStart = {
                             type = "execute",
-                            name = NewTag(L["Simulate Key Start"], "1.6"),
+                            name = NewTag(L["Simulate Key Start"], "1.7"),
                             desc = L["Simulate key start desc"],
                             order = 3,
                             width = 1.2,
@@ -1929,13 +2089,13 @@ local function BuildOptions()
                 },
                 simulationContext = {
                     type = "group",
-                    name = NewTag(L["Simulation context"], "1.6"),
+                    name = NewTag(L["Simulation context"], "1.7"),
                     inline = true,
                     order = 27,
                     args = {
                         simulateAssignedRole = {
                             type = "select",
-                            name = NewTag(L["Simulate assigned role"], "1.6"),
+                            name = NewTag(L["Simulate assigned role"], "1.7"),
                             desc = L["Simulate assigned role desc"],
                             order = 1,
                             width = 0.8,
@@ -1951,7 +2111,7 @@ local function BuildOptions()
                         },
                         simulateRealTime = {
                             type = "toggle",
-                            name = NewTag(L["Use real time"], "1.6"),
+                            name = NewTag(L["Use real time"], "1.7"),
                             desc = L["Use real time desc"],
                             order = 2,
                             width = 0.8,
@@ -1967,7 +2127,7 @@ local function BuildOptions()
                         },
                         simulateHour = {
                             type = "range",
-                            name = NewTag(L["Simulate hour"], "1.6"),
+                            name = NewTag(L["Simulate hour"], "1.7"),
                             desc = L["Simulate hour desc"],
                             order = 3,
                             width = 1.5,
@@ -1978,7 +2138,7 @@ local function BuildOptions()
                         },
                         simulatePreviewWhatsNew = {
                             type = "execute",
-                            name = NewTag(L["Preview What's new"], "1.6"),
+                            name = NewTag(L["Preview What's new"], "1.7"),
                             desc = L["Preview What's new desc"],
                             order = 4,
                             width = 1.2,
@@ -2067,6 +2227,32 @@ local function BuildOptions()
                             width = "full",
                             get = function() return Addon.db.profile.debugMode end,
                             set = function(_, val) Addon.db.profile.debugMode = val end,
+                        },
+                        sessionLog = {
+                            type = "toggle",
+                            name = NewTag(L["Record session log"], "1.7"),
+                            desc = L["Record session log desc"],
+                            order = 2,
+                            width = 1.6,
+                            get = function() return Addon:LoggingEnabled() and true or false end,
+                            set = function(_, val)
+                                if val then Addon:StartLogging() else Addon:StopLogging() end
+                            end,
+                        },
+                        showLog = {
+                            type = "execute",
+                            name = L["Copy log"],
+                            desc = L["Copy log desc"],
+                            order = 3,
+                            width = 1.0,
+                            func = function() Addon:ShowLogWindow() end,
+                        },
+                        clearLog = {
+                            type = "execute",
+                            name = L["Clear log"],
+                            order = 4,
+                            width = 1.0,
+                            func = function() Addon:ClearLog() end,
                         },
                     },
                 },

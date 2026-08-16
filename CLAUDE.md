@@ -32,7 +32,8 @@ WoW addon: automatic greetings, goodbyes, and reconnect messages for party, raid
 ## UI Conventions
 
 - Every new user-facing option in `Config.lua` gets its name wrapped in `NewTag(name, "<minor>")`, where `<minor>` is the minor release it ships in (e.g. `NewTag(L["Style"], "1.6")` for anything landing in 1.6.x). It appends a green "New!" to the label.
-- Tags expire on their own: `NewTag` only matches while the TOC version is still in that minor, so 1.7.0 silently drops every `"1.6"` badge. Nothing to clean up on release.
+- Tags expire on their own: `NewTag` only matches while the TOC version is still in that minor, so 1.8.0 silently drops every `"1.7"` badge. Nothing to clean up on release.
+- A badge can be carried into the next minor on purpose: bump its version argument instead of deleting it, and the option keeps its "New!" for one more release. Worth doing when a release lands close behind its predecessor and the previous batch has not been seen yet.
 - When you touch an option whose tag no longer matches the current version, delete the stale `NewTag` call and leave the plain name.
 - The tag belongs to the row, not to every widget on it. A row built once per item of a list (the style sets, each with its own Enable all / Disable all) carries the tag on the row's name only - thirteen copies of "New!" on one screen say less than one.
 

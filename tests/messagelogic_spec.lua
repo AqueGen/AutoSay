@@ -140,14 +140,6 @@ describe("FitsContext", function()
   end)
 end)
 
-describe("NameMode", function()
-  it("detects slot, append and none", function()
-    assert.equals("slot", Logic.NameMode({ text = "welcome {names}!" }))
-    assert.equals("append", Logic.NameMode({ text = "welcome!", appendNames = true }))
-    assert.is_nil(Logic.NameMode({ text = "welcome!" }))
-  end)
-end)
-
 describe("FormatNameList / AddPlayersToMessage", function()
   it("joins up to four names", function()
     assert.equals("A, B", Logic.FormatNameList({ "A", "B" }))
@@ -164,8 +156,86 @@ describe("FormatNameList / AddPlayersToMessage", function()
   it("fills the slot in place", function()
     assert.equals("welcome A, B!", Logic.AddPlayersToMessage("welcome {names}!", { "A", "B" }, "slot"))
   end)
-  it("appends to the end", function()
-    assert.equals("welcome A", Logic.AddPlayersToMessage("welcome", { "A" }, "append"))
+  it("appends after a word with a comma, the way a person writes it", function()
+    assert.equals("welcome, A", Logic.AddPlayersToMessage("welcome", { "A" }, "append"))
+    assert.equals("may your blades stay sharp, A, B",
+      Logic.AddPlayersToMessage("may your blades stay sharp", { "A", "B" }, "append"))
+  end)
+  it("just spaces the name after an emote or a closing mark", function()
+    assert.equals("greetings, adventurers o/ A",
+      Logic.AddPlayersToMessage("greetings, adventurers o/", { "A" }, "append"))
+    assert.equals("hi! A", Logic.AddPlayersToMessage("hi!", { "A" }, "append"))
+  end)
+end)
+
+describe("NameMode", function()
+  local f = Logic.NameMode
+  it("fills a slot when the phrase has one", function()
+    assert.equals("slot", f({ text = "welcome {names}!" }))
+  end)
+  it("lets every other phrase carry the name on the end", function()
+    assert.equals("append", f({ text = "hi" }))
+    assert.equals("append", f({ text = "hi", appendNames = true }))
+  end)
+end)
+
+describe("SplitGreetingSelection", function()
+  local f = Logic.SplitGreetingSelection
+  local phrases = {
+    { key = "hi", text = "hi" },
+    { key = "arrived", text = "made it", trigger = "self" },
+    { key = "welcome", text = "welcome", trigger = "others" },
+  }
+  it("gives an untagged phrase to both occasions, with the state it had", function()
+    local mine, theirs = f({ hi = false }, phrases)
+    assert.is_false(mine.hi)
+    assert.is_false(theirs.hi)
+  end)
+  it("keeps a tagged phrase on its own occasion", function()
+    local mine, theirs = f({ arrived = true, welcome = true }, phrases)
+    assert.is_true(mine.arrived)
+    assert.is_nil(theirs.arrived)
+    assert.is_true(theirs.welcome)
+    assert.is_nil(mine.welcome)
+  end)
+  it("drops keys this build no longer ships", function()
+    local mine, theirs = f({ retired = true }, phrases)
+    assert.is_nil(mine.retired)
+    assert.is_nil(theirs.retired)
+  end)
+  it("has nothing to split when the old list is gone", function()
+    local mine, theirs = f(nil, phrases)
+    assert.same({}, mine)
+    assert.same({}, theirs)
+  end)
+end)
+
+describe("PhraseInPool", function()
+  local f = Logic.PhraseInPool
+  it("offers an untagged phrase on both occasions", function()
+    assert.is_true(f({ text = "hi" }, { side = "self" }))
+    assert.is_true(f({ text = "hi" }, { side = "others" }))
+  end)
+  it("keeps a tagged phrase to its own list", function()
+    assert.is_true(f({ text = "made it", trigger = "self" }, { side = "self" }))
+    assert.is_false(f({ text = "made it", trigger = "self" }, { side = "others" }))
+    assert.is_true(f({ text = "welcome", trigger = "others" }, { side = "others" }))
+    assert.is_false(f({ text = "welcome", trigger = "others" }, { side = "self" }))
+  end)
+  it("leaves the sideless pools alone", function()
+    assert.is_true(f({ text = "bye", trigger = "self" }, { }))
+  end)
+end)
+
+describe("GreetingPoolKey", function()
+  local f = Logic.GreetingPoolKey
+  it("sends a newcomer greeting to its own list", function()
+    assert.equals("enabledGreetingsOthers", f("others_join"))
+  end)
+  it("treats every other occasion as one about me", function()
+    assert.equals("enabledGreetingsSelf", f("self_join"))
+    assert.equals("enabledGreetingsSelf", f("reconnect"))
+    assert.equals("enabledGreetingsSelf", f(nil))
   end)
 end)
 
@@ -233,6 +303,29 @@ describe("NewestVersion", function()
   it("handles a single entry and an empty table", function()
     assert.equals("1.6", f({ ["1.6"] = {} }))
     assert.is_nil(f({}))
+  end)
+end)
+
+describe("SaysGoodbyeOnRunEnd", function()
+  local f = Logic.SaysGoodbyeOnRunEnd
+  local on = { enabled = true, sendGoodbyeOnRunEnd = true }
+  it("speaks when the channel asked for it", function()
+    assert.is_true(f(on, false, false))
+  end)
+  it("stays quiet without its own switch, whatever the leave goodbye says", function()
+    assert.is_false(f({ enabled = true, sendGoodbye = true }, false, false))
+  end)
+  it("says it once per run", function()
+    assert.is_false(f(on, true, false))
+  end)
+  it("gives the floor to a Mythic+ completion line", function()
+    assert.is_false(f(on, false, true))
+  end)
+  it("follows the channel switch", function()
+    assert.is_false(f({ enabled = false, sendGoodbyeOnRunEnd = true }, false, false))
+  end)
+  it("has nothing to say for a channel it does not know", function()
+    assert.is_false(f(nil, false, false))
   end)
 end)
 
@@ -321,14 +414,15 @@ describe("MigrateInstanceChannel", function()
         enabled = true, onSelfJoin = false, onOthersJoin = true,
         onOthersJoinLeaderOnly = true, includeNames = false,
         includeGroupNames = true, sendGoodbye = false,
-        enabledGreetings = { hi = true, hello = false },
+        enabledGreetingsSelf = { hi = true, hello = false },
+        enabledGreetingsOthers = { welcomenames = true },
         enabledGoodbyes = { bye = true },
         customGreetings = { { text = "gl hf all", enabled = true } },
         customGoodbyes = nil,
       },
       instance = {
         enabled = false, onSelfJoin = true,
-        enabledGreetings = { hi = false },
+        enabledGreetingsSelf = { hi = false },
         enabledGoodbyes = {},
       },
     }
@@ -340,8 +434,9 @@ describe("MigrateInstanceChannel", function()
     assert.is_true(p.instance.enabled)
     assert.is_false(p.instance.onSelfJoin)
     assert.is_true(p.instance.onOthersJoinLeaderOnly)
-    assert.is_true(p.instance.enabledGreetings.hi)
-    assert.is_false(p.instance.enabledGreetings.hello)
+    assert.is_true(p.instance.enabledGreetingsSelf.hi)
+    assert.is_false(p.instance.enabledGreetingsSelf.hello)
+    assert.is_true(p.instance.enabledGreetingsOthers.welcomenames)
     assert.is_true(p.instance.enabledGoodbyes.bye)
     assert.equals("gl hf all", p.instance.customGreetings[1].text)
     assert.is_true(p.instanceMigrated)
@@ -350,9 +445,9 @@ describe("MigrateInstanceChannel", function()
   it("clones tables instead of sharing them", function()
     local p = freshProfile()
     Logic.MigrateInstanceChannel(p)
-    p.instance.enabledGreetings.hi = false
+    p.instance.enabledGreetingsSelf.hi = false
     p.instance.customGreetings[1].text = "changed"
-    assert.is_true(p.party.enabledGreetings.hi)
+    assert.is_true(p.party.enabledGreetingsSelf.hi)
     assert.equals("gl hf all", p.party.customGreetings[1].text)
   end)
 
