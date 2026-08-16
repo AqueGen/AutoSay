@@ -713,6 +713,11 @@ function Addon:CHALLENGE_MODE_COMPLETED()
         -- practice run, an empty completion list or a refused send all leave the ending
         -- unspoken, and then the goodbye is the one that should mark it
         local spoke = self:SendCompletionMessage(dungeonName, keyLevel, onTime, upgrade, timeFormatted)
+        if spoke then
+            -- This run has had its line. The dungeon-finder event can still arrive after
+            -- us, and it must not add a second one.
+            self.state.runEndGoodbyeSent = true
+        end
         self:SendRunEndGoodbye(spoke and true or false)
     end, 3)
     handles[handle] = "PARTY"
@@ -724,6 +729,13 @@ function Addon:PLAYER_ENTERING_WORLD(event, isInitialLogin, isReloadingUi)
 
     -- Update cached guild status
     self:UpdateGuildStatus()
+
+    -- Zoning into a dungeon starts a run whose ending has not been spoken for yet. Group
+    -- join and key start are not enough: a group that queues a second dungeon together
+    -- never re-forms, and its second ending used to pass in silence.
+    if IsInInstance() then
+        self.state.runEndGoodbyeSent = false
+    end
 
     -- Reset guild presence tracking only on login/reload (not zone changes)
     if isInitialLogin or isReloadingUi then
