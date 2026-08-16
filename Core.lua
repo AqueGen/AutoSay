@@ -565,11 +565,13 @@ local RETIRED_MPLUS_POOLS = {
     { messages = "CompletionDepleted", enabledKey = "enabledCompletionDepleted", customsKey = "customCompletionDepleted" },
 }
 
-function Addon:MigrateRetiredPhrases()
+--- historyOf names the profile whose past decides this: normally the current one, but a
+--- copy inherits its tables from somewhere else and has to be judged by that source.
+function Addon:MigrateRetiredPhrases(historyOf)
     local profile = self.db.profile
     if profile.retiredPhrasesMigrated == RETIRED_PHRASES_VERSION then return end
     profile.retiredPhrasesMigrated = RETIRED_PHRASES_VERSION
-    if not self.priorProfiles[self.db:GetCurrentProfile()] then return end
+    if not self.priorProfiles[historyOf or self.db:GetCurrentProfile()] then return end
 
     local defaults = {
         enabledGreetingsSelf = defaultGreetingsSelf,
@@ -602,10 +604,14 @@ function Addon:MigrateRetiredPhrases()
                         and not msg.text:find("{role}", 1, true)
                   end
                 end
-                if Logic.PoolLostItsPhrases(enabled, live, settings[pool.customsKey]) then
-                    for key in pairs(enabled) do
-                        if not live[key] then enabled[key] = nil end
-                    end
+                local lost = Logic.PoolLostItsPhrases(enabled, live, settings[pool.customsKey])
+                -- The sweep happens either way: these keys have served their purpose as
+                -- evidence, and a stray one left in the profile would be read as evidence
+                -- again by the next release that retires phrases.
+                for key in pairs(enabled) do
+                    if live[key] == nil then enabled[key] = nil end
+                end
+                if lost then
                     for key, on in pairs(defaults[pool.enabledKey]) do enabled[key] = on end
                     self:DebugPrint("Restored stock", pool.messages, "for", target.label)
                 end
@@ -622,7 +628,7 @@ function Addon:OnProfileDeleted(_, _, name)
     end
 end
 
-function Addon:OnProfileSwitched(event)
+function Addon:OnProfileSwitched(event, _, sourceName)
     -- Rotation is per pool, not per profile: without this, phrases spent under the profile
     -- you left stay spent under the one you arrived at
     if self.humanizer then self.humanizer.rounds = {} end
@@ -635,8 +641,13 @@ function Addon:OnProfileSwitched(event)
         self:MigrateInstanceChannel()
         self:MigrateKeyLevelMode()
         local profile = self.db.profile
+        -- The master-switch pass asks what this profile chose before the upgrade, and the
+        -- copy has no past of its own: its answer would belong to the profile it replaced.
         profile.masterSwitchesMigrated = true
-        profile.retiredPhrasesMigrated = RETIRED_PHRASES_VERSION
+        -- The rescue asks a different question - "did the phrases in these tables get
+        -- retired" - and the tables came from the source, so the source's history is the
+        -- right one to read.
+        self:MigrateRetiredPhrases(sourceName)
         LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
         return
     end
@@ -702,7 +713,7 @@ function Addon:MigrateGreetingSides()
     for _, channel in ipairs(AutoSay.Channels) do
         local settings = profile[channel.key]
         local stored = settings and settings.enabledGreetings
-        if stored then
+        if type(stored) == "table" then
             local selfSide, others = Logic.SplitGreetingSelection(stored, AutoSay.Greetings)
             -- Written over the defaults, never in place of them. AceDB stores only what
             -- differs from a default and copies the rest back in at load, so the stored list
@@ -718,7 +729,9 @@ function Addon:MigrateGreetingSides()
         end
     end
 
-    -- Last, so a raise anywhere above leaves the work to be retried rather than skipped
+    -- Last, so a raise anywhere above leaves the work to be retried rather than skipped.
+    -- The flag is a record rather than a gate now: what decides is whether a legacy table
+    -- is still sitting there, which is the only thing that can be acted on.
     profile.greetingSidesMigrated = true
 end
 
