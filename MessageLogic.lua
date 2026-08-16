@@ -111,6 +111,32 @@ function MessageLogic.GreetingPoolKey(reason)
     return "enabledGreetingsSelf"
 end
 
+--- One stored greeting list becomes two. A phrase keeps the state it had, on the occasions it
+--- can serve: [self] only when arriving, [newcomers] only when welcoming, anything untagged on
+--- both. Keys the build no longer ships are dropped rather than carried into either list.
+function MessageLogic.SplitGreetingSelection(stored, phrases)
+    local selfSide, others = {}, {}
+    if not stored then return selfSide, others end
+    for _, msg in ipairs(phrases) do
+        local state = stored[msg.key]
+        if state ~= nil then
+            if msg.trigger ~= "others" then selfSide[msg.key] = state end
+            if msg.trigger ~= "self" then others[msg.key] = state end
+        end
+    end
+    return selfSide, others
+end
+
+-- Whether a phrase belongs in a pool. Only the greeting pools have sides: a [self] phrase is
+-- about arriving and a [newcomers] one is about welcoming, while an untagged phrase says
+-- something true on both occasions and is offered in each with its own checkbox.
+function MessageLogic.PhraseInPool(msg, pool)
+    local side = pool and pool.side
+    if side == "self" then return msg.trigger ~= "others" end
+    if side == "others" then return msg.trigger ~= "self" end
+    return true
+end
+
 -- Same key twice? Map ids are locale-proof, so they decide whenever both sides have one;
 -- a name comparison is the fallback and can only ever compare like with like.
 function MessageLogic.SameKey(a, b)
@@ -243,7 +269,12 @@ function MessageLogic.MigrateInstanceChannel(profile)
         end
         return copy
     end
-    if party.enabledGreetings then instance.enabledGreetings = CloneFlags(party.enabledGreetings) end
+    if party.enabledGreetingsSelf then
+        instance.enabledGreetingsSelf = CloneFlags(party.enabledGreetingsSelf)
+    end
+    if party.enabledGreetingsOthers then
+        instance.enabledGreetingsOthers = CloneFlags(party.enabledGreetingsOthers)
+    end
     if party.enabledGoodbyes then instance.enabledGoodbyes = CloneFlags(party.enabledGoodbyes) end
     instance.customGreetings = CloneCustoms(party.customGreetings)
     instance.customGoodbyes = CloneCustoms(party.customGoodbyes)

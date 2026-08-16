@@ -179,6 +179,54 @@ describe("NameMode", function()
   end)
 end)
 
+describe("SplitGreetingSelection", function()
+  local f = Logic.SplitGreetingSelection
+  local phrases = {
+    { key = "hi", text = "hi" },
+    { key = "arrived", text = "made it", trigger = "self" },
+    { key = "welcome", text = "welcome", trigger = "others" },
+  }
+  it("gives an untagged phrase to both occasions, with the state it had", function()
+    local mine, theirs = f({ hi = false }, phrases)
+    assert.is_false(mine.hi)
+    assert.is_false(theirs.hi)
+  end)
+  it("keeps a tagged phrase on its own occasion", function()
+    local mine, theirs = f({ arrived = true, welcome = true }, phrases)
+    assert.is_true(mine.arrived)
+    assert.is_nil(theirs.arrived)
+    assert.is_true(theirs.welcome)
+    assert.is_nil(mine.welcome)
+  end)
+  it("drops keys this build no longer ships", function()
+    local mine, theirs = f({ retired = true }, phrases)
+    assert.is_nil(mine.retired)
+    assert.is_nil(theirs.retired)
+  end)
+  it("has nothing to split when the old list is gone", function()
+    local mine, theirs = f(nil, phrases)
+    assert.same({}, mine)
+    assert.same({}, theirs)
+  end)
+end)
+
+describe("PhraseInPool", function()
+  local f = Logic.PhraseInPool
+  it("offers an untagged phrase on both occasions", function()
+    assert.is_true(f({ text = "hi" }, { side = "self" }))
+    assert.is_true(f({ text = "hi" }, { side = "others" }))
+  end)
+  it("keeps a tagged phrase to its own list", function()
+    assert.is_true(f({ text = "made it", trigger = "self" }, { side = "self" }))
+    assert.is_false(f({ text = "made it", trigger = "self" }, { side = "others" }))
+    assert.is_true(f({ text = "welcome", trigger = "others" }, { side = "others" }))
+    assert.is_false(f({ text = "welcome", trigger = "others" }, { side = "self" }))
+  end)
+  it("leaves the sideless pools alone", function()
+    assert.is_true(f({ text = "bye", trigger = "self" }, { }))
+  end)
+end)
+
 describe("GreetingPoolKey", function()
   local f = Logic.GreetingPoolKey
   it("sends a newcomer greeting to its own list", function()
@@ -366,14 +414,15 @@ describe("MigrateInstanceChannel", function()
         enabled = true, onSelfJoin = false, onOthersJoin = true,
         onOthersJoinLeaderOnly = true, includeNames = false,
         includeGroupNames = true, sendGoodbye = false,
-        enabledGreetings = { hi = true, hello = false },
+        enabledGreetingsSelf = { hi = true, hello = false },
+        enabledGreetingsOthers = { welcomenames = true },
         enabledGoodbyes = { bye = true },
         customGreetings = { { text = "gl hf all", enabled = true } },
         customGoodbyes = nil,
       },
       instance = {
         enabled = false, onSelfJoin = true,
-        enabledGreetings = { hi = false },
+        enabledGreetingsSelf = { hi = false },
         enabledGoodbyes = {},
       },
     }
@@ -385,8 +434,9 @@ describe("MigrateInstanceChannel", function()
     assert.is_true(p.instance.enabled)
     assert.is_false(p.instance.onSelfJoin)
     assert.is_true(p.instance.onOthersJoinLeaderOnly)
-    assert.is_true(p.instance.enabledGreetings.hi)
-    assert.is_false(p.instance.enabledGreetings.hello)
+    assert.is_true(p.instance.enabledGreetingsSelf.hi)
+    assert.is_false(p.instance.enabledGreetingsSelf.hello)
+    assert.is_true(p.instance.enabledGreetingsOthers.welcomenames)
     assert.is_true(p.instance.enabledGoodbyes.bye)
     assert.equals("gl hf all", p.instance.customGreetings[1].text)
     assert.is_true(p.instanceMigrated)
@@ -395,9 +445,9 @@ describe("MigrateInstanceChannel", function()
   it("clones tables instead of sharing them", function()
     local p = freshProfile()
     Logic.MigrateInstanceChannel(p)
-    p.instance.enabledGreetings.hi = false
+    p.instance.enabledGreetingsSelf.hi = false
     p.instance.customGreetings[1].text = "changed"
-    assert.is_true(p.party.enabledGreetings.hi)
+    assert.is_true(p.party.enabledGreetingsSelf.hi)
     assert.equals("gl hf all", p.party.customGreetings[1].text)
   end)
 

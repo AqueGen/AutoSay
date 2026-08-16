@@ -342,8 +342,9 @@ function Addon:RunSelfTest()
             self.priorProfiles[SCRATCH] = { party = {} }
             self.priorTimeOfDay[SCRATCH] = nil
             self.priorBandGoodbyes[SCRATCH] = nil
-            wipe(profile.party.enabledGreetings)
-            profile.party.enabledGreetings["retired_in_1_6"] = true
+            wipe(profile.party.enabledGreetingsSelf)
+            profile.party.enabledGreetingsSelf["retired_in_1_6"] = true
+            profile.greetingSidesMigrated = true -- the split already happened for this profile
             profile.instanceMigrated = nil
             profile.masterSwitchesMigrated = nil
             profile.retiredPhrasesMigrated = nil
@@ -356,7 +357,7 @@ function Addon:RunSelfTest()
             -- stock set: the rescued party pool has to match it key for key, not merely
             -- hold more than one key
             check("a pool whose phrases were all retired gets the stock set back",
-                Dump(profile.party.enabledGreetings) == Dump(profile.raid.enabledGreetings),
+                Dump(profile.party.enabledGreetingsSelf) == Dump(profile.raid.enabledGreetingsSelf),
                 "the restored set is not the stock one")
             check("an upgrade keeps the time-of-day phrases it already had",
                 profile.social.timeOfDay == true, "the master switch was left off")

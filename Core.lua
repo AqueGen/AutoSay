@@ -95,6 +95,20 @@ local defaultGreetings = {
 -- Band goodbyes shipped disabled before this release, so an upgrade never had them
 local BAND_GOODBYE_KEYS = { "eveningbye", "gnall", "goodnightall", "sleepwell" }
 
+-- Arriving and welcoming are separate lists in the profile, built from the same authored
+-- defaults: an untagged phrase is offered on both occasions, a tagged one only on its own.
+local function GreetingDefaultsFor(side)
+    local t = {}
+    for _, msg in ipairs(AutoSay.Greetings) do
+        if defaultGreetings[msg.key] ~= nil and Logic.PhraseInPool(msg, { side = side }) then
+            t[msg.key] = defaultGreetings[msg.key]
+        end
+    end
+    return t
+end
+local defaultGreetingsSelf = GreetingDefaultsFor("self")
+local defaultGreetingsOthers = GreetingDefaultsFor("others")
+
 -- Default enabled goodbyes
 local defaultGoodbyes = {
     bye = true,
@@ -220,7 +234,8 @@ local defaults = {
             includeGroupNames = false, -- Include names of existing group members (self join)
             sendGoodbye = true,
             sendGoodbyeOnRunEnd = false, -- Also say goodbye the moment the dungeon or key ends
-            enabledGreetings = DeepCopy(defaultGreetings),
+            enabledGreetingsSelf = DeepCopy(defaultGreetingsSelf),
+            enabledGreetingsOthers = DeepCopy(defaultGreetingsOthers),
             enabledGoodbyes = DeepCopy(defaultGoodbyes),
             enabledReconnects = DeepCopy(defaultReconnects),
             customGreetings = {},
@@ -239,7 +254,8 @@ local defaults = {
             includeGroupNames = false, -- Include names of existing group members (self join)
             sendGoodbye = false,
             sendGoodbyeOnRunEnd = false,
-            enabledGreetings = DeepCopy(defaultGreetings),
+            enabledGreetingsSelf = DeepCopy(defaultGreetingsSelf),
+            enabledGreetingsOthers = DeepCopy(defaultGreetingsOthers),
             enabledGoodbyes = DeepCopy(defaultGoodbyes),
             enabledReconnects = DeepCopy(defaultReconnects),
             customGreetings = {},
@@ -258,7 +274,8 @@ local defaults = {
             includeGroupNames = false,
             sendGoodbye = true,
             sendGoodbyeOnRunEnd = false,
-            enabledGreetings = DeepCopy(defaultGreetings),
+            enabledGreetingsSelf = DeepCopy(defaultGreetingsSelf),
+            enabledGreetingsOthers = DeepCopy(defaultGreetingsOthers),
             enabledGoodbyes = DeepCopy(defaultGoodbyes),
             customGreetings = {},
             customGoodbyes = {},
@@ -292,7 +309,7 @@ local defaults = {
             sendGoodbye = false, -- Send goodbye on logout (disabled by default)
             onMemberLogin = false, -- Greet guild members who log in
             memberLoginCooldown = 30, -- Separate cooldown for member login greetings (seconds)
-            enabledGreetings = DeepCopy(defaultGreetings),
+            enabledGreetingsSelf = DeepCopy(defaultGreetingsSelf),
             enabledGoodbyes = DeepCopy(defaultGoodbyes),
             enabledLoginGreetings = DeepCopy(defaultGuildLoginGreetings),
             customGreetings = {},
@@ -533,7 +550,10 @@ end
 local RETIRED_PHRASES_VERSION = 2
 
 local RETIRED_POOLS = {
-    { messages = "Greetings", enabledKey = "enabledGreetings", customsKey = "customGreetings" },
+    { messages = "Greetings", enabledKey = "enabledGreetingsSelf", customsKey = "customGreetings",
+      side = "self" },
+    { messages = "Greetings", enabledKey = "enabledGreetingsOthers", customsKey = "customGreetings",
+      side = "others" },
     { messages = "Goodbyes", enabledKey = "enabledGoodbyes", customsKey = "customGoodbyes" },
     { messages = "Reconnects", enabledKey = "enabledReconnects", customsKey = "customReconnects" },
 }
@@ -552,7 +572,8 @@ function Addon:MigrateRetiredPhrases()
     if not self.priorProfiles[self.db:GetCurrentProfile()] then return end
 
     local defaults = {
-        enabledGreetings = defaultGreetings,
+        enabledGreetingsSelf = defaultGreetingsSelf,
+        enabledGreetingsOthers = defaultGreetingsOthers,
         enabledGoodbyes = defaultGoodbyes,
         enabledReconnects = defaultReconnects,
         enabledKeyAnnounce = defaultKeyAnnounce,
@@ -572,12 +593,14 @@ function Addon:MigrateRetiredPhrases()
             if enabled then
                 local live = {}
                 for _, msg in ipairs(AutoSay[pool.messages]) do
+                  if Logic.PhraseInPool(msg, pool) then
                     -- false rather than true for anything a master switch holds back: it is
                     -- still shipped, so it is no evidence of a retirement, but it cannot
                     -- carry the pool either. Both switches ship off and both sets of phrases
                     -- ship enabled, so counting them as content hid every empty pool.
                     live[msg.key] = msg.band == nil and msg.role == nil
                         and not msg.text:find("{role}", 1, true)
+                  end
                 end
                 if Logic.PoolLostItsPhrases(enabled, live, settings[pool.customsKey]) then
                     for key in pairs(enabled) do
@@ -616,6 +639,9 @@ function Addon:RunProfileMigrations()
     -- Migrate old single custom message format to new array format
     self:MigrateCustomMessages()
 
+    -- One greeting list becomes two, before anything else reads either of them
+    self:MigrateGreetingSides()
+
     -- Seed the instance channel from the party settings on the first run after the upgrade
     self:MigrateInstanceChannel()
 
@@ -630,10 +656,33 @@ function Addon:RunProfileMigrations()
     self:MigrateMasterSwitches()
 end
 
+-- Arriving and welcoming used to share one list of ticks and tell themselves apart by a tag
+-- on the phrase. Each occasion owns its own list now, so the stored one is dealt into both:
+-- every phrase keeps the state it had, on the occasions it can actually serve.
+function Addon:MigrateGreetingSides()
+    local profile = self.db.profile
+    if profile.greetingSidesMigrated then return end
+    profile.greetingSidesMigrated = true
+
+    for _, channel in ipairs(AutoSay.Channels) do
+        local settings = profile[channel.key]
+        local stored = settings and settings.enabledGreetings
+        if stored then
+            local selfSide, others = Logic.SplitGreetingSelection(stored, AutoSay.Greetings)
+            settings.enabledGreetingsSelf = selfSide
+            -- The guild never welcomes anyone through this list: its arrivals have their own
+            if channel.key ~= "guild" then settings.enabledGreetingsOthers = others end
+            settings.enabledGreetings = nil
+            self:DebugPrint("Split the greeting selection for", channel.key)
+        end
+    end
+end
+
 -- Everything the migrations would have done is already true of a freshly reset profile,
 -- so they only need marking as done - running them would move it off the defaults.
 function Addon:StampMigrationsDone()
     local profile = self.db.profile
+    profile.greetingSidesMigrated = true
     profile.instanceMigrated = true
     profile.masterSwitchesMigrated = true
     profile.retiredPhrasesMigrated = RETIRED_PHRASES_VERSION
@@ -1386,7 +1435,9 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
     local messages, enabledKey, customsKey
     if messageType == "greetings" then
         messages = AutoSay.Greetings
-        enabledKey = "enabledGreetings"
+        -- Arriving draws from one list, welcoming from the other. A reconnect is about me,
+        -- so it borrows the arrival list when its own has nothing to say.
+        enabledKey = Logic.GreetingPoolKey(reason)
         customsKey = "customGreetings"
     elseif messageType == "goodbyes" then
         messages = AutoSay.Goodbyes
@@ -1510,7 +1561,7 @@ function Addon:ApplyStyleBundle(style, replace, state)
     local poolHasStyle = {}
     for _, target in ipairs(targets) do
         for _, msg in ipairs(AutoSay[target.pool.messages]) do
-            if StyleFits(msg, style, faction) then
+            if StyleFits(msg, style, faction) and Logic.PhraseInPool(msg, target.pool) then
                 poolHasStyle[target.pool.enabledKey] = true
                 break
             end
@@ -1521,7 +1572,8 @@ function Addon:ApplyStyleBundle(style, replace, state)
         local enabled = target.settings and target.settings[target.pool.enabledKey]
         if enabled and poolHasStyle[target.pool.enabledKey] then
             for _, msg in ipairs(AutoSay[target.pool.messages]) do
-                if Logic.StyleMatches(msg, style) then
+                if not Logic.PhraseInPool(msg, target.pool) then -- not this list's occasion
+                elseif Logic.StyleMatches(msg, style) then
                     -- Both factions on purpose: the profile is shared by every character on
                     -- the account, and FitsContext already filters by faction at send time.
                     -- Skipping the other faction here + Replace would leave a Horde alt with
@@ -1557,7 +1609,7 @@ function Addon:SetTaggedPhrasesEnabled(kind, state)
         local enabled = target.settings and target.settings[target.pool.enabledKey]
         if enabled then
             for _, msg in ipairs(AutoSay[target.pool.messages]) do
-                if matches(msg) then
+                if matches(msg) and Logic.PhraseInPool(msg, target.pool) then
                     enabled[msg.key] = state
                 end
             end
