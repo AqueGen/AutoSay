@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.1](https://github.com/AqueGen/AutoSay/compare/v1.8.0...v1.8.1) (2026-08-16)
+
+
+### Bug Fixes
+
+* a phrase with a name slot waits for names ([#17](https://github.com/AqueGen/AutoSay/issues/17)) ([838b801](https://github.com/AqueGen/AutoSay/commit/838b8010c5f1531a4d096c93ab90931f02bda5dc))
+* put the [names] tag on the switch that fills the slot ([#19](https://github.com/AqueGen/AutoSay/issues/19)) ([1892287](https://github.com/AqueGen/AutoSay/commit/1892287f73416a7d615a6da72847646714accb01))
+
 ## [1.8.0](https://github.com/AqueGen/AutoSay/compare/v1.7.0...v1.8.0) (2026-08-16)
 
 
