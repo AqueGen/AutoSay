@@ -72,11 +72,13 @@ function MessageLogic.FitsContext(msg, role, faction, band, reason, rolePhrases)
     return true
 end
 
--- How a phrase carries player names: "slot" = {names} inside the text, "append" = glued to the end
+-- How a phrase carries player names: "slot" = a {names} placeholder to fill, "append" = the
+-- names go on the end. Every phrase can carry a name now. The old opt-in flag left the pool
+-- with a handful of name-capable lines, and a set with one of them repeated that one line to
+-- every newcomer in a row, which is exactly how a person notices they are talking to a bot.
 function MessageLogic.NameMode(msg)
     if msg.text:find("{names}", 1, true) then return "slot" end
-    if msg.appendNames then return "append" end
-    return nil
+    return "append"
 end
 
 -- Long name lists read like spam: keep four and count the rest
@@ -87,7 +89,9 @@ function MessageLogic.FormatNameList(names)
     return table.concat(names, ", ")
 end
 
--- Insert player names into a message per its name mode (nil = the phrase never carries names)
+-- Insert player names into a message per its name mode (nil = the phrase never carries names).
+-- An appended name is punctuated the way a person would: "stay sharp, Bob" after a word,
+-- "o/ Bob" after an emote or a mark that already closed the sentence.
 function MessageLogic.AddPlayersToMessage(message, playerNames, nameMode)
     if not nameMode or not playerNames or #playerNames == 0 then
         return message
@@ -96,7 +100,41 @@ function MessageLogic.AddPlayersToMessage(message, playerNames, nameMode)
     if nameMode == "slot" then
         return (message:gsub("{names}", names))
     end
-    return message .. " " .. names
+    local separator = message:match("[%w%)]$") and ", " or " "
+    return message .. separator .. names
+end
+
+-- Which greeting list an occasion draws from. Joining and being joined are different moments
+-- with different phrases, so they own their selections rather than sharing one list and a tag.
+function MessageLogic.GreetingPoolKey(reason)
+    if reason == "others_join" then return "enabledGreetingsOthers" end
+    return "enabledGreetingsSelf"
+end
+
+--- One stored greeting list becomes two. A phrase keeps the state it had, on the occasions it
+--- can serve: [self] only when arriving, [newcomers] only when welcoming, anything untagged on
+--- both. Keys the build no longer ships are dropped rather than carried into either list.
+function MessageLogic.SplitGreetingSelection(stored, phrases)
+    local selfSide, others = {}, {}
+    if not stored then return selfSide, others end
+    for _, msg in ipairs(phrases) do
+        local state = stored[msg.key]
+        if state ~= nil then
+            if msg.trigger ~= "others" then selfSide[msg.key] = state end
+            if msg.trigger ~= "self" then others[msg.key] = state end
+        end
+    end
+    return selfSide, others
+end
+
+-- Whether a phrase belongs in a pool. Only the greeting pools have sides: a [self] phrase is
+-- about arriving and a [newcomers] one is about welcoming, while an untagged phrase says
+-- something true on both occasions and is offered in each with its own checkbox.
+function MessageLogic.PhraseInPool(msg, pool)
+    local side = pool and pool.side
+    if side == "self" then return msg.trigger ~= "others" end
+    if side == "others" then return msg.trigger ~= "self" end
+    return true
 end
 
 -- Same key twice? Map ids are locale-proof, so they decide whenever both sides have one;
@@ -231,7 +269,12 @@ function MessageLogic.MigrateInstanceChannel(profile)
         end
         return copy
     end
-    if party.enabledGreetings then instance.enabledGreetings = CloneFlags(party.enabledGreetings) end
+    if party.enabledGreetingsSelf then
+        instance.enabledGreetingsSelf = CloneFlags(party.enabledGreetingsSelf)
+    end
+    if party.enabledGreetingsOthers then
+        instance.enabledGreetingsOthers = CloneFlags(party.enabledGreetingsOthers)
+    end
     if party.enabledGoodbyes then instance.enabledGoodbyes = CloneFlags(party.enabledGoodbyes) end
     instance.customGreetings = CloneCustoms(party.customGreetings)
     instance.customGoodbyes = CloneCustoms(party.customGoodbyes)

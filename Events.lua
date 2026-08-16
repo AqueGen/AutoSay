@@ -402,6 +402,15 @@ function Addon:GROUP_ROSTER_UPDATE()
                         self:DebugPrint("Dropping newcomer batch - group category changed since it was collected")
                         return
                     end
+                    -- The trigger that admitted this batch belonged to the channel it was
+                    -- collected in. A party turning into a raid keeps the audience but not
+                    -- the settings, so the channel we are about to speak in has to want
+                    -- newcomer greetings too, leader rule included.
+                    if not self:ShouldGreetOnOthersJoin(nowChannel) then
+                        self:DebugPrint("Dropping newcomer batch -", nowChannel,
+                            "does not greet newcomers")
+                        return
+                    end
                     if #names > 0 then
                         self:DebugPrint("Sending batched greeting for:", table.concat(names, ", "))
                         self:SendGreeting(names, "others_join")
@@ -631,9 +640,9 @@ function Addon:CHALLENGE_MODE_COMPLETED()
     end
 
     local db = self.db.profile
-    local completionSpeaks = db.enabled and db.mythicplus and db.mythicplus.enabled
+    local completionWanted = db.enabled and db.mythicplus and db.mythicplus.enabled
         and db.mythicplus.completionEnabled and true or false
-    if not completionSpeaks then
+    if not completionWanted then
         -- Nothing is going to sum this run up, so the goodbye is free to mark the ending
         local handles = self.state.pendingGroupSends
         local channel = self:GetChatChannel()
@@ -658,9 +667,19 @@ function Addon:CHALLENGE_MODE_COMPLETED()
         return
     end
 
-    -- Skip practice runs
+    -- Skip practice runs. The goodbye still gets its chance: nothing summed this run up.
     if info.practiceRun then
         self:DebugPrint("Practice run, skipping completion message")
+        local handles = self.state.pendingGroupSends
+        local channel = self:GetChatChannel()
+        if channel then
+            local handle
+            handle = self:ScheduleTimer(function()
+                handles[handle] = nil
+                self:SendRunEndGoodbye(false)
+            end, 3)
+            handles[handle] = channel
+        end
         return
     end
 
@@ -690,7 +709,11 @@ function Addon:CHALLENGE_MODE_COMPLETED()
     local handle
     handle = self:ScheduleTimer(function()
         handles[handle] = nil
-        self:SendCompletionMessage(dungeonName, keyLevel, onTime, upgrade, timeFormatted)
+        -- Whether the summary actually reached chat, not whether it was switched on: a
+        -- practice run, an empty completion list or a refused send all leave the ending
+        -- unspoken, and then the goodbye is the one that should mark it
+        local spoke = self:SendCompletionMessage(dungeonName, keyLevel, onTime, upgrade, timeFormatted)
+        self:SendRunEndGoodbye(spoke and true or false)
     end, 3)
     handles[handle] = "PARTY"
 end

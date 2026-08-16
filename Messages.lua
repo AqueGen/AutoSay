@@ -324,8 +324,13 @@ AutoSay.StyleClasses = {
 --   enabledKey  settings key of that pool's per-phrase checkbox table
 --   mplus       the pool lives once under db.profile.mythicplus instead of per channel
 --   header      tooltip section title; pools sharing one are listed under a single header
+--   side        greeting pools only: "self" is what you say on arriving, "others" what you
+--               say to whoever arrives after you. Untagged phrases belong to both.
 AutoSay.StylePools = {
-    { messages = "Greetings",          enabledKey = "enabledGreetings",          header = "Greetings" },
+    { messages = "Greetings", enabledKey = "enabledGreetingsSelf",
+      header = "Greetings", side = "self" },
+    { messages = "Greetings", enabledKey = "enabledGreetingsOthers",
+      header = "Greetings", side = "others" },
     { messages = "Goodbyes",           enabledKey = "enabledGoodbyes",           header = "Goodbyes" },
     { messages = "Reconnects",         enabledKey = "enabledReconnects",         header = "Reconnects" },
     { messages = "KeyAnnounce",        enabledKey = "enabledKeyAnnounce",        header = "Key announce", mplus = true },
