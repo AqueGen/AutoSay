@@ -126,6 +126,16 @@ function MessageLogic.StyleFits(msg, style, faction)
         and (not msg.faction or msg.faction == faction)
 end
 
+-- A goodbye at the end of a run answers to its own switch, not to the one that covers
+-- leaving: someone can want both, either, or neither. It fires once per run, and never when
+-- an M+ completion line is already speaking for that same ending.
+function MessageLogic.SaysGoodbyeOnRunEnd(settings, alreadySent, completionSpoke)
+    if not settings then return false end
+    if alreadySent or completionSpoke then return false end
+    if settings.enabled == false then return false end
+    return settings.sendGoodbyeOnRunEnd and true or false
+end
+
 -- LFR and battlegrounds share INSTANCE_CHAT with a 5-player dungeon run, but talking to 25
 -- or 40 strangers is a different thing than talking to your 4 group mates. The channel is
 -- on by default, this keeps it to the small groups people actually queue together for.
