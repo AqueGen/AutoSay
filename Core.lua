@@ -21,6 +21,9 @@ function Addon:DebugPrint(...)
     if self.db and self.db.profile.debugMode and self.db.profile.testMode then
         print("|cFF00FF00[AutoSay Debug]|r", ...)
     end
+    -- The session log records the same narration, whether or not anyone is watching chat:
+    -- one call site to keep in sync instead of a second set sprinkled through the addon
+    if self.LogLine then self:LogLine(...) end
 end
 
 -- Test mode print helper
@@ -318,6 +321,9 @@ local defaults = {
         -- "major.minor" of the last release whose What's new popup was dismissed.
         -- Account-wide on purpose: the news is the same on every character.
         whatsNewSeen = "",
+        -- Session log (see Log.lua). Account-wide as well: a session spans characters,
+        -- and the recording must survive a /reload to be worth anything.
+        log = { recording = false, entries = {} },
     },
 
     char = {
@@ -997,6 +1003,19 @@ function Addon:SlashCommand(input)
             self:Print("  /as test resetgate - Clear social gate counters (budget, cooldowns, welcomed list)")
             self:Print("  /as test status - Show test status")
         end
+    elseif cmd == "log" then
+        local sub = arg1 and arg1:lower() or ""
+        if sub == "on" then
+            self:StartLogging()
+        elseif sub == "off" then
+            self:StopLogging()
+        elseif sub == "clear" then
+            self:ClearLog()
+        elseif sub == "" or sub == "show" then
+            self:ShowLogWindow()
+        else
+            self:Print("Usage: /as log on | off | show | clear")
+        end
     elseif cmd == "selftest" or cmd == "st" then
         self:RunSelfTest()
     elseif cmd == "dumpdungeons" or cmd == "dd" then
@@ -1010,6 +1029,7 @@ function Addon:SlashCommand(input)
         self:Print("  /as debug - Toggle debug mode")
         self:Print("  /as testmode - Toggle test mode")
         self:Print("  /as test [cmd] - Run test simulation")
+        self:Print("  /as log on|off|show|clear - Record what the addon does, then copy it out")
         self:Print("  /as selftest - Verify anti-spam and humanizer logic (no side effects)")
         self:Print("  /as dumpdungeons - Print the live M+ pool as paste-ready Lua for Messages.lua")
         self:Print("  /as status - Show current status")

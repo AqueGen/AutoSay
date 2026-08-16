@@ -2123,6 +2123,32 @@ local function BuildOptions()
                             get = function() return Addon.db.profile.debugMode end,
                             set = function(_, val) Addon.db.profile.debugMode = val end,
                         },
+                        sessionLog = {
+                            type = "toggle",
+                            name = NewTag(L["Record session log"], "1.7"),
+                            desc = L["Record session log desc"],
+                            order = 2,
+                            width = 1.6,
+                            get = function() return Addon:LoggingEnabled() and true or false end,
+                            set = function(_, val)
+                                if val then Addon:StartLogging() else Addon:StopLogging() end
+                            end,
+                        },
+                        showLog = {
+                            type = "execute",
+                            name = L["Copy log"],
+                            desc = L["Copy log desc"],
+                            order = 3,
+                            width = 1.0,
+                            func = function() Addon:ShowLogWindow() end,
+                        },
+                        clearLog = {
+                            type = "execute",
+                            name = L["Clear log"],
+                            order = 4,
+                            width = 1.0,
+                            func = function() Addon:ClearLog() end,
+                        },
                     },
                 },
             },
