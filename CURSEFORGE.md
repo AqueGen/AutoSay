@@ -24,6 +24,14 @@ Automatic greetings, farewells and reconnect messages for party, raid, instance 
 
 AutoSay handles the social basics so you don't have to. It greets the group when you join, says goodbye when you leave, and tells people you are back after a disconnect. It works in party, raid, instance (LFG, LFR, battlegrounds) and guild chat, and every phrase it can say is a checkbox you own.
 
+### New in 1.7
+
+- **Greetings split by occasion.** What you say on arriving and what you say to whoever arrives after you are two lists now, each with its own tab, its own trigger and its own ticks.
+- **Everything gets its turn.** The addon works through the whole set of phrases you enabled before any of them comes back, so a run of newcomers does not hear the same line twice.
+- **Names on any phrase.** Turn names on and they go into whichever phrase comes up, into its {names} slot or onto its end, punctuated the way a person would write it.
+- **A goodbye when the run ends.** Optional, off by default: say goodbye the moment a dungeon or key finishes instead of waiting for someone to press leave.
+- **A session log.** `/as log on`, play, `/as log show` gives you the whole session as text you can copy into a bug report.
+
 ### New in 1.6
 
 - **13 style bundles.** Classic, Minimal, Fun, Fantasy, Dark, Deadpan, Wholesome, Pirate, Faction, Zoomer, Butler, Robot and Naturewarden. Switch a whole set on or off in one click and read at a glance how many of its phrases are selected and how many can be sent right now.
