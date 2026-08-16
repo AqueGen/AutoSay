@@ -135,6 +135,12 @@ function MessageLogic.SplitGreetingSelection(stored, phrases)
     return selfSide, others
 end
 
+--- A phrase whose {names} slot is the object of its sentence has nothing to say without one.
+--- Stripping the slot leaves "the road brings us", so it waits for an occasion with names.
+function MessageLogic.NeedsNames(msg)
+    return msg.needsNames and true or false
+end
+
 -- Whether a phrase belongs in a pool. Only the greeting pools have sides: a [self] phrase is
 -- about arriving and a [newcomers] one is about welcoming, while an untagged phrase says
 -- something true on both occasions and is offered in each with its own checkbox.

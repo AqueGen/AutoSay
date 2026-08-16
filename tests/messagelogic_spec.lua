@@ -228,6 +228,16 @@ describe("PhraseInPool", function()
   end)
 end)
 
+describe("NameMode with the slot rule", function()
+  local f = Logic.NameMode
+  it("marks a slot phrase, which the sender then keeps for occasions with names", function()
+    assert.equals("slot", f({ text = "the road brings us {names}" }))
+  end)
+  it("leaves every other phrase free to take names on the end", function()
+    assert.equals("append", f({ text = "well met, travelers" }))
+  end)
+end)
+
 describe("GreetingPoolKey", function()
   local f = Logic.GreetingPoolKey
   it("sends a newcomer greeting to its own list", function()

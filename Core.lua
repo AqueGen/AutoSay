@@ -11,7 +11,6 @@ Addon.version = "@project-version@"
 local Logic = AutoSay.MessageLogic
 local TruncateToChatLimit = Logic.TruncateToChatLimit
 local FitsContext = Logic.FitsContext
-local StripNameSlot = Logic.StripNameSlot
 local NameMode = Logic.NameMode
 local SameKey = Logic.SameKey
 local StyleFits = Logic.StyleFits
@@ -1547,11 +1546,10 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
     local texts, modes, keeps = {}, {}, {}
     local seen = {}
     local function AddCandidate(text, mode, keepCase)
-        -- Without names to carry, a slot phrase says its line with the hole closed up
-        if not wantNames and mode == "slot" then
-            text, mode = StripNameSlot(text), nil
-            if seen[text] then return end
-        end
+        -- A phrase written around a {names} slot waits for an occasion that has names. The
+        -- slot is where its subject or object goes, and a sentence with that cut out
+        -- ("the road brings us") is not one anybody would type.
+        if not wantNames and mode == "slot" then return end
         if seen[text] then return end
         seen[text] = true
         local n = #texts + 1
@@ -1577,7 +1575,10 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
         local rolePhrases = self.db.profile.social.rolePhrases and channel ~= "GUILD"
 
         for _, msg in ipairs(messages) do
-            if settings[enabledKey][msg.key] and FitsContext(msg, role, faction, band, reason, rolePhrases) then
+            -- A phrase built around its names is not a candidate on an occasion without any
+            local carriesNames = not Logic.NeedsNames(msg) or wantNames
+            if settings[enabledKey][msg.key] and carriesNames
+                and FitsContext(msg, role, faction, band, reason, rolePhrases) then
                 AddCandidate(msg.text, NameMode(msg), msg.keepCase)
             end
         end
