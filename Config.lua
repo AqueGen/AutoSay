@@ -8,7 +8,7 @@ local MAX_CUSTOM_MESSAGES = 10
 
 local ADDON_VERSION = (C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata)(ADDON_NAME, "Version") or ""
 -- Append a green "New!" while the addon version still matches the minor release the option shipped in.
--- Auto-expires on the next minor: NewTag("Style", NEW_IN) stops matching once 1.7.0 ships.
+-- Auto-expires on the next minor: a badge naming NEW_IN stops matching once the minor after it ships.
 -- The minor whose badges are currently lit. Bumping this one line carries every "New!" into
 -- the next release, which is what a run of releases a day apart needs: a badge nobody had
 -- time to see is worse than no badge. Drop a tag entirely when its feature stops being new.
