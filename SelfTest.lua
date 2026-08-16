@@ -344,6 +344,9 @@ function Addon:RunSelfTest()
             self.priorBandGoodbyes[SCRATCH] = nil
             wipe(profile.party.enabledGreetingsSelf)
             profile.party.enabledGreetingsSelf["retired_in_1_6"] = true
+            -- A 1.6 profile as AceDB would have stored it: one changed phrase, nothing else
+            profile.greetingSidesMigrated = nil
+            profile.party.enabledGreetings = { hi = false }
             profile.greetingSidesMigrated = true -- the split already happened for this profile
             profile.instanceMigrated = nil
             profile.masterSwitchesMigrated = nil
@@ -359,6 +362,15 @@ function Addon:RunSelfTest()
             check("a pool whose phrases were all retired gets the stock set back",
                 Dump(profile.party.enabledGreetingsSelf) == Dump(profile.raid.enabledGreetingsSelf),
                 "the restored set is not the stock one")
+            -- The stored list holds only what the player changed, so a migration that
+            -- replaced the list instead of writing over it would drop everything else
+            local defaultsKept = 0
+            for _ in pairs(profile.party.enabledGreetingsSelf) do
+                defaultsKept = defaultsKept + 1
+            end
+            check("the split keeps the phrases the profile never touched",
+                defaultsKept > 5, format("only %d phrase(s) survived the split", defaultsKept))
+
             check("an upgrade keeps the time-of-day phrases it already had",
                 profile.social.timeOfDay == true, "the master switch was left off")
 

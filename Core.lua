@@ -623,11 +623,26 @@ function Addon:OnProfileDeleted(_, _, name)
 end
 
 function Addon:OnProfileSwitched(event)
-    if event == "OnProfileReset" or event == "OnProfileCopied" then
-        -- A reset asks for the defaults and a copy already holds what its source gave it.
-        -- Either way the upgrade migrations have nothing to add, and running them would
-        -- judge this profile by a history that belongs to another one: the snapshots are
-        -- keyed by profile name, and the name here is the destination's.
+    -- Rotation is per pool, not per profile: without this, phrases spent under the profile
+    -- you left stay spent under the one you arrived at
+    if self.humanizer then self.humanizer.rounds = {} end
+    if event == "OnProfileCopied" then
+        -- The copy carries the source's stored tables, so the structural conversions still
+        -- have real work to do. Only the snapshot-dependent ones are stamped: their evidence
+        -- is keyed by profile name, and the name here belongs to the destination.
+        self:MigrateCustomMessages()
+        self:MigrateGreetingSides()
+        self:MigrateInstanceChannel()
+        self:MigrateKeyLevelMode()
+        local profile = self.db.profile
+        profile.masterSwitchesMigrated = true
+        profile.retiredPhrasesMigrated = RETIRED_PHRASES_VERSION
+        LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+        return
+    end
+    if event == "OnProfileReset" then
+        -- A reset asks for the defaults, and the defaults are already what every migration
+        -- would produce. Running them would only move the profile off them again.
         self:StampMigrationsDone()
     else
         self:RunProfileMigrations()
@@ -659,23 +674,52 @@ end
 -- Arriving and welcoming used to share one list of ticks and tell themselves apart by a tag
 -- on the phrase. Each occasion owns its own list now, so the stored one is dealt into both:
 -- every phrase keeps the state it had, on the occasions it can actually serve.
+-- The stored choices land on top of whatever the defaults already put in the list
+local function ApplySelection(settings, key, values)
+    local target = settings[key]
+    if type(target) ~= "table" then
+        settings[key] = values
+        return
+    end
+    for phrase, state in pairs(values) do target[phrase] = state end
+end
+
 function Addon:MigrateGreetingSides()
     local profile = self.db.profile
-    if profile.greetingSidesMigrated then return end
-    profile.greetingSidesMigrated = true
+    -- Not "have we run before" but "is there anything left to convert": a profile copied
+    -- from one that never became active under this build arrives stamped and unconverted,
+    -- and its owner's whole selection would otherwise be ignored.
+    local pending = false
+    for _, channel in ipairs(AutoSay.Channels) do
+        local settings = profile[channel.key]
+        if settings and type(settings.enabledGreetings) == "table" then pending = true end
+    end
+    if not pending then
+        profile.greetingSidesMigrated = true
+        return
+    end
 
     for _, channel in ipairs(AutoSay.Channels) do
         local settings = profile[channel.key]
         local stored = settings and settings.enabledGreetings
         if stored then
             local selfSide, others = Logic.SplitGreetingSelection(stored, AutoSay.Greetings)
-            settings.enabledGreetingsSelf = selfSide
+            -- Written over the defaults, never in place of them. AceDB stores only what
+            -- differs from a default and copies the rest back in at load, so the stored list
+            -- holds the player's changes alone. Replacing the table with it would drop every
+            -- phrase they never touched, which is most of them.
+            ApplySelection(settings, "enabledGreetingsSelf", selfSide)
             -- The guild never welcomes anyone through this list: its arrivals have their own
-            if channel.key ~= "guild" then settings.enabledGreetingsOthers = others end
+            if channel.key ~= "guild" then
+                ApplySelection(settings, "enabledGreetingsOthers", others)
+            end
             settings.enabledGreetings = nil
             self:DebugPrint("Split the greeting selection for", channel.key)
         end
     end
+
+    -- Last, so a raise anywhere above leaves the work to be retried rather than skipped
+    profile.greetingSidesMigrated = true
 end
 
 -- Everything the migrations would have done is already true of a freshly reset profile,
@@ -1319,10 +1363,24 @@ function Addon:DoSendMessage(message, channel, target, keepCase)
     -- is closed to anything running there. One clean frame is enough to get out of it.
     if C_Timer and C_Timer.After then
         self:DebugPrint("Send refused, retrying next frame for", channel, ":", message)
-        C_Timer.After(0, function() RawSend(message, channel, target) end)
-        -- Counted as sent: the retry is the send, and a caller that spends its budget slot
-        -- here must not spend a second one on the same line
-        updateCooldown()
+        local generation = self.state.sendGeneration
+        C_Timer.After(0, function()
+            -- One frame is enough for the group to change under us, and a line meant for
+            -- the party we just left must not land in the one we just joined
+            if generation ~= self.state.sendGeneration then return end
+            if self:GetChatChannel() ~= channel and channel ~= "GUILD" then
+                self:DebugPrint("Retry dropped - the group changed", channel)
+                return
+            end
+            if RawSend(message, channel, target) then
+                updateCooldown()
+                self:DebugPrint("Sent on retry to", channel, ":", message)
+            else
+                self:DebugPrint("Retry failed for", channel, ":", message)
+            end
+        end)
+        -- Counted as handed off: the caller must not queue the same line a second time,
+        -- but the cooldown is stamped by the retry itself, only if it actually speaks
         return true
     end
 

@@ -117,12 +117,20 @@ end
 function MessageLogic.SplitGreetingSelection(stored, phrases)
     local selfSide, others = {}, {}
     if not stored then return selfSide, others end
+    local known = {}
     for _, msg in ipairs(phrases) do
+        known[msg.key] = true
         local state = stored[msg.key]
         if state ~= nil then
             if msg.trigger ~= "others" then selfSide[msg.key] = state end
             if msg.trigger ~= "self" then others[msg.key] = state end
         end
+    end
+    -- A tick for a phrase this build no longer ships is the only evidence that the pool
+    -- once had a selection, and the rescue that hands the stock set back to an emptied pool
+    -- runs after this. Dropping it here would quietly cost that player their greetings.
+    for key, state in pairs(stored) do
+        if not known[key] then selfSide[key] = state end
     end
     return selfSide, others
 end
