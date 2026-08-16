@@ -8,7 +8,7 @@ local MAX_CUSTOM_MESSAGES = 10
 
 local ADDON_VERSION = (C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata)(ADDON_NAME, "Version") or ""
 -- Append a green "New!" while the addon version still matches the minor release the option shipped in.
--- Auto-expires on the next minor: NewTag("Style", "1.6") stops matching once 1.7.0 ships.
+-- Auto-expires on the next minor: NewTag("Style", "1.7") stops matching once 1.7.0 ships.
 local function NewTag(name, ver)
     if AutoSay.MessageLogic.VersionMatchesMinor(ADDON_VERSION, ver) then
         return name .. " |cFF00FF00New!|r"
@@ -397,9 +397,9 @@ local function BuildMessageMatrix(poolId, pool, channels)
         if style == "classic" then
             label = L["Classic"]
         elseif style == "timeofday" then
-            label = NewTag(L["Time of day"], "1.6")
+            label = NewTag(L["Time of day"], "1.7")
         else
-            label = NewTag(L["Style " .. style], "1.6")
+            label = NewTag(L["Style " .. style], "1.7")
         end
 
         local folded = function() return #styles > 1 and not open[style] end
@@ -1224,7 +1224,7 @@ local function BuildOptions()
                         -- beside it instead of on a line of its own
                         enableInstance = {
                             type = "toggle",
-                            name = NewTag(L["Enable Instance"], "1.6"),
+                            name = NewTag(L["Enable Instance"], "1.7"),
                             desc = L["Send greetings and goodbyes in instance chat"],
                             order = 3,
                             width = 1.0,
@@ -1236,7 +1236,7 @@ local function BuildOptions()
                         },
                         skipRaidGroups = {
                             type = "toggle",
-                            name = NewTag(L["Skip LFR and battlegrounds"], "1.6"),
+                            name = NewTag(L["Skip LFR and battlegrounds"], "1.7"),
                             desc = L["Skip LFR and battlegrounds desc"],
                             order = 3.5,
                             width = 1.6,
@@ -1366,12 +1366,12 @@ local function BuildOptions()
         -- === STYLE ===
         style = {
             type = "group",
-            name = NewTag(L["Style"], "1.6"),
+            name = NewTag(L["Style"], "1.7"),
             order = 3,
             args = {
                 styleBundles = {
                     type = "group", order = 1, inline = true,
-                    name = NewTag(L["Message style bundles"], "1.6"),
+                    name = NewTag(L["Message style bundles"], "1.7"),
                     args = (function()
                         local args = {
                             desc = {
@@ -1397,7 +1397,7 @@ local function BuildOptions()
                                     -- The tag rides the whole row: the two buttons next to
                                     -- it repeat for all thirteen sets, so badging them too
                                     -- would just be thirteen more "New!" on one screen
-                                    return NewTag(colour .. L["Style " .. style] .. "|r", "1.6")
+                                    return NewTag(colour .. L["Style " .. style] .. "|r", "1.7")
                                 end,
                             }
                             args["count_" .. style] = {
@@ -1463,7 +1463,7 @@ local function BuildOptions()
                 },
                 rolePhrases = {
                     type = "toggle", order = 1.5, width = 2.3,
-                    name = NewTag(L["Role-based phrases"], "1.6")
+                    name = NewTag(L["Role-based phrases"], "1.7")
                         .. " |A:roleicon-tiny-tank:14:14|a|A:roleicon-tiny-healer:14:14|a|A:roleicon-tiny-dps:14:14|a",
                     desc = L["Role-based phrases desc"],
                     get = function() return Addon.db.profile.social.rolePhrases end,
@@ -1532,11 +1532,11 @@ local function BuildOptions()
                 },
                 tone = {
                     type = "group", order = 4, inline = true,
-                    name = NewTag(L["Tone"], "1.6"),
+                    name = NewTag(L["Tone"], "1.7"),
                     args = {
                         lowercaseFirst = {
                             type = "toggle", order = 1, width = "full",
-                            name = NewTag(L["Lowercase first letter"], "1.6"),
+                            name = NewTag(L["Lowercase first letter"], "1.7"),
                             desc = L["Lowercase first letter desc"],
                             get = function() return Addon.db.profile.social.lowercaseFirst end,
                             set = function(_, v) Addon.db.profile.social.lowercaseFirst = v end,
@@ -1630,7 +1630,7 @@ local function BuildOptions()
         -- switches say, and those switches keep doing the only job they ever had - gating sends.
         group = {
             type = "group",
-            name = NewTag("|cFF33DDAA" .. L["Group"] .. "|r", "1.6"),
+            name = NewTag("|cFF33DDAA" .. L["Group"] .. "|r", "1.7"),
             order = 10,
             childGroups = "tab",
             args = {
@@ -1735,7 +1735,7 @@ local function BuildOptions()
                                 },
                                 announceOnStart = {
                                     type = "toggle",
-                                    name = NewTag(L["Announce at key start"], "1.6") .. TagSuffix("leader"),
+                                    name = NewTag(L["Announce at key start"], "1.7") .. TagSuffix("leader"),
                                     desc = L["Announce at key start desc"]
                                         .. "\n\n" .. L["Leader only note"],
                                     order = 2,
@@ -1751,7 +1751,7 @@ local function BuildOptions()
                                 },
                                 includeKeyLevel = {
                                     type = "toggle",
-                                    name = NewTag(L["Include key level"], "1.6"),
+                                    name = NewTag(L["Include key level"], "1.7"),
                                     desc = L["Include key level desc"],
                                     order = 4,
                                     width = "full",
@@ -1956,7 +1956,7 @@ local function BuildOptions()
                         },
                         simulateInstance = {
                             type = "execute",
-                            name = NewTag(L["Enter Instance"], "1.6"),
+                            name = NewTag(L["Enter Instance"], "1.7"),
                             desc = L["Simulate zoning into an instance group"],
                             order = 2.5,
                             width = 1.0,
@@ -2060,7 +2060,7 @@ local function BuildOptions()
                         },
                         simulateKeyStart = {
                             type = "execute",
-                            name = NewTag(L["Simulate Key Start"], "1.6"),
+                            name = NewTag(L["Simulate Key Start"], "1.7"),
                             desc = L["Simulate key start desc"],
                             order = 3,
                             width = 1.2,
@@ -2089,13 +2089,13 @@ local function BuildOptions()
                 },
                 simulationContext = {
                     type = "group",
-                    name = NewTag(L["Simulation context"], "1.6"),
+                    name = NewTag(L["Simulation context"], "1.7"),
                     inline = true,
                     order = 27,
                     args = {
                         simulateAssignedRole = {
                             type = "select",
-                            name = NewTag(L["Simulate assigned role"], "1.6"),
+                            name = NewTag(L["Simulate assigned role"], "1.7"),
                             desc = L["Simulate assigned role desc"],
                             order = 1,
                             width = 0.8,
@@ -2111,7 +2111,7 @@ local function BuildOptions()
                         },
                         simulateRealTime = {
                             type = "toggle",
-                            name = NewTag(L["Use real time"], "1.6"),
+                            name = NewTag(L["Use real time"], "1.7"),
                             desc = L["Use real time desc"],
                             order = 2,
                             width = 0.8,
@@ -2127,7 +2127,7 @@ local function BuildOptions()
                         },
                         simulateHour = {
                             type = "range",
-                            name = NewTag(L["Simulate hour"], "1.6"),
+                            name = NewTag(L["Simulate hour"], "1.7"),
                             desc = L["Simulate hour desc"],
                             order = 3,
                             width = 1.5,
@@ -2138,7 +2138,7 @@ local function BuildOptions()
                         },
                         simulatePreviewWhatsNew = {
                             type = "execute",
-                            name = NewTag(L["Preview What's new"], "1.6"),
+                            name = NewTag(L["Preview What's new"], "1.7"),
                             desc = L["Preview What's new desc"],
                             order = 4,
                             width = 1.2,
