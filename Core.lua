@@ -1382,28 +1382,22 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
 
     -- Presets first, and the same text never enters twice: a custom copy of a preset must not
     -- override the preset's keepCase/mode, nor double that text's odds of being picked.
-    -- One pass fills the pick arrays already filtered by wantNames - with names in hand prefer
-    -- the phrases built for them, without names drop the ones that would render a hole where
-    -- {names} sits. What the filter rejects is kept aside as the fallback: when it leaves
-    -- nothing, the rejects are by definition every candidate there was.
+    -- Every enabled phrase is a candidate. Names no longer decide who is eligible - they are
+    -- applied to whichever phrase wins, into its {names} slot or onto its end. Filtering by
+    -- name-capability used to shrink a whole style down to the one or two lines written with a
+    -- slot, and a set with one of them said that line to every newcomer in a row.
     local texts, modes, keeps = {}, {}, {}
-    local rejects, seen = nil, {}
+    local seen = {}
     local function AddCandidate(text, mode, keepCase)
+        -- Without names to carry, a slot phrase says its line with the hole closed up
+        if not wantNames and mode == "slot" then
+            text, mode = StripNameSlot(text), nil
+            if seen[text] then return end
+        end
         if seen[text] then return end
         seen[text] = true
-        local wanted
-        if wantNames then
-            wanted = mode ~= nil
-        else
-            wanted = mode ~= "slot"
-        end
-        if wanted then
-            local n = #texts + 1
-            texts[n], modes[n], keeps[n] = text, mode, keepCase
-        else
-            rejects = rejects or {}
-            rejects[#rejects + 1] = { text = text, mode = mode, keepCase = keepCase }
-        end
+        local n = #texts + 1
+        texts[n], modes[n], keeps[n] = text, mode, keepCase
     end
 
     -- Add enabled preset messages
@@ -1444,16 +1438,7 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
         end
     end
 
-    if #texts == 0 then
-        -- Nothing survived the filter. With names: nothing name-capable is enabled, so send the
-        -- rest without names. Without names: only {names} phrases are enabled, so say them with
-        -- the slot stripped rather than going silent. Either way the rejects carry no name mode.
-        if not rejects then return nil end
-        for i, c in ipairs(rejects) do
-            texts[i] = wantNames and c.text or StripNameSlot(c.text)
-            keeps[i] = c.keepCase
-        end
-    end
+    if #texts == 0 then return nil end
 
     local text
     if self.humanizer then
