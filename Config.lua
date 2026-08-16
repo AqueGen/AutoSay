@@ -46,7 +46,9 @@ local function PresetLabel(msg, ownStyleGroup)
     elseif msg.faction then
         table.insert(tags, msg.faction:lower())
     end
-    -- No trigger tag: the phrase lists are split by occasion now, so the tab already said it
+    -- No trigger tag: the phrase lists are split by occasion now, so the tab already said it.
+    -- A name slot is worth marking, since it is the one thing a row still depends on.
+    if msg.text:find("{names}", 1, true) then table.insert(tags, "names") end
     if #tags == 0 then return msg.text end
     return msg.text .. " |cFF888888[" .. table.concat(tags, ", ") .. "]|r"
 end
@@ -95,6 +97,7 @@ local function PhraseActive(msg, settingsFn, poolKind, channelKey)
     -- Nothing is sent at all while the addon is off, so nothing in any list is live
     if not Addon.db.profile.enabled then return false end
     local roleDependent = msg.role or msg.text:find("{role}", 1, true)
+    local slotted = msg.text:find("{names}", 1, true) ~= nil
     if roleDependent and not Addon.db.profile.social.rolePhrases then return false end
     -- The runtime refuses role phrases on guild chat whatever the master switch says
     if roleDependent and channelKey == "guild" then return false end
@@ -127,6 +130,10 @@ local function PhraseActive(msg, settingsFn, poolKind, channelKey)
         elseif poolKind == "login" then
             if not settings.onMemberLogin then return false end
         elseif poolKind == "greetingsSelf" then
+            -- A phrase written around a {names} slot is waiting for the switch on this very
+            -- tab: without names there is nothing to put in the hole, and the sentence that
+            -- remains is not one anybody wrote
+            if slotted and not settings.includeGroupNames then return false end
             -- This list is what goes out when you arrive, and a reconnect borrows it when
             -- the reconnect list has nothing the addon could say
             if not (settings.onSelfJoin or ReconnectFallsBackToGreetings(settings, channelKey)) then
@@ -134,6 +141,7 @@ local function PhraseActive(msg, settingsFn, poolKind, channelKey)
             end
         elseif poolKind == "greetingsOthers" then
             if not settings.onOthersJoin then return false end
+            if slotted and not settings.includeNames then return false end
         end
     end
     -- {names} rows are deliberately NOT greyed when the names options are off: the runtime
