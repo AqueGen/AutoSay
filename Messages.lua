@@ -486,12 +486,19 @@ AutoSay.DungeonNames = {
     [584] = "The Blinding Vale",
 }
 
--- LFG activityID -> mapChallengeModeID mapping. Used to resolve dungeon names from Group
--- Finder listings. Empty until the Season 2 activity ids exist: regenerate with
--- /as dumpdungeons (enUS client) once the season is live. The announce degrades gracefully
--- without it (listing's own name + the owned-keystone identity check), whereas last season's
--- ids would resolve to map ids the Season 2 DungeonNames table cannot name.
+-- LFG activityID -> mapChallengeModeID (Midnight Season 2, harvested with /as dumpdungeons).
+-- A fallback, not the main answer: GetMapIDFromActivity bridges the two ids live through the
+-- ui map id they share, which keeps working when the season rotates. This table answers when
+-- the activity data is not loaded yet, and is the place to correct a dungeon by hand.
 AutoSay.ActivityToDungeon = {
+    [1933] = 588, -- Altar of Fangs
+    [1176] = 399, -- Ruby Life Pools
+    [514] = 249,  -- Kings' Rest
+    [1951] = 585, -- Voidscar Arena
+    [1952] = 586, -- Den of Nalorakk
+    [1950] = 587, -- Murder Row
+    [504] = 250,  -- Temple of Sethraliss
+    [1949] = 584, -- The Blinding Vale
 }
 
 -- M+ completion messages - depleted (enabled by default first)

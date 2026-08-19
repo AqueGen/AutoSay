@@ -2234,9 +2234,35 @@ function Addon:GetDungeonName(mapID, fallbackName)
     return fallbackName or "Unknown"
 end
 
+-- An LFG activity carries no challenge-map id, but both APIs speak the ui map id: the sixth
+-- return of GetMapUIInfo and GroupFinderActivityInfo.mapID. Bridging through it resolves the
+-- whole live season with no hand-kept table and no dependence on the client's language -
+-- matching by name cannot work at all now that an activity's shortName is just "Mythic+".
+-- The pool is scanned on every call rather than cached: it is eight entries on a path that
+-- runs once or twice per group, and a cache built while the data was partial - or built at
+-- all, across a season rotation in a long session - would answer wrongly until the next
+-- /reload with nothing to tell the player why. Same scan GetMapIDFromDungeonName does.
+local function ChallengeMapForUiMap(uiMapID)
+    if not uiMapID or not C_ChallengeMode or not C_ChallengeMode.GetMapTable
+        or not C_ChallengeMode.GetMapUIInfo then
+        return nil
+    end
+    for _, mapID in ipairs(C_ChallengeMode.GetMapTable() or {}) do
+        if select(6, C_ChallengeMode.GetMapUIInfo(mapID)) == uiMapID then
+            return mapID
+        end
+    end
+    return nil
+end
+Addon.ChallengeMapForUiMap = ChallengeMapForUiMap -- exposed for /as selftest
+
 -- Resolve mapChallengeModeID from an LFG activityID
 function Addon:GetMapIDFromActivity(activityID)
-    return activityID and AutoSay.ActivityToDungeon[activityID] or nil
+    if not activityID then return nil end
+    local info = C_LFGList and C_LFGList.GetActivityInfoTable
+        and C_LFGList.GetActivityInfoTable(activityID)
+    local mapID = info and ChallengeMapForUiMap(info.mapID)
+    return mapID or AutoSay.ActivityToDungeon[activityID]
 end
 
 -- Resolve mapChallengeModeID by exact localized-name match against the live season pool -

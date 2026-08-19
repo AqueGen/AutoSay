@@ -184,6 +184,41 @@ function Addon:RunSelfTest()
     check("every ActivityToDungeon map id resolves in DungeonNames", #orphanActivities == 0,
         "orphans: " .. table.concat(orphanActivities, ", ") .. " - regenerate both via /as dumpdungeons")
 
+    if seasonMaps then
+        local withoutUiMap = {}
+        for _, mapID in ipairs(seasonMaps) do
+            if not select(6, C_ChallengeMode.GetMapUIInfo(mapID)) then
+                withoutUiMap[#withoutUiMap + 1] = format("%d (%s)", mapID, MapName(mapID))
+            end
+        end
+        -- The ui map id is the only link left between an LFG activity and a dungeon: an
+        -- activity's shortName is just "Mythic+", so losing this would silently leave the
+        -- shipped fallback table as the only answer.
+        check("every season dungeon exposes a ui map id", #withoutUiMap == 0,
+            "no ui map for " .. table.concat(withoutUiMap, ", "))
+    end
+
+    -- The live bridge is what the announce actually uses; the table is only its stand-in.
+    -- They must agree, or a listing would name a different dungeon depending on which one
+    -- answered first.
+    local disagreeing, unresolved = {}, 0
+    for activityID, mapID in pairs(AutoSay.ActivityToDungeon) do
+        local info = C_LFGList and C_LFGList.GetActivityInfoTable
+            and C_LFGList.GetActivityInfoTable(activityID)
+        local live = info and self.ChallengeMapForUiMap(info.mapID)
+        if not live then
+            unresolved = unresolved + 1
+        elseif live ~= mapID then
+            disagreeing[#disagreeing + 1] = format("%d: table %d, live %d", activityID, mapID, live)
+        end
+    end
+    check("the live activity bridge agrees with ActivityToDungeon", #disagreeing == 0,
+        table.concat(disagreeing, "; "))
+    if unresolved > 0 then
+        self:Print(format("|cFFFFCC00NOTE|r %d activity(s) could not be resolved live "
+            .. "- last season's ids, or activity data not loaded yet", unresolved))
+    end
+
     -- Group E: 1.6 content (read-only)
     local L = LibStub("AceLocale-3.0"):GetLocale(ADDON_NAME)
     local Logic = AutoSay.MessageLogic
@@ -415,6 +450,46 @@ function Addon:RunSelfTest()
         .. "the greyed-out rows and columns, and the Social sliders sharing a row.")
 end
 
+-- The Group Finder's activity list is server data. Nothing asks for it until the Premade
+-- Groups panel opens (LFGListFrame_OnShow calls RequestAvailableActivities), so on a client
+-- that never opened it this session every activity query comes back empty.
+local function MythicPlusFilters()
+    if Enum and Enum.LFGListFilter and Enum.LFGListFilter.CurrentSeason and bit then
+        return bit.bor(Enum.LFGListFilter.CurrentSeason, Enum.LFGListFilter.PvE or 0)
+    end
+    return 0
+end
+
+-- A group id of 0 means "activities that belong to no group", which is where the heroic,
+-- normal and timewalking entries live. Every Mythic+ dungeon is a group of its own, so its
+-- activity is only reachable through that group - the same walk the Group Finder's own
+-- dropdown does (LFGList.lua: GetAvailableActivityGroups, then GetAvailableActivities).
+local function CollectActivities(category, filters)
+    local found = {}
+    local groups = C_LFGList.GetAvailableActivityGroups
+        and C_LFGList.GetAvailableActivityGroups(category, filters) or {}
+    for _, groupID in ipairs(groups) do
+        for _, id in ipairs(C_LFGList.GetAvailableActivities(category, groupID, filters) or {}) do
+            found[#found + 1] = id
+        end
+    end
+    for _, id in ipairs(C_LFGList.GetAvailableActivities(category, 0, filters) or {}) do
+        found[#found + 1] = id
+    end
+    return found
+end
+
+local function DungeonActivities()
+    if not (C_LFGList and C_LFGList.GetAvailableActivities) then return nil, "no API" end
+    local category = GROUP_FINDER_CATEGORY_ID_DUNGEONS or 2
+    local list = CollectActivities(category, MythicPlusFilters())
+    if #list > 0 then return list, "current season" end
+    -- An unfiltered walk still answers if the season filter is the part that came up empty
+    list = CollectActivities(category, 0)
+    if #list > 0 then return list, "unfiltered" end
+    return nil, "empty"
+end
+
 -- Maintenance: harvest the current season's M+ pool as paste-ready Lua for Messages.lua.
 -- Uses print() rather than self:Print() so the lines carry no addon prefix and paste cleanly.
 function Addon:DumpDungeons()
@@ -427,45 +502,78 @@ function Addon:DumpDungeons()
 
     print("|cFFFFCC00-- AutoSay.DungeonNames (Messages.lua) - names come from C_ChallengeMode.GetMapUIInfo|r")
     print("|cFFFFCC00-- and are in THIS CLIENT's language: run this on an enUS client for the English table.|r")
-    local nameToMap = {}
+    -- Two ways to reach a challenge map id from an activity: the ui map id both APIs speak
+    -- (language-proof, the sixth return of GetMapUIInfo) and the dungeon name (a last resort).
+    local nameToMap, uiMapToMap = {}, {}
     for _, mapID in ipairs(maps) do
         local name = MapName(mapID)
         -- false marks a duplicate name, which we refuse to match an activity against
         if nameToMap[name] ~= nil then nameToMap[name] = false else nameToMap[name] = mapID end
-        print(format('    [%d] = "%s", -- %s', mapID, name, AutoSay.DungeonNames[mapID] and "known" or "NEW"))
+        local uiMapID = C_ChallengeMode.GetMapUIInfo and select(6, C_ChallengeMode.GetMapUIInfo(mapID))
+        if uiMapID then uiMapToMap[uiMapID] = mapID end
+        print(format('    [%d] = "%s", -- %s, ui map %s', mapID, name,
+            AutoSay.DungeonNames[mapID] and "known" or "NEW", tostring(uiMapID)))
     end
 
-    -- LFG gives no direct activityID -> mapChallengeModeID link, so match on the dungeon name both
-    -- APIs return in the client's language, and emit only unambiguous matches.
-    local lines, unmatched = {}, 0
-    local filters = 0
-    if Enum and Enum.LFGListFilter and bit then
-        filters = bit.bor(Enum.LFGListFilter.CurrentSeason, Enum.LFGListFilter.PvE)
+    local _, source = DungeonActivities()
+    if source == "empty" and C_LFGList and C_LFGList.RequestAvailableActivities then
+        C_LFGList.RequestAvailableActivities()
+        self:Print("The Group Finder activity list was empty - asked the server for it, "
+            .. "printing the activity table in a moment.")
+        if C_Timer and C_Timer.After then
+            C_Timer.After(2, function() self:DumpActivities(uiMapToMap, nameToMap) end)
+            return
+        end
     end
-    local activities = C_LFGList and C_LFGList.GetAvailableActivities
-        and C_LFGList.GetAvailableActivities(GROUP_FINDER_CATEGORY_ID_DUNGEONS or 2, 0, filters)
-    if type(activities) == "table" then
-        for _, activityID in ipairs(activities) do
-            local info = C_LFGList.GetActivityInfoTable and C_LFGList.GetActivityInfoTable(activityID)
-            if info and info.isMythicPlusActivity then
-                local mapID = nameToMap[info.shortName] or nameToMap[info.fullName]
-                if mapID then
-                    lines[#lines + 1] = format("    [%d] = %d, -- %s", activityID, mapID, info.shortName)
-                else
-                    unmatched = unmatched + 1
-                end
+    self:DumpActivities(uiMapToMap, nameToMap)
+end
+
+-- Second half of /as dumpdungeons: the activityID -> mapChallengeModeID table, plus enough
+-- numbers to tell a broken query apart from a query that simply matched nothing.
+function Addon:DumpActivities(uiMapToMap, nameToMap)
+    local activities, source = DungeonActivities()
+    if not activities then
+        print("|cFFFF0000-- No Group Finder activities to read (" .. source .. "). Open Premade|r")
+        print("|cFFFF0000-- Groups once, close it, and run /as dumpdungeons again.|r")
+        return
+    end
+
+    local lines, byMapCount, byNameCount, unmatched, seen = {}, 0, 0, {}, 0
+    for _, activityID in ipairs(activities) do
+        local info = C_LFGList.GetActivityInfoTable and C_LFGList.GetActivityInfoTable(activityID)
+        if info and info.isMythicPlusActivity then
+            seen = seen + 1
+            local mapID = info.mapID and uiMapToMap[info.mapID]
+            local how = "ui map"
+            if mapID then
+                byMapCount = byMapCount + 1
+            else
+                mapID = nameToMap[info.shortName] or nameToMap[info.fullName]
+                how = "name"
+                if mapID then byNameCount = byNameCount + 1 end
+            end
+            if mapID then
+                lines[#lines + 1] = format("    [%d] = %d, -- %s (%s)", activityID, mapID,
+                    info.shortName, how)
+            else
+                unmatched[#unmatched + 1] = format("%d %s (ui map %s)", activityID,
+                    info.shortName or "?", tostring(info.mapID))
             end
         end
     end
 
+    print(format("|cFFFFCC00-- %d activity(s) read (%s), %d of them Mythic+: %d matched by ui map, %d by name|r",
+        #activities, source, seen, byMapCount, byNameCount))
+
     if #lines > 0 then
-        print("|cFFFFCC00-- AutoSay.ActivityToDungeon (Messages.lua) - matched by dungeon name, check the comments|r")
+        print("|cFFFFCC00-- AutoSay.ActivityToDungeon (Messages.lua)|r")
         for _, line in ipairs(lines) do print(line) end
-        if unmatched > 0 then
-            print(format("|cFFFF0000-- %d Mythic+ activity(s) had no unambiguous map match - add those by hand|r", unmatched))
-        end
-    else
-        print("|cFFFF0000-- Could not resolve LFG activity IDs automatically. Leave AutoSay.ActivityToDungeon|r")
-        print("|cFFFF0000-- as it is and update it by hand rather than guessing.|r")
+    end
+    if #unmatched > 0 then
+        print("|cFFFF0000-- unmatched: " .. table.concat(unmatched, ", ") .. "|r")
+    end
+    if #lines == 0 then
+        print("|cFFFF0000-- Nothing resolved. Leave AutoSay.ActivityToDungeon as it is and|r")
+        print("|cFFFF0000-- update it by hand rather than guessing.|r")
     end
 end
