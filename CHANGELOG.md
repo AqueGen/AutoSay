@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.2](https://github.com/AqueGen/AutoSay/compare/v1.8.1...v1.8.2) (2026-08-19)
+
+
+### Bug Fixes
+
+* resolve the listed dungeon through the ui map id ([#21](https://github.com/AqueGen/AutoSay/issues/21)) ([44e7084](https://github.com/AqueGen/AutoSay/commit/44e708426bc97adc7221d5a79844258238feca0e))
+* stay quiet when chat is in messaging lockdown ([#20](https://github.com/AqueGen/AutoSay/issues/20)) ([0af8634](https://github.com/AqueGen/AutoSay/commit/0af8634eec5426c45e1bb54584e16936813d953d))
+
 ## [1.8.1](https://github.com/AqueGen/AutoSay/compare/v1.8.0...v1.8.1) (2026-08-16)
 
 
