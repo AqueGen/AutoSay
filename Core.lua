@@ -2238,26 +2238,21 @@ end
 -- return of GetMapUIInfo and GroupFinderActivityInfo.mapID. Bridging through it resolves the
 -- whole live season with no hand-kept table and no dependence on the client's language -
 -- matching by name cannot work at all now that an activity's shortName is just "Mythic+".
--- Built on first use and kept for the session, since the pool only rotates between seasons.
-local uiMapToChallengeMap
+-- The pool is scanned on every call rather than cached: it is eight entries on a path that
+-- runs once or twice per group, and a cache built while the data was partial - or built at
+-- all, across a season rotation in a long session - would answer wrongly until the next
+-- /reload with nothing to tell the player why. Same scan GetMapIDFromDungeonName does.
 local function ChallengeMapForUiMap(uiMapID)
-    if not uiMapID then return nil end
-    if not uiMapToChallengeMap then
-        if not (C_ChallengeMode and C_ChallengeMode.GetMapTable
-            and C_ChallengeMode.GetMapUIInfo) then
-            return nil
-        end
-        local maps = C_ChallengeMode.GetMapTable()
-        -- Nothing to cache before the season data arrives, and caching an empty table here
-        -- would make every later call answer "unknown" for the rest of the session
-        if type(maps) ~= "table" or #maps == 0 then return nil end
-        uiMapToChallengeMap = {}
-        for _, mapID in ipairs(maps) do
-            local uiMap = select(6, C_ChallengeMode.GetMapUIInfo(mapID))
-            if uiMap then uiMapToChallengeMap[uiMap] = mapID end
+    if not uiMapID or not C_ChallengeMode or not C_ChallengeMode.GetMapTable
+        or not C_ChallengeMode.GetMapUIInfo then
+        return nil
+    end
+    for _, mapID in ipairs(C_ChallengeMode.GetMapTable() or {}) do
+        if select(6, C_ChallengeMode.GetMapUIInfo(mapID)) == uiMapID then
+            return mapID
         end
     end
-    return uiMapToChallengeMap[uiMapID]
+    return nil
 end
 Addon.ChallengeMapForUiMap = ChallengeMapForUiMap -- exposed for /as selftest
 

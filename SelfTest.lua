@@ -184,6 +184,20 @@ function Addon:RunSelfTest()
     check("every ActivityToDungeon map id resolves in DungeonNames", #orphanActivities == 0,
         "orphans: " .. table.concat(orphanActivities, ", ") .. " - regenerate both via /as dumpdungeons")
 
+    if seasonMaps then
+        local withoutUiMap = {}
+        for _, mapID in ipairs(seasonMaps) do
+            if not select(6, C_ChallengeMode.GetMapUIInfo(mapID)) then
+                withoutUiMap[#withoutUiMap + 1] = format("%d (%s)", mapID, MapName(mapID))
+            end
+        end
+        -- The ui map id is the only link left between an LFG activity and a dungeon: an
+        -- activity's shortName is just "Mythic+", so losing this would silently leave the
+        -- shipped fallback table as the only answer.
+        check("every season dungeon exposes a ui map id", #withoutUiMap == 0,
+            "no ui map for " .. table.concat(withoutUiMap, ", "))
+    end
+
     -- The live bridge is what the announce actually uses; the table is only its stand-in.
     -- They must agree, or a listing would name a different dungeon depending on which one
     -- answered first.
