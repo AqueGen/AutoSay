@@ -46,10 +46,18 @@ local CHAT_EVENT_CHANNEL = {
     CHAT_MSG_GUILD = "GUILD",
 }
 
+-- On a communication-restricted map - a dungeon, a raid, a Mythic+ run, a rated match - the
+-- client puts chat into messaging lockdown and hands addons secret strings instead of the
+-- message and its author. Reading one raises a Lua error, so every chat handler below asks
+-- first and stays quiet for the rest of the run rather than filling somebody's error log.
+-- The fallback keeps this loadable on a client that has no secret values at all.
+local IsSecret = issecretvalue or function() return false end
+
 -- Listen to guild chat for the social gate (welcome tracking, pending-intent confirmation)
 function Addon:OnSocialChat(event, text, sender)
     if not self.socialGate then return end
     if not self.db.profile.social.listen then return end
+    if IsSecret(text) or IsSecret(sender) then return end
     local me = UnitName("player")
     local senderName = sender and sender:match("^([^%-]+)") or sender
     if senderName == me then return end
@@ -60,6 +68,7 @@ end
 function Addon:OnGuildAchievement(event, message, sender)
     if not self.db.profile.enabled then return end
     if not self.db.profile.social.guildGrats then return end
+    if IsSecret(message) or IsSecret(sender) then return end
     local name = (sender and sender:match("^([^%-]+)")) or message:match("^([^%s]+)")
     if not name or name == UnitName("player") then return end
     self:SendGuildGrats(name)
@@ -83,6 +92,7 @@ Addon.GetGuildJoinPattern = GetGuildJoinPattern -- exposed for /as selftest
 function Addon:OnSystemMessage(event, message)
     if not self.db.profile.enabled then return end
     if not self.db.profile.social.guildWelcome then return end
+    if IsSecret(message) then return end
     local pattern = GetGuildJoinPattern()
     if not pattern then return end
     local name = message:match(pattern)
