@@ -4,8 +4,8 @@
 ## Notes: Automatically sends greetings, farewells, and reconnect messages in party, raid, instance (LFG/LFR/BG), and guild chat
 ## Author: AqueGen
 # x-release-please-start-version
-## Version: 1.8.1
-## X-Curse-Version: 1.8.1
+## Version: 1.8.2
+## X-Curse-Version: 1.8.2
 # x-release-please-end
 ## X-License: MIT
 ## X-Website: https://github.com/AqueGen/AutoSay
