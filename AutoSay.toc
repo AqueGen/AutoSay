@@ -7,7 +7,7 @@
 ## Version: 1.8.2
 ## X-Curse-Version: 1.8.2
 # x-release-please-end
-## X-License: MIT
+## X-License: All Rights Reserved
 ## X-Website: https://github.com/AqueGen/AutoSay
 ## SavedVariables: AutoSayDB
 ## IconTexture: Interface\Icons\Spell_Holy_Devotion

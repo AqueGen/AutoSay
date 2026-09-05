@@ -51,6 +51,7 @@ externals:
     tag: latest
 
 ignore:
+  - AGENTS.md
   - README.md
   - RELEASE_NOTES.md
   - .gitignore

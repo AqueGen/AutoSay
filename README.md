@@ -2,7 +2,7 @@
 
 [![CurseForge](https://img.shields.io/badge/CurseForge-AutoSay-orange)](https://www.curseforge.com/wow/addons/autosay)
 [![Wago Addons](https://img.shields.io/badge/Wago-AutoSay-teal)](https://addons.wago.io/addons/rN4kvMGD)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-All%20rights%20reserved-lightgrey.svg)](LICENSE)
 [![WoW Version](https://img.shields.io/badge/WoW-12.0.1+-brightgreen)](https://worldofwarcraft.com)
 
 A World of Warcraft addon that automatically sends greetings and farewells in party, raid, and guild chat. Never forget to say hello or goodbye again!
@@ -172,7 +172,7 @@ Contributions are welcome! Please feel free to submit issues or pull requests on
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+All rights reserved - see [LICENSE](LICENSE). You may use the addon; you may not reuse its code or data.
 
 ## Author
 
