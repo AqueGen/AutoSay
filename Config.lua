@@ -3,6 +3,7 @@ local Addon = LibStub("AceAddon-3.0"):GetAddon(ADDON_NAME)
 local L = LibStub("AceLocale-3.0"):GetLocale(ADDON_NAME)
 local AceConfig = LibStub("AceConfig-3.0")
 local AceConfigDialog = LibStub("AceConfigDialog-3.0")
+local AceDBOptions = LibStub("AceDBOptions-3.0")
 
 local MAX_CUSTOM_MESSAGES = 10
 
@@ -13,6 +14,9 @@ local ADDON_VERSION = (C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadat
 -- the next release, which is what a run of releases a day apart needs: a badge nobody had
 -- time to see is worse than no badge. Drop a tag entirely when its feature stops being new.
 local NEW_IN = "1.9"
+
+-- The profiles tab as AceDBOptions names it, before the "New!" badge is appended
+local profilesTabName
 
 local function NewTag(name, ver)
     if AutoSay.MessageLogic.VersionMatchesMinor(ADDON_VERSION, ver) then
@@ -1180,6 +1184,18 @@ end
 -- Main options table. Built on first request, not at login: the tree is ~1300 closures deep and
 -- most sessions never open the settings. AceConfig re-calls the getter, hence the memo.
 local function BuildOptions()
+    -- AceDB keeps the chosen profile per character (AutoSayDB.profileKeys is keyed by
+    -- "Name - Realm"), so a warlock switched to a dark profile stays on it while the
+    -- paladin keeps its own. The library's own tab already carries the Character and Class
+    -- shortcuts, which is the whole feature: nothing here needs to know about classes.
+    local profiles = AceDBOptions:GetOptionsTable(Addon.db)
+    profiles.order = 90
+    -- The library names its own tab, so the badge goes on after the fact. AceDBOptions
+    -- caches and returns the same table every call, so the untouched name is kept aside:
+    -- badging an already badged one would read "Profiles New! New!"
+    profilesTabName = profilesTabName or profiles.name
+    profiles.name = NewTag(profilesTabName, NEW_IN)
+
     return {
     type = "group",
     name = "|cFF0099FFAuto|r|cFFFFD700Say|r",
@@ -2291,6 +2307,8 @@ local function BuildOptions()
                 },
             },
         },
+
+        profiles = profiles,
     },
     }
 end
