@@ -1329,15 +1329,43 @@ local ChannelColor = {}
 for _, c in ipairs(AutoSay.Channels) do ChannelColor[c.chat] = c.color end
 
 -- Returns true when a message actually went out (or was simulated in test mode) - callers
--- The line actually leaving the addon. C_ChatInfo.SendChatMessage is the modern entry point
--- and the one that survives the restrictions WoW 12.0 put on chat from inside instances, with
--- the old global kept as the fallback for anything that lacks it. Both are wrapped: a refusal
--- is a normal outcome here, not an error worth breaking the caller for.
-local function RawSend(message, channel, target)
-    if C_ChatInfo and C_ChatInfo.SendChatMessage then
-        if pcall(C_ChatInfo.SendChatMessage, message, channel, nil, target) then return true end
+-- Whether the client currently refuses chat from addon code. Calling SendChatMessage in
+-- that state does not fail in a way we can see: the call is blocked and the game logs
+-- ADDON_ACTION_BLOCKED against the addon, while pcall reports nothing, since a blocked
+-- call raises no Lua error. Asking first is the only way not to earn the entry.
+--
+-- Two questions, because they answer different things. AddOnRestrictionType.Chat is the
+-- state "addon chat communications are restricted" - the one an active key or a rated
+-- match turns on. InChatMessagingLockdown covers the messaging lockdown the client uses
+-- where it also hands addons secret strings. Both are guarded for absence so the addon
+-- still loads on a client that has neither.
+local function ChatIsLockedDown()
+    if C_RestrictedActions and C_RestrictedActions.IsAddOnRestrictionActive
+        and Enum and Enum.AddOnRestrictionType then
+        if C_RestrictedActions.IsAddOnRestrictionActive(Enum.AddOnRestrictionType.Chat) then
+            return true
+        end
     end
-    return (pcall(SendChatMessage, message, channel, nil, target))
+    if C_ChatInfo and C_ChatInfo.InChatMessagingLockdown then
+        return C_ChatInfo.InChatMessagingLockdown() and true or false
+    end
+    return false
+end
+
+-- Exposed so /as status and the self-test can report the same answer the sender acts on
+Addon.ChatIsLockedDown = ChatIsLockedDown
+
+-- The line actually leaving the addon. Only one call is made: the global SendChatMessage is
+-- a Lua wrapper around C_ChatInfo.SendChatMessage on a modern client (and exists at all
+-- only while loadDeprecationFallbacks is set), so trying it after a blocked call reaches
+-- the same restricted function and books a second ADDON_ACTION_BLOCKED for the same line.
+-- Returns false plus "blocked" when the client is the one refusing, since a line the client
+-- will not carry must not be retried a frame later.
+local function RawSend(message, channel, target)
+    if ChatIsLockedDown() then return false, "blocked" end
+    local send = C_ChatInfo and C_ChatInfo.SendChatMessage or SendChatMessage
+    if not send then return false, "blocked" end
+    return (pcall(send, message, channel, nil, target))
 end
 
 -- that spend a budget slot on the dispatch must not spend it on a drop
@@ -1378,10 +1406,18 @@ function Addon:DoSendMessage(message, channel, target, keepCase)
         return true
     end
 
-    if RawSend(message, channel, target) then
+    local sent, why = RawSend(message, channel, target)
+    if sent then
         updateCooldown()
         self:DebugPrint("Sent to", channel, ":", message)
         return true
+    end
+
+    -- The client itself is holding chat shut. Waiting a frame changes nothing, and each
+    -- attempt costs another ADDON_ACTION_BLOCKED entry in the player's error log
+    if why == "blocked" then
+        self:DebugPrint("Chat is closed to addons here, staying quiet:", channel, ":", message)
+        return false
     end
 
     -- Refused where we stand. The usual reason is the call stack rather than the message:
@@ -1402,9 +1438,12 @@ function Addon:DoSendMessage(message, channel, target, keepCase)
                 self:DebugPrint("Retry dropped - the group changed", channel)
                 return
             end
-            if RawSend(message, channel, target) then
+            local retried, retryWhy = RawSend(message, channel, target)
+            if retried then
                 updateCooldown()
                 self:DebugPrint("Sent on retry to", channel, ":", message)
+            elseif retryWhy == "blocked" then
+                self:DebugPrint("Retry dropped - chat is closed to addons here", channel)
             else
                 self:DebugPrint("Retry failed for", channel, ":", message)
             end
@@ -3163,6 +3202,11 @@ function Addon:TestStatus()
     self:Print("M+:", db.mythicplus.enabled and "|cFF00FF00ON|r" or "|cFFFF0000OFF|r",
         "| Key level:", db.mythicplus.includeKeyLevel and "|cFF00FF00Yes|r" or "|cFF888888No|r",
         "| Announced:", self.state.keyAnnounced and "|cFFFFFF00Yes|r" or "|cFF888888No|r")
+    -- Whether the client is letting addons speak at all right now. Worth its own line:
+    -- when it says Blocked, nothing the addon wants to say is going out, and no setting
+    -- on any tab changes that
+    self:Print("Chat open to addons:", Addon.ChatIsLockedDown() and "|cFFFF0000Blocked by the client|r"
+        or "|cFF00FF00Yes|r")
     if self.state.cachedLFGListing then
         self:Print("  LFG cache:", self.state.cachedLFGListing.dungeonName or "unknown",
             "| Title:", self.state.cachedLFGListing.title or "none",
