@@ -809,6 +809,30 @@ function Addon:MigrateKeyLevelMode()
     end
 end
 
+--- Everything the character has remembered about who it has already spoken to: the hourly
+--- budget, the per-person cooldowns and the welcomed list. Kept out of the profile because
+--- it records what happened, not what the player chose.
+function Addon:ClearGateCounters()
+    local social = self.db.char.social
+    for _, key in ipairs({ "sends", "perPerson", "welcomed", "welcomeSends" }) do
+        for k in pairs(social[key]) do
+            social[key][k] = nil
+        end
+    end
+    if self.socialGate then
+        self.socialGate.pending = {}
+    end
+end
+
+--- Which phrase each pool said last, plus the round in progress. Emptied in place rather
+--- than replaced: the humanizer holds a reference to this very table.
+function Addon:ClearPhraseHistory()
+    for k in pairs(self.db.char.lastPicks) do
+        self.db.char.lastPicks[k] = nil
+    end
+    if self.humanizer then self.humanizer.rounds = {} end
+end
+
 function Addon:MigrateCompletionSwitch()
     if Logic.MigrateCompletionSwitch(self.db.profile.mythicplus) then
         self:DebugPrint("Completion switch migrated - both outcomes stay silent")
@@ -1071,15 +1095,7 @@ function Addon:SlashCommand(input)
         elseif subcmd == "reset" then
             self:TestReset()
         elseif subcmd == "resetgate" or subcmd == "rg" then
-            local social = self.db.char.social
-            for _, key in ipairs({"sends", "perPerson", "welcomed", "welcomeSends"}) do
-                for k in pairs(social[key]) do
-                    social[key][k] = nil
-                end
-            end
-            if self.socialGate then
-                self.socialGate.pending = {}
-            end
+            self:ClearGateCounters()
             self:Print("Social gate counters cleared (budget, cooldowns, welcomed list)")
         elseif subcmd == "status" or subcmd == "s" then
             self:TestStatus()

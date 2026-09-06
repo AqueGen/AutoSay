@@ -1348,11 +1348,11 @@ local function BuildOptions()
                 resetDefaults = {
                     type = "execute",
                     name = L["Reset to Defaults"],
-                    desc = L["Reset all settings to default values"],
+                    desc = L["Reset defaults desc"],
                     order = 20,
                     width = 1.5,
                     confirm = true,
-                    confirmText = L["Are you sure you want to reset all settings to defaults?"],
+                    confirmText = L["Reset defaults confirm"],
                     func = function()
                         -- Snapshot before the reset flips it: a live simulation must be torn
                         -- down completely (fabricated M+ listing, pending batches, flow flag),
@@ -1364,6 +1364,13 @@ local function BuildOptions()
                         -- one-shot migrations - without it the next login would migrate the
                         -- freshly reset profile straight back off its defaults
                         Addon.db:ResetProfile()
+                        -- ResetProfile only touches the profile, and "reset everything" has
+                        -- to mean the character's own memory too: the budget it has spent
+                        -- this hour, who it has already welcomed, and which phrase each pool
+                        -- said last. Left behind, a fresh-looking config would still be
+                        -- refusing to greet someone it met an hour ago.
+                        Addon:ClearGateCounters()
+                        Addon:ClearPhraseHistory()
                         if wasTestMode then
                             Addon:TestReset() -- bumps sendGeneration itself
                         else
