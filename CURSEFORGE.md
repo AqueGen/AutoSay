@@ -15,7 +15,7 @@ Screenshots to keep on the listing, in this order (the first one is the header i
 
 ## Summary
 
-Automatic greetings, farewells and reconnect messages for party, raid, instance and guild chat. 300 phrases in 13 styles, phrases for your role, custom messages, Mythic+ key announcements and per-channel settings.
+Automatic greetings, farewells and reconnect messages for party, raid, instance and guild chat. 460 phrases in 14 styles, phrases for your role, custom messages, Mythic+ key announcements and per-channel settings.
 
 ---
 
@@ -33,7 +33,7 @@ AutoSay handles the social basics so you don't have to. It greets the group when
 
 ### New in 1.6
 
-- **13 style bundles.** Classic, Minimal, Fun, Fantasy, Dark, Deadpan, Wholesome, Pirate, Faction, Zoomer, Butler, Robot and Naturewarden. Switch a whole set on or off in one click and read at a glance how many of its phrases are selected and how many can be sent right now.
+- **14 style bundles.** Classic, Casual, Minimal, Fun, Fantasy, Dark, Deadpan, Wholesome, Pirate, Faction, Zoomer, Butler, Robot and Naturewarden. Switch a whole set on or off in one click and read at a glance how many of its phrases are selected and how many can be sent right now.
 - **Phrases for your role.** Every set has its own tank, healer and damage lines, so "I hold the line" only ever goes out when you are the one holding it. Off by default.
 - **Time of day.** Morning, evening and night variants for the sets that have them. Also off by default.
 - **Instance channel.** Its own settings for the groups you queue into, and it stays out of raid finder and battlegrounds unless you say otherwise.
