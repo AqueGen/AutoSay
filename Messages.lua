@@ -117,6 +117,27 @@ AutoSay.Greetings = {
     { key = "butler_pleasure", text = "a pleasure to join you", style = "butler", trigger = "self" },
     { key = "butler_service", text = "at your service o/", style = "butler", trigger = "self" },
     { key = "butler_welcomenames", text = "a warm welcome, {names}", style = "butler", trigger = "others" },
+    -- Casual is the register most pug chat is actually written in: lower case, the standard
+    -- abbreviations, nothing performed. Classic greets with a capital and an exclamation
+    -- mark, minimal answers in one word, and between them there was nothing. Two rules hold
+    -- the bundle together - no idiom a non-native speaker has to decode, and no joke
+    { key = "casual_heyall", text = "hey all o/", style = "casual" },
+    { key = "casual_glhf", text = "hi all, gl hf", style = "casual" },
+    { key = "casual_hey", text = "hey o/", style = "casual" },
+    { key = "casual_ready", text = "hi, ready when you are", style = "casual", trigger = "self" },
+    { key = "casual_tank1", text = "tank here, gl hf", style = "casual", role = "TANK", trigger = "self" },
+    { key = "casual_tank2", text = "tank here, ready when you are", style = "casual", role = "TANK", trigger = "self" },
+    { key = "casual_tank3", text = "tank o/ shout if I pull too fast", style = "casual", role = "TANK", trigger = "self" },
+    { key = "casual_heal1", text = "heals here o/", style = "casual", role = "HEALER", trigger = "self" },
+    { key = "casual_heal2", text = "healer here, gl hf", style = "casual", role = "HEALER", trigger = "self" },
+    { key = "casual_heal3", text = "heals up, shout if you need", style = "casual", role = "HEALER", trigger = "self" },
+    { key = "casual_dps1", text = "dps here o/", style = "casual", role = "DAMAGER", trigger = "self" },
+    { key = "casual_dps2", text = "dps here, gl hf", style = "casual", role = "DAMAGER", trigger = "self" },
+    { key = "casual_dps3", text = "dps ready when you are", style = "casual", role = "DAMAGER", trigger = "self" },
+    { key = "casual_names1", text = "hey {names} o/", style = "casual", trigger = "self" },
+    { key = "casual_names2", text = "welcome {names}, gl hf", style = "casual", trigger = "others" },
+    { key = "casual_names3", text = "hi {names} o/", style = "casual", trigger = "others" },
+    { key = "casual_welcome", text = "welcome o/ gl hf", style = "casual", trigger = "others" },
     { key = "classic_tank1", text = "tank here o/", role = "TANK", trigger = "self" },
     { key = "classic_tank2", text = "tanking today", role = "TANK", trigger = "self" },
     { key = "classic_heal1", text = "healer here o/", role = "HEALER", trigger = "self" },
@@ -331,6 +352,11 @@ AutoSay.Goodbyes = {
     { key = "nature_seasons", text = "good hunting, until the seasons turn", style = "naturewarden" },
     { key = "nature_still", text = "safe travels, keep to the still paths", style = "naturewarden" },
     { key = "fantasy_flytrue", text = "fly true, friends, until our paths cross again", style = "fantasy" },
+    { key = "casual_ggcya", text = "gg all, cya", style = "casual" },
+    { key = "casual_thxbye", text = "thx for the run, bye o/", style = "casual" },
+    { key = "casual_gtg", text = "gtg, thx all", style = "casual" },
+    { key = "casual_cyanext", text = "cya, gl on the next one", style = "casual" },
+    { key = "casual_bb", text = "bb all o/", style = "casual" },
 }
 
 -- Reconnect messages database (enabled by default first)
@@ -367,14 +393,17 @@ AutoSay.Reconnects = {
     { key = "nature_roots", text = "the roots led me back", style = "naturewarden" },
     { key = "nature_storm", text = "the storm passed, I am back", style = "naturewarden", keepCase = true },
     { key = "fantasy_horizon", text = "back from beyond the horizon", style = "fantasy" },
+    { key = "casual_backsorry", text = "back, sorry about that", style = "casual" },
+    { key = "casual_backdc", text = "back, dc'd", style = "casual" },
+    { key = "casual_backnow", text = "back o/", style = "casual" },
 }
 
 -- Style bundle ids, in UI order
 -- "classic" is not a style tag on any phrase: it stands for the untagged pool, so the
 -- stock phrases can be switched on and off as fast as a style bundle (see StyleMatches)
 AutoSay.MessageStyles = {
-    "classic", "minimal", "fun", "fantasy", "dark", "deadpan", "light", "pirate", "faction",
-    "zoomer", "butler", "robot", "naturewarden",
+    "classic", "casual", "minimal", "fun", "fantasy", "dark", "deadpan", "light", "pirate",
+    "faction", "zoomer", "butler", "robot", "naturewarden",
 }
 
 -- Style bundles that lean towards particular classes. Advisory only - every bundle works
@@ -437,6 +466,8 @@ AutoSay.KeyAnnounce = {
     -- keeps the pool the same depth for a Horde and an Alliance character
     { key = "faction_orders", text = "{dungeon} {key}, orders are clear", style = "faction" },
     { key = "faction_muster", text = "{dungeon} {key}, muster up", style = "faction" },
+    { key = "casual_key", text = "{dungeon} {key}, gl hf all", style = "casual" },
+    { key = "casual_keyready", text = "{dungeon} {key}, ready when you are", style = "casual" },
 }
 
 -- M+ completion messages - timed (enabled by default first)
@@ -469,6 +500,9 @@ AutoSay.CompletionTimed = {
     { key = "faction_objective", text = "objective secured, well fought", style = "faction" },
     { key = "faction_bannerflies", text = "the banner still flies, gg", style = "faction" },
     { key = "faction_heldfield", text = "we hold the field, gg all", style = "faction" },
+    { key = "casual_ggty", text = "gg ty all", style = "casual" },
+    { key = "casual_nicegg", text = "nice, gg ty", style = "casual" },
+    { key = "casual_timedit", text = "timed it, gg all", style = "casual" },
 }
 
 -- Guild member login greetings (enabled by default first)
@@ -543,4 +577,7 @@ AutoSay.CompletionDepleted = {
     { key = "faction_heldline", text = "the line held, the clock did not", style = "faction" },
     { key = "faction_honorintact", text = "honor intact, ty all", style = "faction" },
     { key = "faction_regroup", text = "we regroup, ty all", style = "faction" },
+    { key = "casual_tyrunall", text = "ty for the run all", style = "casual" },
+    { key = "casual_gganyway", text = "gg anyway, ty all", style = "casual" },
+    { key = "casual_notime", text = "no time but ty all", style = "casual" },
 }

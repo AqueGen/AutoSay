@@ -315,6 +315,7 @@ L["Channel off notice"] = "Switched off on the General tab: %s. Nothing below re
 L["%d/%d selected"] = "%d/%d selected"
 L["%d sendable now"] = "%d sendable now"
 L["Style classic"] = "Classic"
+L["Style casual"] = "Casual"
 L["Style naturewarden"] = "Naturewarden"
 L["Style minimal"] = "Minimal"
 L["Style deadpan"] = "Deadpan"
