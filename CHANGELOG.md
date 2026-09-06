@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.0](https://github.com/AqueGen/AutoSay/compare/v1.8.2...v1.9.0) (2026-09-06)
+
+
+### Features
+
+* show the profiles tab so styles can differ per character ([#25](https://github.com/AqueGen/AutoSay/issues/25)) ([3123617](https://github.com/AqueGen/AutoSay/commit/312361732226eff282bf2c806183492cb3866388))
+* split the completion switch, deepen the phrase pools, retire the What's new popup ([#23](https://github.com/AqueGen/AutoSay/issues/23)) ([6b4b0d8](https://github.com/AqueGen/AutoSay/commit/6b4b0d81b99d4a1fabd0bcbcad0f45124e7877af))
+
 ## [1.8.2](https://github.com/AqueGen/AutoSay/compare/v1.8.1...v1.8.2) (2026-08-19)
 
 
