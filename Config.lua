@@ -15,6 +15,9 @@ local ADDON_VERSION = (C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadat
 -- time to see is worse than no badge. Drop a tag entirely when its feature stops being new.
 local NEW_IN = "1.9"
 
+-- The profiles tab as AceDBOptions names it, before the "New!" badge is appended
+local profilesTabName
+
 local function NewTag(name, ver)
     if AutoSay.MessageLogic.VersionMatchesMinor(ADDON_VERSION, ver) then
         return name .. " |cFF00FF00New!|r"
@@ -1187,6 +1190,11 @@ local function BuildOptions()
     -- shortcuts, which is the whole feature: nothing here needs to know about classes.
     local profiles = AceDBOptions:GetOptionsTable(Addon.db)
     profiles.order = 90
+    -- The library names its own tab, so the badge goes on after the fact. AceDBOptions
+    -- caches and returns the same table every call, so the untouched name is kept aside:
+    -- badging an already badged one would read "Profiles New! New!"
+    profilesTabName = profilesTabName or profiles.name
+    profiles.name = NewTag(profilesTabName, NEW_IN)
 
     return {
     type = "group",
