@@ -10,7 +10,6 @@ Screenshots to keep on the listing, in this order (the first one is the header i
 2. The Group tab: the phrase list with the Party, Raid and Instance columns and a greyed column.
 3. A party chat window with two or three greetings actually sent, in different styles.
 4. The Mythic+ tab, or a chat line announcing a key.
-5. The What's new popup, which shows what a fresh install greets you with.
 
 ---
 

@@ -387,9 +387,17 @@ function Addon:RunSelfTest()
             profile.masterSwitchesMigrated = nil
             profile.retiredPhrasesMigrated = nil
             if profile.mythicplus then profile.mythicplus.keyLevelMigrated = nil end
+            -- ...and it had silenced the single completion switch that has since become two
+            if profile.mythicplus then profile.mythicplus.completionEnabled = false end
             profile.social.timeOfDay = false
 
             self:RunProfileMigrations()
+
+            check("a silenced completion switch stays silent on both outcomes",
+                profile.mythicplus and profile.mythicplus.completionTimedEnabled == false
+                    and profile.mythicplus.completionDepletedEnabled == false
+                    and profile.mythicplus.completionEnabled == nil,
+                "the completion split did not carry the old switch")
 
             -- Raid keeps its selection through all of this, so its greetings are still the
             -- stock set: the rescued party pool has to match it key for key, not merely

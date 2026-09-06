@@ -1,5 +1,5 @@
 -- Pure message/phrase logic with no WoW API or Ace dependency, so busted can load it
--- headless (same export pattern as Humanizer/SocialGate). Core/Config/WhatsNew alias
+-- headless (same export pattern as Humanizer/SocialGate). Core and Config alias
 -- these instead of defining their own copies.
 local _, ns = ...
 
@@ -203,20 +203,6 @@ function MessageLogic.VersionMatchesMinor(addonVersion, minor)
     return addonVersion == minor or addonVersion:sub(1, #minor + 1) == minor .. "."
 end
 
--- Newest "major.minor" key of a version-keyed table, compared numerically
--- ("1.10" beats "1.9", which a string compare would get wrong)
-function MessageLogic.NewestVersion(versions)
-    local newest, newestValue
-    for version in pairs(versions) do
-        local major, minor = version:match("^(%d+)%.(%d+)$")
-        local value = (tonumber(major) or 0) * 1000 + (tonumber(minor) or 0)
-        if not newestValue or value > newestValue then
-            newest, newestValue = version, value
-        end
-    end
-    return newest
-end
-
 -- The instance channel is new: before it existed LFG groups used the party settings, so
 -- seed it from them once (toggles, phrase selections and custom lists - a user who narrowed
 -- the party phrases down must not get the stock set back in LFG). Entry tables are cloned,
@@ -301,6 +287,20 @@ end
 -- a level, so only those lift the (now false) default. A missing messageMode means "basic":
 -- AceDB strips values equal to the default, and "basic" was that default.
 -- Returns true when a stored mode was lifted.
+-- One completion switch became two, one per outcome. Only a profile that turned the old
+-- one off has anything stored: leaving it at the default wrote nothing, and the new pair
+-- defaults to on, which is what that profile had. No stamp needed - the stored key is its
+-- own marker, and clearing it makes the migration a no-op ever after.
+function MessageLogic.MigrateCompletionSwitch(mplus)
+    if mplus.completionEnabled == nil then return false end
+
+    local wasOn = mplus.completionEnabled and true or false
+    mplus.completionTimedEnabled = wasOn
+    mplus.completionDepletedEnabled = wasOn
+    mplus.completionEnabled = nil
+    return not wasOn
+end
+
 function MessageLogic.MigrateKeyLevelMode(mplus)
     if mplus.keyLevelMigrated then return false end
 
