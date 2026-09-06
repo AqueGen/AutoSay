@@ -263,6 +263,25 @@ function Addon:RunSelfTest()
     check("every style bundle has a phrase for every role", #roleGaps == 0,
         "missing: " .. table.concat(roleGaps, ", "))
 
+    -- A bundle absent from a pool does not fail loudly: the player picks it, and that
+    -- occasion quietly keeps speaking classic. Faction shipped that way in all three M+
+    -- pools, which is why this counts pools rather than trusting the phrase count.
+    local poolGaps, poolsByName = {}, {}
+    for _, pool in ipairs(AutoSay.StylePools) do poolsByName[pool.messages] = true end
+    for name in pairs(poolsByName) do
+        for _, style in ipairs(AutoSay.MessageStyles) do
+            if style ~= "classic" then
+                local found = false
+                for _, msg in ipairs(AutoSay[name]) do
+                    if msg.style == style then found = true break end
+                end
+                if not found then poolGaps[#poolGaps + 1] = name .. "/" .. style end
+            end
+        end
+    end
+    check("every style bundle has a phrase in every pool", #poolGaps == 0,
+        "silent there: " .. table.concat(poolGaps, ", "))
+
     -- The guild login list and the three M+ lists are picked without MessageLogic.FitsContext,
     -- so a tag on one of them would be greyed by the panel and ignored by the sender. The
     -- panel is right about the ones that go through FitsContext, so keep these tag-free.

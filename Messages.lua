@@ -310,7 +310,9 @@ AutoSay.Goodbyes = {
     { key = "faction_axes", text = "may your axes stay sharp", style = "faction", faction = "Horde" },
     { key = "faction_lightbe", text = "Light be with you", style = "faction", faction = "Alliance", keepCase = true },
     { key = "faction_honorguide", text = "honor guide you, bye", style = "faction", faction = "Alliance" },
-    { key = "zoomer_ggnext", text = "gg go next", style = "zoomer" },
+    -- Not "gg go next": the depleted pool says that, and a run that goes down would have
+    -- said it once already a few seconds earlier
+    { key = "zoomer_ggnext", text = "peace out o/", style = "zoomer" },
     { key = "zoomer_dipping", text = "aight, dipping o/", style = "zoomer" },
     { key = "zoomer_beenreal", text = "it's been real", style = "zoomer" },
     { key = "butler_honour", text = "it has been an honour", style = "butler" },
@@ -430,6 +432,11 @@ AutoSay.KeyAnnounce = {
     { key = "robot_objective", text = "objective loaded: {dungeon} {key}", style = "robot" },
     { key = "deadpan_sure", text = "{dungeon} {key}. sure.", style = "deadpan" },
     { key = "nature_trail", text = "the trail leads to {dungeon} {key}", style = "naturewarden" },
+    -- Faction had no M+ line at all, so picking that bundle left a player speaking classic
+    -- in every dungeon. Its soldier's voice carries without naming a side, which is what
+    -- keeps the pool the same depth for a Horde and an Alliance character
+    { key = "faction_orders", text = "{dungeon} {key}, orders are clear", style = "faction" },
+    { key = "faction_muster", text = "{dungeon} {key}, muster up", style = "faction" },
 }
 
 -- M+ completion messages - timed (enabled by default first)
@@ -457,6 +464,11 @@ AutoSay.CompletionTimed = {
     { key = "robot_nominal", text = "objective complete, efficiency nominal", style = "robot" },
     { key = "deadpan_incredible", text = "we did it. incredible.", style = "deadpan" },
     { key = "nature_wellwalked", text = "well walked, everyone", style = "naturewarden" },
+    -- No faction tag on any of these: the M+ pools are picked without FitsContext, so a
+    -- side named here would go out to the other one as well
+    { key = "faction_objective", text = "objective secured, well fought", style = "faction" },
+    { key = "faction_bannerflies", text = "the banner still flies, gg", style = "faction" },
+    { key = "faction_heldfield", text = "we hold the field, gg all", style = "faction" },
 }
 
 -- Guild member login greetings (enabled by default first)
@@ -526,4 +538,9 @@ AutoSay.CompletionDepleted = {
     { key = "robot_recalibrating", text = "objective failed, recalibrating", style = "robot" },
     { key = "deadpan_asexpected", text = "not clean, but done", style = "deadpan" },
     { key = "nature_longpath", text = "a long path, but we walked it", style = "naturewarden" },
+    -- Untagged for the same reason as the timed ones, and a depleted key is not the moment
+    -- for a war cry anyway
+    { key = "faction_heldline", text = "the line held, the clock did not", style = "faction" },
+    { key = "faction_honorintact", text = "honor intact, ty all", style = "faction" },
+    { key = "faction_regroup", text = "we regroup, ty all", style = "faction" },
 }
