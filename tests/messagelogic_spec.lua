@@ -305,18 +305,6 @@ describe("VersionMatchesMinor", function()
   end)
 end)
 
-describe("NewestVersion", function()
-  local f = Logic.NewestVersion
-  it("picks the numerically newest minor", function()
-    assert.equals("1.6", f({ ["1.5"] = {}, ["1.6"] = {} }))
-    assert.equals("1.10", f({ ["1.10"] = {}, ["1.9"] = {} }))
-  end)
-  it("handles a single entry and an empty table", function()
-    assert.equals("1.6", f({ ["1.6"] = {} }))
-    assert.is_nil(f({}))
-  end)
-end)
-
 describe("SaysGoodbyeOnRunEnd", function()
   local f = Logic.SaysGoodbyeOnRunEnd
   local on = { enabled = true, sendGoodbyeOnRunEnd = true }
@@ -476,6 +464,37 @@ describe("MigrateInstanceChannel", function()
     Logic.MigrateInstanceChannel(p)
     assert.is_nil(p.instance.customGreetings)
     assert.is_nil(p.instance.customGoodbyes)
+  end)
+end)
+
+describe("MigrateCompletionSwitch", function()
+  it("carries a silenced completion into both outcomes", function()
+    local mplus = { completionEnabled = false }
+    assert.is_true(Logic.MigrateCompletionSwitch(mplus))
+    assert.is_false(mplus.completionTimedEnabled)
+    assert.is_false(mplus.completionDepletedEnabled)
+    assert.is_nil(mplus.completionEnabled)
+  end)
+  it("carries a stored on-value into both outcomes", function()
+    local mplus = { completionEnabled = true }
+    assert.is_false(Logic.MigrateCompletionSwitch(mplus))
+    assert.is_true(mplus.completionTimedEnabled)
+    assert.is_true(mplus.completionDepletedEnabled)
+    assert.is_nil(mplus.completionEnabled)
+  end)
+  it("leaves a profile that never stored the old switch alone", function()
+    local mplus = { completionTimedEnabled = true, completionDepletedEnabled = false }
+    assert.is_false(Logic.MigrateCompletionSwitch(mplus))
+    assert.is_true(mplus.completionTimedEnabled)
+    assert.is_false(mplus.completionDepletedEnabled)
+  end)
+  it("is a no-op the second time, so an independent choice survives", function()
+    local mplus = { completionEnabled = false }
+    Logic.MigrateCompletionSwitch(mplus)
+    mplus.completionTimedEnabled = true
+    assert.is_false(Logic.MigrateCompletionSwitch(mplus))
+    assert.is_true(mplus.completionTimedEnabled)
+    assert.is_false(mplus.completionDepletedEnabled)
   end)
 end)
 

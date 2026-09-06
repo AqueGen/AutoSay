@@ -650,8 +650,13 @@ function Addon:CHALLENGE_MODE_COMPLETED()
     end
 
     local db = self.db.profile
+    -- Either outcome is enough to keep this path alive: which of the two this run turned
+    -- out to be is not known until the completion info is read, and the outcome's own
+    -- switch is checked where that is known, in SendCompletionMessage. A run silenced
+    -- there reports back as unspoken, so the goodbye still marks the ending.
     local completionWanted = db.enabled and db.mythicplus and db.mythicplus.enabled
-        and db.mythicplus.completionEnabled and true or false
+        and (db.mythicplus.completionTimedEnabled or db.mythicplus.completionDepletedEnabled)
+        and true or false
     if not completionWanted then
         -- Nothing is going to sum this run up, so the goodbye is free to mark the ending
         local handles = self.state.pendingGroupSends
@@ -667,7 +672,7 @@ function Addon:CHALLENGE_MODE_COMPLETED()
     end
 
     if not db.enabled then return end
-    if not db.mythicplus or not db.mythicplus.enabled or not db.mythicplus.completionEnabled then return end
+    if not completionWanted then return end
 
     if not C_ChallengeMode or not C_ChallengeMode.GetChallengeCompletionInfo then return end
 

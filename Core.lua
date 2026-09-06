@@ -180,12 +180,16 @@ local defaultGuildLoginGreetings = {
 }
 
 -- Default enabled completion depleted messages
+-- Plain thanks only. The addon knows the timer ran out, not whose fault it was or how the
+-- group feels about it, so the default says the one thing that is true either way. "gg" and
+-- "gg wp" grade the run, and a grade landing seconds after a key dies is what makes an
+-- automatic line feel tone-deaf - both stay one tick away for anyone who wants them.
 local defaultCompletionDepleted = {
-    gg = true,
-    ggwp = true,
     tyrun = true,
     tyall = true,
     -- Disabled by default
+    gg = false,
+    ggwp = false,
     goodrun = false,
     ggeveryone = false,
     gjteam = false,
@@ -290,8 +294,10 @@ local defaults = {
             useClientLanguage = false,  -- false = English dungeon names, true = client locale
             enabledKeyAnnounce = DeepCopy(defaultKeyAnnounce),
             customKeyAnnounce = {},
-            -- Completion messages
-            completionEnabled = true,   -- Send message on M+ completion
+            -- Completion messages. Two switches, not one: beating the timer and missing it
+            -- are different occasions, and plenty of players want to speak on only one of them
+            completionTimedEnabled = true,
+            completionDepletedEnabled = true,
             enabledCompletionTimed = DeepCopy(defaultCompletionTimed),
             enabledCompletionDepleted = DeepCopy(defaultCompletionDepleted),
             customCompletionTimed = {},
@@ -334,9 +340,6 @@ local defaults = {
     },
 
     global = {
-        -- "major.minor" of the last release whose What's new popup was dismissed.
-        -- Account-wide on purpose: the news is the same on every character.
-        whatsNewSeen = "",
         -- Session log (see Log.lua). Account-wide as well: a session spans characters,
         -- and the recording must survive a /reload to be worth anything.
         log = { recording = false, entries = {} },
@@ -348,6 +351,8 @@ local defaults = {
         instanceGreeted = { done = false },
         lastLogoutTime = 0,
         lastSeenTime = 0, -- Heartbeat: PLAYER_LOGOUT never fires on a crash/hard DC, this does
+        -- Phrase pool id -> the last line said there, so a reload cannot open with it again
+        lastPicks = {},
     },
 }
 
@@ -450,6 +455,9 @@ function Addon:OnInitialize()
     self.humanizer = AutoSay.Humanizer.New{
         random = math.random,
         hour = function() return tonumber(date("%H")) end,
+        -- Per character: two characters run different pools, and a shared table would
+        -- have each of them holding back a phrase the other one said
+        lastPicks = self.db.char.lastPicks,
     }
     self.socialGate:Prune()
 
@@ -643,6 +651,7 @@ function Addon:OnProfileSwitched(event, _, sourceName)
         self:MigrateGreetingSides()
         self:MigrateInstanceChannel()
         self:MigrateKeyLevelMode()
+        self:MigrateCompletionSwitch()
         self:MigrateMasterSwitches(sourceName)
         -- The rescue asks a different question - "did the phrases in these tables get
         -- retired" - and the tables came from the source, so the source's history is the
@@ -673,6 +682,9 @@ function Addon:RunProfileMigrations()
 
     -- Fold the old three-way M+ messageMode into the includeKeyLevel toggle
     self:MigrateKeyLevelMode()
+
+    -- Deal the one completion switch into the timed and depleted pair
+    self:MigrateCompletionSwitch()
 
     -- Restore first, suppress second: the stock set includes the band goodbyes, so running
     -- it after the master-switch migration would undo that migration's suppression
@@ -797,6 +809,36 @@ function Addon:MigrateKeyLevelMode()
     end
 end
 
+--- Everything the character has remembered about who it has already spoken to: the hourly
+--- budget, the per-person cooldowns and the welcomed list. Kept out of the profile because
+--- it records what happened, not what the player chose.
+function Addon:ClearGateCounters()
+    local social = self.db.char.social
+    for _, key in ipairs({ "sends", "perPerson", "welcomed", "welcomeSends" }) do
+        for k in pairs(social[key]) do
+            social[key][k] = nil
+        end
+    end
+    if self.socialGate then
+        self.socialGate.pending = {}
+    end
+end
+
+--- Which phrase each pool said last, plus the round in progress. Emptied in place rather
+--- than replaced: the humanizer holds a reference to this very table.
+function Addon:ClearPhraseHistory()
+    for k in pairs(self.db.char.lastPicks) do
+        self.db.char.lastPicks[k] = nil
+    end
+    if self.humanizer then self.humanizer.rounds = {} end
+end
+
+function Addon:MigrateCompletionSwitch()
+    if Logic.MigrateCompletionSwitch(self.db.profile.mythicplus) then
+        self:DebugPrint("Completion switch migrated - both outcomes stay silent")
+    end
+end
+
 function Addon:OnEnable()
     -- Register events
     self:RegisterEvents()
@@ -825,36 +867,7 @@ function Addon:OnEnable()
         self.db.char.lastSeenTime = time()
     end, 60)
 
-    -- What's new popup, well after the loading screen has let go
-    self:ScheduleTimer("CheckWhatsNew", 8)
-
     self:DebugPrint("Addon enabled")
-end
-
--- "1.6" out of "1.6.2"; nil for an unpackaged build, where the TOC still holds the
--- packager placeholder and there is no release to announce
-function Addon:VersionMinor()
-    local version = (C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata)(ADDON_NAME, "Version") or ""
-    return version:match("^(%d+%.%d+)")
-end
-
--- Show the What's new popup once per account per minor release
-function Addon:CheckWhatsNew()
-    local minor = self:VersionMinor()
-    if not minor or self.db.global.whatsNewSeen == minor then return end
-    -- No notes written for this release: nothing to show, and nothing worth a combat retry
-    if not self:HasWhatsNew(minor) then return end
-
-    -- A popup mid-fight is worse than a popup a minute later
-    if InCombatLockdown() then
-        self:RegisterEvent("PLAYER_REGEN_ENABLED", function()
-            self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-            self:CheckWhatsNew()
-        end)
-        return
-    end
-
-    self:ShowWhatsNew(minor)
 end
 
 -- Update cached guild status
@@ -1079,20 +1092,10 @@ function Addon:SlashCommand(input)
         elseif subcmd == "hour" then
             local _, _, hourArg = self:GetArgs(input, 3)
             self:TestSetHour(hourArg)
-        elseif subcmd == "whatsnew" then
-            self:TestPreviewWhatsNew()
         elseif subcmd == "reset" then
             self:TestReset()
         elseif subcmd == "resetgate" or subcmd == "rg" then
-            local social = self.db.char.social
-            for _, key in ipairs({"sends", "perPerson", "welcomed", "welcomeSends"}) do
-                for k in pairs(social[key]) do
-                    social[key][k] = nil
-                end
-            end
-            if self.socialGate then
-                self.socialGate.pending = {}
-            end
+            self:ClearGateCounters()
             self:Print("Social gate counters cleared (budget, cooldowns, welcomed list)")
         elseif subcmd == "status" or subcmd == "s" then
             self:TestStatus()
@@ -1115,7 +1118,6 @@ function Addon:SlashCommand(input)
             self:Print("  /as test keystart - Simulate the key start announce (duplicate and new key)")
             self:Print("  /as test role tank|healer|dps - Simulate assigned role")
             self:Print("  /as test hour <0-23>|off - Simulate time-of-day band")
-            self:Print("  /as test whatsnew - Preview the What's new popup")
             self:Print("  /as test reset - Reset test state")
             self:Print("  /as test resetgate - Clear social gate counters (budget, cooldowns, welcomed list)")
             self:Print("  /as test status - Show test status")
@@ -1510,6 +1512,15 @@ function Addon:GetChannelSettings(channel)
     return nil
 end
 
+-- Every pool picks the same way: the humanizer spends everything enabled before repeating
+-- anything, and the poolId keeps each occasion's history to itself. The plain random is the
+-- fallback for a build where the humanizer failed to come up, not a second policy.
+function Addon:PickFromPool(poolId, texts)
+    if #texts == 0 then return nil end
+    if self.humanizer then return self.humanizer:Pick(poolId, texts) end
+    return texts[math.random(#texts)]
+end
+
 -- Get random message for a channel.
 -- reason is the greeting reason ("self_join"/"others_join"/"reconnect", nil elsewhere) and gates
 -- the per-phrase trigger; wantNames prefers phrases that can carry names.
@@ -1599,12 +1610,7 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
 
     if #texts == 0 then return nil end
 
-    local text
-    if self.humanizer then
-        text = self.humanizer:Pick(messageType .. ":" .. channel, texts)
-    else
-        text = texts[math.random(#texts)]
-    end
+    local text = self:PickFromPool(messageType .. ":" .. channel, texts)
 
     -- First match wins, same rule the dedupe above used
     for i = 1, #texts do
@@ -2183,11 +2189,7 @@ function Addon:GetRandomGuildLoginGreeting()
         end
     end
 
-    if #enabled == 0 then
-        return nil
-    end
-
-    return enabled[math.random(#enabled)]
+    return self:PickFromPool("guildlogin", enabled)
 end
 
 -- Check if should greet on self join for channel
@@ -2369,9 +2371,7 @@ function Addon:GetRandomKeyAnnounce()
         end
     end
 
-    if #enabled == 0 then return nil end
-
-    return enabled[math.random(#enabled)]
+    return self:PickFromPool("keyannounce", enabled)
 end
 
 -- Send key announce message to party chat
@@ -2571,9 +2571,9 @@ function Addon:GetRandomCompletionMessage(onTime, upgrade)
         end
     end
 
-    if #enabled == 0 then return nil end
-
-    return enabled[math.random(#enabled)]
+    -- The two outcomes keep separate histories: a timed run must not hold back a phrase
+    -- because the depleted pool happened to say something like it
+    return self:PickFromPool(onTime and "completion:timed" or "completion:depleted", enabled)
 end
 
 -- Everything Mythic+ says is said in party chat, so "Enable Party" governs it like any other
@@ -2594,7 +2594,17 @@ end
 -- Send completion message to party chat
 function Addon:SendCompletionMessage(dungeon, keyLevel, onTime, upgrade, timeFormatted)
     local db = self.db.profile
-    if not db.enabled or not db.mythicplus.enabled or not db.mythicplus.completionEnabled then return false end
+    if not db.enabled or not db.mythicplus.enabled then return false end
+    -- Spelled out rather than folded into one expression: `onTime and timed or depleted`
+    -- reads the depleted switch whenever the timed one is off, which is the opposite of
+    -- what a player who silenced their timed runs asked for
+    local outcomeEnabled
+    if onTime then
+        outcomeEnabled = db.mythicplus.completionTimedEnabled
+    else
+        outcomeEnabled = db.mythicplus.completionDepletedEnabled
+    end
+    if not outcomeEnabled then return false end
     if not self:MythicPlusChannelOpen() then return false end
 
     local template = self:GetRandomCompletionMessage(onTime, upgrade)
@@ -2727,14 +2737,6 @@ function Addon:TestSetHour(hourArg)
     self.testState.simulatedHour = hour
     local band = AutoSay.Humanizer.BandForHour(hour)
     self:TestPrint(L["Simulated hour set"] .. ": " .. hour .. " (" .. band .. ")")
-end
-
--- Preview the What's new popup without burning the real one-time-per-version flag
-function Addon:TestPreviewWhatsNew()
-    if not self:RequireTestMode() then return end
-
-    self:TestPrint("=== Previewing What's new ===")
-    self:ShowWhatsNew(self:VersionMinor() or "dev", true)
 end
 
 -- Entering a new simulated group drops whatever the previous one still had in flight, the

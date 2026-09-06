@@ -12,7 +12,7 @@ local ADDON_VERSION = (C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadat
 -- The minor whose badges are currently lit. Bumping this one line carries every "New!" into
 -- the next release, which is what a run of releases a day apart needs: a badge nobody had
 -- time to see is worse than no badge. Drop a tag entirely when its feature stops being new.
-local NEW_IN = "1.8"
+local NEW_IN = "1.9"
 
 local function NewTag(name, ver)
     if AutoSay.MessageLogic.VersionMatchesMinor(ADDON_VERSION, ver) then
@@ -93,6 +93,14 @@ local function ReconnectFallsBackToGreetings(settings, channelKey)
     return AutoSay.MessageLogic.PoolIsSilent(settings.enabledReconnects, live, customs)
 end
 
+--- The M+ pools share a gate the channel pools do not have: they all speak in party chat
+--- and all sit under the M+ master switch
+local function IsMPlusPoolKind(poolKind)
+    return poolKind == "mplusKey"
+        or poolKind == "mplusCompletionTimed"
+        or poolKind == "mplusCompletionDepleted"
+end
+
 local function PhraseActive(msg, settingsFn, poolKind, channelKey)
     -- Nothing is sent at all while the addon is off, so nothing in any list is live
     if not Addon.db.profile.enabled then return false end
@@ -109,14 +117,15 @@ local function PhraseActive(msg, settingsFn, poolKind, channelKey)
     -- The switch that governs this particular list. A channel switched off silences all of
     -- them; beyond that a goodbye list follows the goodbye toggle, a reconnect list follows
     -- the reconnect toggle, and so on. Without this only the greetings list ever greyed.
-    if poolKind == "mplusKey" or poolKind == "mplusCompletion" then
+    if IsMPlusPoolKind(poolKind) then
         if not settings.enabled then return false end
         -- Said in party chat, so the party switch silences these as well
         if Addon.db.profile.party.enabled == false then return false end
-        -- Beyond the master switch each M+ pool has its own trigger: a completion line
-        -- cannot go out with completion messages off, and the key announce needs one of
-        -- its two announce moments switched on
-        if poolKind == "mplusCompletion" and not settings.completionEnabled then return false end
+        -- Beyond the master switch each M+ pool has its own trigger: each completion
+        -- outcome follows its own switch, and the key announce needs one of its two
+        -- announce moments switched on
+        if poolKind == "mplusCompletionTimed" and not settings.completionTimedEnabled then return false end
+        if poolKind == "mplusCompletionDepleted" and not settings.completionDepletedEnabled then return false end
         if poolKind == "mplusKey" and not (settings.announceOnFull or settings.announceOnStart) then
             return false
         end
@@ -359,7 +368,7 @@ local function BuildMessageMatrix(poolId, pool, channels)
     }
 
     -- Greyed rows are gated elsewhere - point at the tab that re-activates them
-    if channels[1].poolKind ~= "mplusKey" and channels[1].poolKind ~= "mplusCompletion" then
+    if not IsMPlusPoolKind(channels[1].poolKind) then
         args.tagNote = {
             type = "description", order = 0.5, fontSize = "small",
             name = "|cFF888888" .. L["Tag navigation note"] .. "|r",
@@ -1069,8 +1078,8 @@ local POOL_KIND_BY_KEY = {
     enabledReconnects = "reconnects",
     enabledLoginGreetings = "login",
     enabledKeyAnnounce = "mplusKey",
-    enabledCompletionTimed = "mplusCompletion",
-    enabledCompletionDepleted = "mplusCompletion",
+    enabledCompletionTimed = "mplusCompletionTimed",
+    enabledCompletionDepleted = "mplusCompletionDepleted",
 }
 
 --- Every settings table a pool can be enabled in: the channels, or the single M+ table
@@ -1339,11 +1348,11 @@ local function BuildOptions()
                 resetDefaults = {
                     type = "execute",
                     name = L["Reset to Defaults"],
-                    desc = L["Reset all settings to default values"],
+                    desc = L["Reset defaults desc"],
                     order = 20,
                     width = 1.5,
                     confirm = true,
-                    confirmText = L["Are you sure you want to reset all settings to defaults?"],
+                    confirmText = L["Reset defaults confirm"],
                     func = function()
                         -- Snapshot before the reset flips it: a live simulation must be torn
                         -- down completely (fabricated M+ listing, pending batches, flow flag),
@@ -1355,6 +1364,13 @@ local function BuildOptions()
                         -- one-shot migrations - without it the next login would migrate the
                         -- freshly reset profile straight back off its defaults
                         Addon.db:ResetProfile()
+                        -- ResetProfile only touches the profile, and "reset everything" has
+                        -- to mean the character's own memory too: the budget it has spent
+                        -- this hour, who it has already welcomed, and which phrase each pool
+                        -- said last. Left behind, a fresh-looking config would still be
+                        -- refusing to greet someone it met an hour ago.
+                        Addon:ClearGateCounters()
+                        Addon:ClearPhraseHistory()
                         if wasTestMode then
                             Addon:TestReset() -- bumps sendGeneration itself
                         else
@@ -1860,14 +1876,27 @@ local function BuildOptions()
                             type = "description", order = 0.5, width = "full",
                             name = MythicPlusPartyNotice,
                         },
-                        completionEnabled = {
+                        -- Both switches live above the sub-tabs rather than one inside each:
+                        -- the interesting setting is usually the pair ("congratulate a timed
+                        -- run, stay quiet on a depleted one"), and that is a choice you make
+                        -- by seeing both at once
+                        completionTimedEnabled = {
                             type = "toggle",
-                            name = L["Send message on completion"],
-                            desc = L["Send a message to party chat when a M+ dungeon is completed"],
+                            name = NewTag(L["Send message when timed"], NEW_IN),
+                            desc = L["Send message when timed desc"],
                             order = 1,
                             width = "full",
-                            get = function() return Addon.db.profile.mythicplus.completionEnabled end,
-                            set = function(_, val) Addon.db.profile.mythicplus.completionEnabled = val end,
+                            get = function() return Addon.db.profile.mythicplus.completionTimedEnabled end,
+                            set = function(_, val) Addon.db.profile.mythicplus.completionTimedEnabled = val end,
+                        },
+                        completionDepletedEnabled = {
+                            type = "toggle",
+                            name = NewTag(L["Send message when depleted"], NEW_IN),
+                            desc = L["Send message when depleted desc"],
+                            order = 2,
+                            width = "full",
+                            get = function() return Addon.db.profile.mythicplus.completionDepletedEnabled end,
+                            set = function(_, val) Addon.db.profile.mythicplus.completionDepletedEnabled = val end,
                         },
                         timed = {
                             type = "group",
@@ -1880,14 +1909,14 @@ local function BuildOptions()
                                     inline = true,
                                     order = 1,
                                     args = BuildMessageMatrix("mplusCompletionTimed", AutoSay.CompletionTimed,
-                                        MatrixChannels({ "mythicplus" }, "enabledCompletionTimed", "mplusCompletion")),
+                                        MatrixChannels({ "mythicplus" }, "enabledCompletionTimed", "mplusCompletionTimed")),
                                 },
                                 customs = {
                                     type = "group",
                                     name = L["Custom timed messages"],
                                     inline = true,
                                     order = 2,
-                                    args = BuildCustomMessageList("mythicplus", "customCompletionTimed", "Custom timed messages", "mplusCompletion"),
+                                    args = BuildCustomMessageList("mythicplus", "customCompletionTimed", "Custom timed messages", "mplusCompletionTimed"),
                                 },
                                 placeholderNote = {
                                     type = "description",
@@ -1908,14 +1937,14 @@ local function BuildOptions()
                                     inline = true,
                                     order = 1,
                                     args = BuildMessageMatrix("mplusCompletionDepleted", AutoSay.CompletionDepleted,
-                                        MatrixChannels({ "mythicplus" }, "enabledCompletionDepleted", "mplusCompletion")),
+                                        MatrixChannels({ "mythicplus" }, "enabledCompletionDepleted", "mplusCompletionDepleted")),
                                 },
                                 customs = {
                                     type = "group",
                                     name = L["Custom depleted messages"],
                                     inline = true,
                                     order = 2,
-                                    args = BuildCustomMessageList("mythicplus", "customCompletionDepleted", "Custom depleted messages", "mplusCompletion"),
+                                    args = BuildCustomMessageList("mythicplus", "customCompletionDepleted", "Custom depleted messages", "mplusCompletionDepleted"),
                                 },
                                 placeholderNote = {
                                     type = "description",
@@ -2148,15 +2177,6 @@ local function BuildOptions()
                             get = function() return Addon.testState.simulatedHour or tonumber(date("%H")) end,
                             set = function(_, val) Addon.testState.simulatedHour = val end,
                             disabled = function() return not Addon.db.profile.testMode or Addon.testState.simulatedHour == nil end,
-                        },
-                        simulatePreviewWhatsNew = {
-                            type = "execute",
-                            name = NewTag(L["Preview What's new"], NEW_IN),
-                            desc = L["Preview What's new desc"],
-                            order = 4,
-                            width = 1.2,
-                            func = function() Addon:TestPreviewWhatsNew() end,
-                            disabled = function() return not Addon.db.profile.testMode end,
                         },
                     },
                 },

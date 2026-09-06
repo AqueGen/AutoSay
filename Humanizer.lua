@@ -13,6 +13,10 @@ function Humanizer.New(deps)
   -- A round is one pass over everything enabled, so a set of ten phrases says ten different
   -- things before any of them comes back.
   self.rounds = {}
+  -- poolId -> the last text said, surviving the session. The round itself is not worth
+  -- saving (it is stale the moment the player edits a pool), but the line the session ended
+  -- on is: without it a /reload can open with the phrase the group just heard.
+  self.lastPicks = deps.lastPicks or {}
   return self
 end
 
@@ -35,11 +39,13 @@ end
 -- candidates, one switched off simply never comes up again.
 function Humanizer:Pick(poolId, entries)
   local round = self.rounds[poolId]
-  if not round then round = { used = {} }; self.rounds[poolId] = round end
+  -- A round restored after a reload starts empty but remembers what the last session said,
+  -- so the very first pick of the session is held back the same way a seam pick is
+  if not round then round = { used = {}, last = self.lastPicks[poolId] }; self.rounds[poolId] = round end
 
   local candidates = {}
   for _, text in ipairs(entries) do
-    if not round.used[text] then candidates[#candidates + 1] = text end
+    if not round.used[text] and text ~= round.last then candidates[#candidates + 1] = text end
   end
 
   if #candidates == 0 then
@@ -54,6 +60,7 @@ function Humanizer:Pick(poolId, entries)
   local text = candidates[self.random(#candidates)]
   round.used[text] = true
   round.last = text
+  self.lastPicks[poolId] = text
   return text
 end
 

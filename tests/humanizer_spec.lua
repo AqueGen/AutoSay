@@ -86,6 +86,27 @@ describe("Humanizer", function()
       assert.equals(h:Pick("bye", pool), h:Pick("bye", { "a", "b" }) == "a" and "b" or "a")
     end)
 
+    it("holds back the phrase the last session ended on", function()
+      local stored = { p = "a" }
+      local h = Humanizer.New{ random = function(n) return 1 end, hour = function() return 12 end,
+                               lastPicks = stored }
+      assert.not_equals("a", h:Pick("p", { "a", "b", "c" }))
+    end)
+
+    it("records every pick in the table it was handed", function()
+      local stored = {}
+      local h = Humanizer.New{ random = function(n) return 1 end, hour = function() return 12 end,
+                               lastPicks = stored }
+      local said = h:Pick("bye", { "a", "b" })
+      assert.equals(said, stored.bye)
+    end)
+
+    it("still speaks when the stored phrase is the only one left", function()
+      local h = Humanizer.New{ random = function(n) return 1 end, hour = function() return 12 end,
+                               lastPicks = { p = "only" } }
+      assert.equals("only", h:Pick("p", { "only" }))
+    end)
+
     it("picks up a phrase switched on mid-round", function()
       local h = newPicker()
       h:Pick("p", { "a", "b" })
