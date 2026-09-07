@@ -134,6 +134,17 @@ function Addon:RunSelfTest()
         type(self.socialGate) == "table" and type(self.humanizer) == "table",
         format("socialGate=%s humanizer=%s", type(self.socialGate), type(self.humanizer)))
 
+    -- The sender asks the client whether addons may speak before it says anything. If both
+    -- ways of asking disappear, the question silently answers "yes" everywhere and the
+    -- addon goes back to collecting ADDON_ACTION_BLOCKED in restricted content.
+    check("the client still answers whether addons may use chat",
+        (C_RestrictedActions and C_RestrictedActions.IsAddOnRestrictionActive
+            and Enum and Enum.AddOnRestrictionType and Enum.AddOnRestrictionType.Chat ~= nil)
+        or (C_ChatInfo and C_ChatInfo.InChatMessagingLockdown ~= nil),
+        "neither IsAddOnRestrictionActive(Chat) nor InChatMessagingLockdown is available")
+    self:Print(("  chat restricted right now: %s"):format(
+        self.ChatIsLockedDown() and "|cFFFF0000yes|r" or "|cFF00FF00no|r"))
+
     local social = self.db and self.db.char and self.db.char.social
     local missingState = {}
     for _, key in ipairs({ "sends", "perPerson", "welcomed", "welcomeSends" }) do
