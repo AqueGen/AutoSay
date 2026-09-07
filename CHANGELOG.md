@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.1](https://github.com/AqueGen/AutoSay/compare/v1.9.0...v1.9.1) (2026-09-07)
+
+
+### Bug Fixes
+
+* ask the client before speaking instead of collecting blocked-action errors ([#26](https://github.com/AqueGen/AutoSay/issues/26)) ([7b484a4](https://github.com/AqueGen/AutoSay/commit/7b484a415f1049563081d60e70b43142168e1a67))
+
 ## [1.9.0](https://github.com/AqueGen/AutoSay/compare/v1.8.2...v1.9.0) (2026-09-06)
 
 
