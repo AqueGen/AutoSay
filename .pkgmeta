@@ -51,7 +51,8 @@ externals:
     tag: latest
 
 ignore:
-  - AGENTS.md
+  # AGENTS.md is deliberately NOT ignored: the notice only does its job where
+  # an agent actually reads the addon, which is the installed folder.
   - README.md
   - RELEASE_NOTES.md
   - .gitignore
