@@ -17,6 +17,11 @@ L["Show minimap icon"] = "Show minimap icon"
 L["Show or hide the minimap button"] = "Show or hide the minimap button"
 
 -- Categories / Tabs
+-- The Blizzard AddOns tab holds only a button to the real window
+L["Open AutoSay settings"] = "Open AutoSay settings"
+L["Open AutoSay settings desc"] = "Opens the AutoSay window, where every tab and phrase list lives."
+L["Open AutoSay settings hint"] = "|cFF888888Also from the minimap button, or with /as|r"
+
 L["General"] = "General"
 L["Greetings"] = "Greetings"
 L["When I join"] = "When I join"
