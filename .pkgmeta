@@ -63,5 +63,7 @@ ignore:
   - CLAUDE.md
   - CURSEFORGE.md
   - FEATURES_BACKLOG.md
+  # The icon generator and its output belong to the store page, not to the game
+  - tools
   - release-please-config.json
   - .release-please-manifest.json
