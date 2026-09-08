@@ -7,23 +7,10 @@ local AceDBOptions = LibStub("AceDBOptions-3.0")
 
 local MAX_CUSTOM_MESSAGES = 10
 
-local ADDON_VERSION = (C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata)(ADDON_NAME, "Version") or ""
--- Append a green "New!" while the addon version still matches the minor release the option shipped in.
--- Auto-expires on the next minor: a badge naming NEW_IN stops matching once the minor after it ships.
--- The minor whose badges are currently lit. Bumping this one line carries every "New!" into
--- the next release, which is what a run of releases a day apart needs: a badge nobody had
--- time to see is worse than no badge. Drop a tag entirely when its feature stops being new.
-local NEW_IN = "1.9"
-
--- The profiles tab as AceDBOptions names it, before the "New!" badge is appended
-local profilesTabName
-
-local function NewTag(name, ver)
-    if AutoSay.MessageLogic.VersionMatchesMinor(ADDON_VERSION, ver) then
-        return name .. " |cFF00FF00New!|r"
-    end
-    return name
-end
+-- No "New!" badges. Every option carried one for the minor it shipped in, and with
+-- releases landing days apart the panel ended up wearing them everywhere at once -
+-- thirteen on the Style tab alone, which is where a badge stops meaning "look here"
+-- and becomes the background. The CHANGELOG says what is new. Do not bring them back.
 
 -- Style bundle picker state (UI only, deliberately not saved to the profile)
 
@@ -423,9 +410,9 @@ local function BuildMessageMatrix(poolId, pool, channels)
         if style == "classic" then
             label = L["Classic"]
         elseif style == "timeofday" then
-            label = NewTag(L["Time of day"], NEW_IN)
+            label = L["Time of day"]
         else
-            label = NewTag(L["Style " .. style], NEW_IN)
+            label = L["Style " .. style]
         end
 
         local folded = function() return #styles > 1 and not open[style] end
@@ -719,7 +706,7 @@ local function BuildGroupGreetingsSelf()
             }
         end)
     AddMatrixRow(triggers, "includeGroupNames", 3,
-        NewTag(L["Name the group when I join"], NEW_IN) .. TagSuffix("names"),
+        L["Name the group when I join"] .. TagSuffix("names"),
         NoneOn(channels, "onSelfJoin"), channels, function(ch)
             return {
                 -- Off with its channel as well as with its parent trigger: two reasons,
@@ -792,7 +779,7 @@ local function BuildGroupGreetingsOthers()
             }
         end)
     AddMatrixRow(triggers, "includeNames", 4,
-        NewTag(L["Name whoever joined"], NEW_IN) .. TagSuffix("names"),
+        L["Name whoever joined"] .. TagSuffix("names"),
         NoneOn(channels, "onOthersJoin"), channels, function(ch)
             return {
                 disabled = function()
@@ -847,7 +834,7 @@ local function BuildGroupGoodbyes()
     -- Its own row rather than a qualifier under the one above: the two occasions are
     -- independent, and either can be on without the other
     AddMatrixRow(triggers, "sendGoodbyeOnRunEnd", 3,
-        NewTag(L["Send goodbye when the run ends"], NEW_IN), nil, channels, function(ch)
+        L["Send goodbye when the run ends"], nil, channels, function(ch)
             return {
                 disabled = function() return ChannelIsOff(ch) end,
                 desc = L["Send goodbye when the run ends desc"],
@@ -1190,11 +1177,6 @@ local function BuildOptions()
     -- shortcuts, which is the whole feature: nothing here needs to know about classes.
     local profiles = AceDBOptions:GetOptionsTable(Addon.db)
     profiles.order = 90
-    -- The library names its own tab, so the badge goes on after the fact. AceDBOptions
-    -- caches and returns the same table every call, so the untouched name is kept aside:
-    -- badging an already badged one would read "Profiles New! New!"
-    profilesTabName = profilesTabName or profiles.name
-    profiles.name = NewTag(profilesTabName, NEW_IN)
 
     return {
     type = "group",
@@ -1262,7 +1244,7 @@ local function BuildOptions()
                         -- beside it instead of on a line of its own
                         enableInstance = {
                             type = "toggle",
-                            name = NewTag(L["Enable Instance"], NEW_IN),
+                            name = L["Enable Instance"],
                             desc = L["Send greetings and goodbyes in instance chat"],
                             order = 3,
                             width = 1.0,
@@ -1274,7 +1256,7 @@ local function BuildOptions()
                         },
                         skipRaidGroups = {
                             type = "toggle",
-                            name = NewTag(L["Skip LFR and battlegrounds"], NEW_IN),
+                            name = L["Skip LFR and battlegrounds"],
                             desc = L["Skip LFR and battlegrounds desc"],
                             order = 3.5,
                             width = 1.6,
@@ -1411,12 +1393,12 @@ local function BuildOptions()
         -- === STYLE ===
         style = {
             type = "group",
-            name = NewTag(L["Style"], NEW_IN),
+            name = L["Style"],
             order = 3,
             args = {
                 styleBundles = {
                     type = "group", order = 1, inline = true,
-                    name = NewTag(L["Message style bundles"], NEW_IN),
+                    name = L["Message style bundles"],
                     args = (function()
                         local args = {
                             desc = {
@@ -1439,10 +1421,7 @@ local function BuildOptions()
                                     local colour = (selected == 0 and "|cFF888888")
                                         or (full and "|cFF00FF00")
                                         or "|cFFFFD100"
-                                    -- The tag rides the whole row: the two buttons next to
-                                    -- it repeat for all thirteen sets, so badging them too
-                                    -- would just be thirteen more "New!" on one screen
-                                    return NewTag(colour .. L["Style " .. style] .. "|r", NEW_IN)
+                                    return colour .. L["Style " .. style] .. "|r"
                                 end,
                             }
                             args["count_" .. style] = {
@@ -1508,7 +1487,7 @@ local function BuildOptions()
                 },
                 rolePhrases = {
                     type = "toggle", order = 1.5, width = 2.3,
-                    name = NewTag(L["Role-based phrases"], NEW_IN)
+                    name = L["Role-based phrases"]
                         .. " |A:roleicon-tiny-tank:14:14|a|A:roleicon-tiny-healer:14:14|a|A:roleicon-tiny-dps:14:14|a",
                     desc = L["Role-based phrases desc"],
                     get = function() return Addon.db.profile.social.rolePhrases end,
@@ -1577,11 +1556,11 @@ local function BuildOptions()
                 },
                 tone = {
                     type = "group", order = 4, inline = true,
-                    name = NewTag(L["Tone"], NEW_IN),
+                    name = L["Tone"],
                     args = {
                         lowercaseFirst = {
                             type = "toggle", order = 1, width = "full",
-                            name = NewTag(L["Lowercase first letter"], NEW_IN),
+                            name = L["Lowercase first letter"],
                             desc = L["Lowercase first letter desc"],
                             get = function() return Addon.db.profile.social.lowercaseFirst end,
                             set = function(_, v) Addon.db.profile.social.lowercaseFirst = v end,
@@ -1675,7 +1654,7 @@ local function BuildOptions()
         -- switches say, and those switches keep doing the only job they ever had - gating sends.
         group = {
             type = "group",
-            name = NewTag("|cFF33DDAA" .. L["Group"] .. "|r", NEW_IN),
+            name = "|cFF33DDAA" .. L["Group"] .. "|r",
             order = 10,
             childGroups = "tab",
             args = {
@@ -1689,12 +1668,12 @@ local function BuildOptions()
                         -- needs a [self] or [newcomers] tag to say which one it serves
                         selfJoin = {
                             type = "group", order = 1,
-                            name = NewTag(L["When I join"], NEW_IN),
+                            name = L["When I join"],
                             args = BuildGroupGreetingsSelf(),
                         },
                         othersJoin = {
                             type = "group", order = 2,
-                            name = NewTag(L["When someone joins"], NEW_IN),
+                            name = L["When someone joins"],
                             args = BuildGroupGreetingsOthers(),
                         },
                     },
@@ -1780,7 +1759,7 @@ local function BuildOptions()
                                 },
                                 announceOnStart = {
                                     type = "toggle",
-                                    name = NewTag(L["Announce at key start"], NEW_IN) .. TagSuffix("leader"),
+                                    name = L["Announce at key start"] .. TagSuffix("leader"),
                                     desc = L["Announce at key start desc"]
                                         .. "\n\n" .. L["Leader only note"],
                                     order = 2,
@@ -1796,7 +1775,7 @@ local function BuildOptions()
                                 },
                                 includeKeyLevel = {
                                     type = "toggle",
-                                    name = NewTag(L["Include key level"], NEW_IN),
+                                    name = L["Include key level"],
                                     desc = L["Include key level desc"],
                                     order = 4,
                                     width = "full",
@@ -1898,7 +1877,7 @@ local function BuildOptions()
                         -- by seeing both at once
                         completionTimedEnabled = {
                             type = "toggle",
-                            name = NewTag(L["Send message when timed"], NEW_IN),
+                            name = L["Send message when timed"],
                             desc = L["Send message when timed desc"],
                             order = 1,
                             width = "full",
@@ -1907,7 +1886,7 @@ local function BuildOptions()
                         },
                         completionDepletedEnabled = {
                             type = "toggle",
-                            name = NewTag(L["Send message when depleted"], NEW_IN),
+                            name = L["Send message when depleted"],
                             desc = L["Send message when depleted desc"],
                             order = 2,
                             width = "full",
@@ -2014,7 +1993,7 @@ local function BuildOptions()
                         },
                         simulateInstance = {
                             type = "execute",
-                            name = NewTag(L["Enter Instance"], NEW_IN),
+                            name = L["Enter Instance"],
                             desc = L["Simulate zoning into an instance group"],
                             order = 2.5,
                             width = 1.0,
@@ -2118,7 +2097,7 @@ local function BuildOptions()
                         },
                         simulateKeyStart = {
                             type = "execute",
-                            name = NewTag(L["Simulate Key Start"], NEW_IN),
+                            name = L["Simulate Key Start"],
                             desc = L["Simulate key start desc"],
                             order = 3,
                             width = 1.2,
@@ -2147,13 +2126,13 @@ local function BuildOptions()
                 },
                 simulationContext = {
                     type = "group",
-                    name = NewTag(L["Simulation context"], NEW_IN),
+                    name = L["Simulation context"],
                     inline = true,
                     order = 27,
                     args = {
                         simulateAssignedRole = {
                             type = "select",
-                            name = NewTag(L["Simulate assigned role"], NEW_IN),
+                            name = L["Simulate assigned role"],
                             desc = L["Simulate assigned role desc"],
                             order = 1,
                             width = 0.8,
@@ -2169,7 +2148,7 @@ local function BuildOptions()
                         },
                         simulateRealTime = {
                             type = "toggle",
-                            name = NewTag(L["Use real time"], NEW_IN),
+                            name = L["Use real time"],
                             desc = L["Use real time desc"],
                             order = 2,
                             width = 0.8,
@@ -2185,7 +2164,7 @@ local function BuildOptions()
                         },
                         simulateHour = {
                             type = "range",
-                            name = NewTag(L["Simulate hour"], NEW_IN),
+                            name = L["Simulate hour"],
                             desc = L["Simulate hour desc"],
                             order = 3,
                             width = 1.5,
@@ -2279,7 +2258,7 @@ local function BuildOptions()
                         },
                         sessionLog = {
                             type = "toggle",
-                            name = NewTag(L["Record session log"], NEW_IN),
+                            name = L["Record session log"],
                             desc = L["Record session log desc"],
                             order = 2,
                             width = 1.6,

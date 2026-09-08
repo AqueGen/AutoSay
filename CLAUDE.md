@@ -31,11 +31,8 @@ WoW addon: automatic greetings, goodbyes, and reconnect messages for party, raid
 
 ## UI Conventions
 
-- Every new user-facing option in `Config.lua` gets its name wrapped in `NewTag(name, NEW_IN)`. `NEW_IN` is one constant at the top of the file naming the minor whose badges are currently lit, and it appends a green "New!" to the label.
-- Tags expire on their own: `NewTag` only matches while the TOC version is still in that minor, so 1.8.0 silently drops every `"1.7"` badge. Nothing to clean up on release.
-- Carrying the badges forward is one edit: bump `NEW_IN`. Do it whenever a release lands close behind its predecessor, since a badge nobody had time to read is worse than no badge. Drop the `NewTag` call from an option when it genuinely stops being new, rather than letting the whole set expire on a date.
-- When you touch an option whose tag no longer matches the current version, delete the stale `NewTag` call and leave the plain name.
-- The tag belongs to the row, not to every widget on it. A row built once per item of a list (the style sets, each with its own Enable all / Disable all) carries the tag on the row's name only - thirteen copies of "New!" on one screen say less than one.
+- **No "New!" badges on options.** Every new option used to be wrapped in a `NewTag` helper that lit a green badge for the minor it shipped in. With releases landing days apart the badges piled up instead of expiring, and the Style tab wore thirteen at once - at which point a badge stops meaning "look here" and becomes the background. The helper, its `NEW_IN` constant and `MessageLogic.VersionMatchesMinor` are all gone. Do not reintroduce them: what changed in a release belongs in `CHANGELOG.md` and on the store page.
+- The Blizzard AddOns tab holds a **button that opens the standalone window**, not the option tree. Two AceConfig tables exist for this: `AutoSay` is the real tree, `AutoSay-Blizzard` is the stub that `AddToBlizOptions` gets. Registering the real tree in both places squeezes every phrase matrix into a panel too narrow for it.
 
 ## WoW Addon Rules
 
