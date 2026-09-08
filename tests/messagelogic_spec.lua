@@ -286,25 +286,6 @@ describe("StyleFits", function()
   end)
 end)
 
-describe("VersionMatchesMinor", function()
-  local f = Logic.VersionMatchesMinor
-  it("matches the minor and its patches", function()
-    assert.is_true(f("1.6", "1.6"))
-    assert.is_true(f("1.6.2", "1.6"))
-  end)
-  it("does not prefix-match into other versions", function()
-    assert.is_false(f("1.60.0", "1.6"))
-    assert.is_false(f("11.6.0", "1.6"))
-    assert.is_false(f("1.16.0", "1.6"))
-    assert.is_false(f("1.7.0", "1.6"))
-    assert.is_false(f("2.0.0", "1.6"))
-  end)
-  it("never matches an unpackaged build", function()
-    assert.is_false(f("", "1.6"))
-    assert.is_false(f(nil, "1.6"))
-  end)
-end)
-
 describe("SaysGoodbyeOnRunEnd", function()
   local f = Logic.SaysGoodbyeOnRunEnd
   local on = { enabled = true, sendGoodbyeOnRunEnd = true }

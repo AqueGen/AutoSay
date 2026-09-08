@@ -197,12 +197,6 @@ function MessageLogic.SkipsRaidInstanceGroup(channel, settings, isRaidInstanceGr
     return isRaidInstanceGroup and true or false
 end
 
--- "1.6" matches "1.6" and "1.6.2" but not "1.60.x", "11.6.x" or "2.0.x"
-function MessageLogic.VersionMatchesMinor(addonVersion, minor)
-    if not addonVersion or not minor then return false end
-    return addonVersion == minor or addonVersion:sub(1, #minor + 1) == minor .. "."
-end
-
 -- The instance channel is new: before it existed LFG groups used the party settings, so
 -- seed it from them once (toggles, phrase selections and custom lists - a user who narrowed
 -- the party phrases down must not get the stock set back in LFG). Entry tables are cloned,
