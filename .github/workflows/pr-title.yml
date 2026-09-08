@@ -1,0 +1,39 @@
+name: pr title
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+# Squash merging takes the pull request's title for the commit that lands on
+# main whenever the branch holds more than one commit, and release-please only
+# reads what is on main. A title written for humans therefore erases every
+# conventional-commit prefix on the branch, and the release is silently
+# skipped - no error anywhere, just no release pull request.
+jobs:
+  conventional:
+    runs-on: ubuntu-latest
+    steps:
+      - name: The title becomes the commit message, so it has to read like one
+        env:
+          # Through the environment, never interpolated into the script: a
+          # title is attacker-controlled text.
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          types='feat|fix|perf|refactor|docs|style|test|build|ci|chore|revert'
+          if [[ "$TITLE" =~ ^($types)(\([a-z0-9._/-]+\))?!?:\ .+ ]]; then
+            echo "ok: $TITLE"
+            exit 0
+          fi
+          echo "::error title=Rename this pull request::\"$TITLE\" is not a conventional commit."
+          echo ""
+          echo "Use <type>: <what changed>, for example:"
+          echo "  feat: say both calls when a cast could be either"
+          echo "  fix: call a stun a stun"
+          echo "  ci: require a conventional title on pull requests"
+          echo ""
+          echo "Types: $types. Add ! before the colon for a breaking change."
+          echo "feat bumps the minor version, fix the patch, everything else releases nothing."
+          exit 1
