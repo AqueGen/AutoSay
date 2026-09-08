@@ -261,15 +261,15 @@ AutoSay.Greetings = {
     { key = "robot_names2", text = "registration complete: {names}", style = "robot", trigger = "others" },
     { key = "robot_names3", text = "welcome, {names}. protocol resumed.", style = "robot", trigger = "others" },
     { key = "deadpan_hi", text = "hi.", style = "deadpan", appendNames = true },
-    { key = "deadpan_another", text = "another one", style = "deadpan", trigger = "self" },
+    { key = "deadpan_another", text = "another run. hello.", style = "deadpan", trigger = "self" },
     { key = "deadpan_herewego", text = "here we go then", style = "deadpan", trigger = "self" },
-    { key = "deadpan_someone", text = "someone new. hello.", style = "deadpan", trigger = "others" },
+    { key = "deadpan_someone", text = "new arrival. hello.", style = "deadpan", trigger = "others" },
     { key = "deadpan_tank3", text = "tank. front position, apparently mine", style = "deadpan", role = "TANK", trigger = "self" },
     { key = "deadpan_heal3", text = "healing. routine enough", style = "deadpan", role = "HEALER", trigger = "self" },
     { key = "deadpan_dps3", text = "damage. routine work", style = "deadpan", role = "DAMAGER", trigger = "self" },
     { key = "deadpan_names1", text = "hello {names}.", style = "deadpan", trigger = "self" },
     { key = "deadpan_names2", text = "there you are, {names}.", style = "deadpan", trigger = "others" },
-    { key = "deadpan_names3", text = "so we have {names} then", style = "deadpan", trigger = "others" },
+    { key = "deadpan_names3", text = "so, {names}. hello.", style = "deadpan", trigger = "others" },
     { key = "nature_paths", text = "our paths cross well today", style = "naturewarden" },
     { key = "nature_wind", text = "the wind is with us o/", style = "naturewarden" },
     { key = "nature_grove", text = "greetings from the grove", style = "naturewarden", trigger = "self" },
@@ -346,8 +346,8 @@ AutoSay.Goodbyes = {
     { key = "robot_shutdown", text = "shutdown sequence initiated", style = "robot" },
     { key = "robot_farewell", text = "farewell, units", style = "robot" },
     { key = "deadpan_thatsthat", text = "and that's that", style = "deadpan" },
-    { key = "deadpan_itwasfine", text = "leaving. that worked.", style = "deadpan" },
-    { key = "deadpan_iguess", text = "bye I guess", style = "deadpan", keepCase = true },
+    { key = "deadpan_itwasfine", text = "leaving. gg.", style = "deadpan" },
+    { key = "deadpan_iguess", text = "bye then.", style = "deadpan" },
     { key = "nature_road", text = "may the road be gentle", style = "naturewarden" },
     { key = "nature_seasons", text = "good hunting, until the seasons turn", style = "naturewarden" },
     { key = "nature_still", text = "safe travels, keep to the still paths", style = "naturewarden" },
@@ -465,7 +465,7 @@ AutoSay.KeyAnnounce = {
     { key = "butler_carriage", text = "your carriage to {dungeon} {key} is ready", style = "butler" },
     { key = "minimal_key", text = "{dungeon} {key}", style = "minimal" },
     { key = "robot_objective", text = "objective loaded: {dungeon} {key}", style = "robot" },
-    { key = "deadpan_sure", text = "{dungeon} {key}. sure.", style = "deadpan" },
+    { key = "deadpan_sure", text = "{dungeon} {key}. right then.", style = "deadpan" },
     { key = "nature_trail", text = "the trail leads to {dungeon} {key}", style = "naturewarden" },
     -- Faction had no M+ line at all, so picking that bundle left a player speaking classic
     -- in every dungeon. Its soldier's voice carries without naming a side, which is what
@@ -490,6 +490,9 @@ AutoSay.KeyAnnounce = {
 }
 
 -- M+ completion messages - timed (enabled by default first)
+-- A timed key is a win, so nothing here may undercut it: no surprise that the group
+-- managed it, no grudging approval, no line that grades the run or the people in it.
+-- Dry styles stay dry by aiming at the speaker or the clock, never at the group
 AutoSay.CompletionTimed = {
     { key = "gg", text = "gg" },
     { key = "ggwp", text = "gg wp" },
@@ -512,7 +515,7 @@ AutoSay.CompletionTimed = {
     { key = "butler_splendid", text = "splendidly done, everyone", style = "butler" },
     { key = "minimal_wellrun", text = "timed", style = "minimal" },
     { key = "robot_nominal", text = "objective complete, efficiency nominal", style = "robot" },
-    { key = "deadpan_incredible", text = "timer beaten. that'll do.", style = "deadpan" },
+    { key = "deadpan_incredible", text = "timer beaten. good work.", style = "deadpan" },
     { key = "nature_wellwalked", text = "well walked, everyone", style = "naturewarden" },
     -- No faction tag on any of these: the M+ pools are picked without FitsContext, so a
     -- side named here would go out to the other one as well
@@ -532,8 +535,8 @@ AutoSay.CompletionTimed = {
     { key = "fantasy_swiftvictory", text = "a swift victory, well fought", style = "fantasy" },
     { key = "dark_merciless", text = "swift and merciless, gg", style = "dark" },
     { key = "dark_clockbowed", text = "the clock bowed to us", style = "dark" },
-    { key = "deadpan_unexpected", text = "on time. unexpected.", style = "deadpan" },
-    { key = "deadpan_noted", text = "we made it. noted.", style = "deadpan" },
+    { key = "deadpan_unexpected", text = "on time. as planned.", style = "deadpan" },
+    { key = "deadpan_noted", text = "we made it. well done.", style = "deadpan" },
     { key = "light_lovelyrun", text = "lovely run everyone, gg", style = "light" },
     { key = "light_madeit", text = "made it, thanks all <3", style = "light" },
     { key = "pirate_beattide", text = "beat the tide, gg crew", style = "pirate" },
@@ -634,17 +637,17 @@ AutoSay.CompletionDepleted = {
     { key = "fantasy_sawthrough", text = "we saw it through, friends", style = "fantasy" },
     { key = "dark_hourwon", text = "the hour won this one", style = "dark" },
     { key = "dark_endsanyway", text = "it ends, if not in time", style = "dark" },
-    { key = "deadpan_eventually", text = "finished. eventually.", style = "deadpan" },
-    { key = "deadpan_itsover", text = "well, it's over", style = "deadpan" },
+    { key = "deadpan_eventually", text = "finished. ty all.", style = "deadpan" },
+    { key = "deadpan_itsover", text = "well, that's done. ty.", style = "deadpan" },
     { key = "light_toughone", text = "ty all, that was a tough one", style = "light" },
     { key = "light_stickingwith", text = "appreciate you all sticking with it", style = "light" },
     { key = "pirate_tidebeat", text = "the tide beat us, ty crew", style = "pirate" },
     { key = "pirate_portlate", text = "we made port late, gg", style = "pirate" },
     { key = "zoomer_stillgg", text = "no timer, still gg", style = "zoomer" },
     { key = "zoomer_wemove", text = "gg, we move", style = "zoomer" },
-    { key = "butler_allthesame", text = "thank you all the same", style = "butler" },
-    { key = "butler_pleasureregardless", text = "a pleasure regardless, thank you", style = "butler" },
-    { key = "robot_suboptimal", text = "objective complete, timing suboptimal", style = "robot" },
+    { key = "butler_allthesame", text = "my thanks to you all", style = "butler" },
+    { key = "butler_pleasureregardless", text = "a pleasure as always, thank you", style = "butler" },
+    { key = "robot_suboptimal", text = "objective complete, time constraint not met", style = "robot" },
     { key = "robot_runlogged", text = "run logged, ty units", style = "robot" },
     { key = "nature_pathlong", text = "the path was long, ty all", style = "naturewarden" },
     { key = "nature_walkedthrough", text = "we walked it through, well done", style = "naturewarden" },
