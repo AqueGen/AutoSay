@@ -7,11 +7,6 @@ local AceDBOptions = LibStub("AceDBOptions-3.0")
 
 local MAX_CUSTOM_MESSAGES = 10
 
--- No "New!" badges. Every option carried one for the minor it shipped in, and with
--- releases landing days apart the panel ended up wearing them everywhere at once -
--- thirteen on the Style tab alone, which is where a badge stops meaning "look here"
--- and becomes the background. The CHANGELOG says what is new. Do not bring them back.
-
 -- Style bundle picker state (UI only, deliberately not saved to the profile)
 
 -- Per-pool accordion fold state: shownStyle[poolId][style] = open (UI only, not saved)
