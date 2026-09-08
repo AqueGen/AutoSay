@@ -31,7 +31,6 @@ WoW addon: automatic greetings, goodbyes, and reconnect messages for party, raid
 
 ## UI Conventions
 
-- **No "New!" badges on options.** Every new option used to be wrapped in a `NewTag` helper that lit a green badge for the minor it shipped in. With releases landing days apart the badges piled up instead of expiring, and the Style tab wore thirteen at once - at which point a badge stops meaning "look here" and becomes the background. The helper, its `NEW_IN` constant and `MessageLogic.VersionMatchesMinor` are all gone. Do not reintroduce them: what changed in a release belongs in `CHANGELOG.md` and on the store page.
 - The Blizzard AddOns tab holds a **button that opens the standalone window**, not the option tree. Two AceConfig tables exist for this: `AutoSay` is the real tree, `AutoSay-Blizzard` is the stub that `AddToBlizOptions` gets. Registering the real tree in both places squeezes every phrase matrix into a panel too narrow for it.
 
 ## WoW Addon Rules
