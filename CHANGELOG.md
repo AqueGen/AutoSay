@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.10.0](https://github.com/AqueGen/AutoSay/compare/v1.9.1...v1.10.0) (2026-09-08)
+
+
+### Features
+
+* drop the New! badges ([#32](https://github.com/AqueGen/AutoSay/issues/32)) ([53fe9b9](https://github.com/AqueGen/AutoSay/commit/53fe9b9548fef1766b8f9b27538e2ef349be625f))
+* leave one button in the Blizzard AddOns tab ([#30](https://github.com/AqueGen/AutoSay/issues/30)) ([630c5c6](https://github.com/AqueGen/AutoSay/commit/630c5c68a49e59b2c0714aab9c4e9a7578e6bb93))
+
 ## [1.9.1](https://github.com/AqueGen/AutoSay/compare/v1.9.0...v1.9.1) (2026-09-07)
 
 
