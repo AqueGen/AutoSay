@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.1](https://github.com/AqueGen/AutoSay/compare/v1.10.0...v1.10.1) (2026-09-17)
+
+
+### Bug Fixes
+
+* drop the backhanded phrases from the preset pools ([#34](https://github.com/AqueGen/AutoSay/issues/34)) ([5532e3c](https://github.com/AqueGen/AutoSay/commit/5532e3c4eb6d1b651d0e7f58edf00ec9bae6b795))
+
 ## [1.10.0](https://github.com/AqueGen/AutoSay/compare/v1.9.1...v1.10.0) (2026-09-08)
 
 
