@@ -1,5 +1,5 @@
-## Interface: 120000, 120001, 120005, 120100
-## Interface-Retail: 120000, 120001, 120005, 120100
+## Interface: 120000, 120001, 120005, 120100, 120105
+## Interface-Retail: 120000, 120001, 120005, 120100, 120105
 ## Title: |cFF0099FFAuto|r |cFFFFD700Say|r
 ## Notes: Automatically sends greetings, farewells, and reconnect messages in party, raid, instance (LFG/LFR/BG), and guild chat
 ## Author: AqueGen
