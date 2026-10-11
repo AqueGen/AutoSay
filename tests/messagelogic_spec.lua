@@ -508,3 +508,24 @@ describe("MigrateKeyLevelMode", function()
     assert.equals("withlevel", mplus.messageMode)
   end)
 end)
+
+describe("SelectedKeys", function()
+  local entries = { { key = "hi" }, { key = "yo" }, { key = "o7" } }
+
+  it("collects keys ticked in any table", function()
+    local set = Logic.SelectedKeys(entries, { { hi = true }, { o7 = true, yo = false } })
+    assert.same({ hi = true, o7 = true }, set)
+  end)
+
+  it("ignores keys that are not in the entries", function()
+    assert.same({}, Logic.SelectedKeys(entries, { { other = true } }))
+  end)
+
+  it("skips nil tables", function()
+    assert.same({ yo = true }, Logic.SelectedKeys(entries, { nil, { yo = true } }))
+  end)
+
+  it("is empty for no tables", function()
+    assert.same({}, Logic.SelectedKeys(entries, {}))
+  end)
+end)

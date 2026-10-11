@@ -309,5 +309,19 @@ function MessageLogic.MigrateKeyLevelMode(mplus)
     return lifted
 end
 
+function MessageLogic.SelectedKeys(entries, enabledTables)
+    local set = {}
+    for _, msg in ipairs(entries) do
+        for i = 1, table.maxn(enabledTables) do
+            local t = enabledTables[i]
+            if t and t[msg.key] then
+                set[msg.key] = true
+                break
+            end
+        end
+    end
+    return set
+end
+
 if ns then ns.MessageLogic = MessageLogic end
 return MessageLogic
