@@ -4,6 +4,25 @@ local L = LibStub("AceLocale-3.0"):GetLocale(ADDON_NAME)
 local Kit = AutoSay.ConfigKit
 local StyleCounts = Kit.StyleCounts
 
+local function MixInArgs()
+    local args = {}
+    for i, id in ipairs(AutoSay.MessageStyles) do
+        args[id] = {
+            type = "toggle",
+            name = L["Style " .. id],
+            desc = L["Style " .. id .. " voice"] .. "\n\n" .. L["Mix in desc"],
+            order = i,
+            hidden = function() return id == Addon.db.profile.mainStyle end,
+            get = function()
+                local _, _, _, full = StyleCounts(id)
+                return full
+            end,
+            set = function(_, val) Addon:ApplyStyleBundle(id, false, val) end,
+        }
+    end
+    return args
+end
+
 Kit.Pages.general = function()
     return {
         type = "group",
@@ -135,23 +154,22 @@ Kit.Pages.general = function()
                             return L["Main style confirm"]
                         end,
                     },
+                    mainStyleVoice = {
+                        type = "description",
+                        order = 1.5,
+                        fontSize = "medium",
+                        hidden = function() return not Addon.db.profile.mainStyle end,
+                        name = function()
+                            local id = Addon.db.profile.mainStyle
+                            return id and ("|cFFAAAAAA" .. L["Style " .. id .. " voice"] .. "|r") or ""
+                        end,
+                    },
                     mixIn = {
-                        type = "multiselect",
+                        type = "group",
                         name = L["Mix in"],
-                        desc = L["Mix in desc"],
+                        inline = true,
                         order = 2,
-                        values = function()
-                            local v = {}
-                            for _, id in ipairs(AutoSay.MessageStyles) do
-                                if id ~= Addon.db.profile.mainStyle then v[id] = L["Style " .. id] end
-                            end
-                            return v
-                        end,
-                        get = function(_, id)
-                            local _, _, _, full = StyleCounts(id)
-                            return full
-                        end,
-                        set = function(_, id, val) Addon:ApplyStyleBundle(id, false, val) end,
+                        args = MixInArgs(),
                     },
                 },
             },

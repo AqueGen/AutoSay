@@ -848,7 +848,7 @@ local function BundleDesc(style)
 
     -- Only what the row cannot show: the name is already coloured by how much of the set
     -- is on, and the counts beside it give the exact numbers
-    desc = table.concat(lines, "\n")
+    desc = L["Style " .. style .. " voice"] .. "\n\n" .. table.concat(lines, "\n")
     bundleDescCache[style] = desc
     return desc
 end
