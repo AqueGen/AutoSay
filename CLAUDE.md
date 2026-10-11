@@ -13,6 +13,8 @@ WoW addon: automatic greetings, goodbyes, and reconnect messages for party, raid
 - `Config.lua` — AceConfig UI definition (tabs: General, Style, Social, Group, Guild, M+, Test). The Group tab covers party/raid/instance with one shared phrase list and a checkbox column per channel; the db layout stays per channel (`db.profile.party/raid/instance`)
 - `Events.lua` — WoW event registration and dispatch
 - `Messages.lua` — Built-in message databases (greetings, goodbyes, reconnects)
+- `Confirm.lua` - Ask-before-sending model (one pending line, re-roll, timeout); WoW-free, busted-tested
+- `ConfirmPanel.lua` - The Ask-before-sending panel frame
 - `Locales/enUS.lua` — Localization strings
 
 ## Features
@@ -60,7 +62,7 @@ Releases are driven by [release-please](https://github.com/googleapis/release-pl
 - On the Windows dev box busted lives in a WSL Lua 5.1 env (hererocks), so run:
   `MSYS_NO_PATHCONV=1 wsl bash -lc 'cd "/mnt/g/Games/World of Warcraft/_retail_/Interface/AddOns/AutoSay" && ~/luaenv/bin/busted'`
 - In-game smoke: `/as testmode`, then `/as test`, `/as test grats`,
-  `/as test guildjoin`. Gate rejections print their reason.
+  `/as test guildjoin`, `/as test confirm`. Gate rejections print their reason.
 - In-game regression pass: `/as selftest`. Besides the gate and humanizer wiring it
   checks the phrase data (styles, role coverage, class hints, locale names), the LFR
   gate through `IsChannelSilenced`, and the profile migrations - those run on a scratch

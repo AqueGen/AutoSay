@@ -1285,6 +1285,39 @@ local function BuildOptions()
                         },
                     },
                 },
+                confirmGroup = {
+                    type = "group",
+                    name = L["Ask before sending"],
+                    inline = true,
+                    order = 6,
+                    args = {
+                        confirmEnabled = {
+                            type = "toggle",
+                            name = L["Ask before sending"],
+                            desc = L["Ask before sending desc"],
+                            order = 1,
+                            width = "full",
+                            get = function() return Addon.db.profile.confirm.enabled end,
+                            set = function(_, val)
+                                Addon.db.profile.confirm.enabled = val
+                                if not val then Addon:ConfirmDismiss() end
+                                LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+                            end,
+                        },
+                        confirmTimeout = {
+                            type = "range",
+                            name = L["Panel timeout"],
+                            desc = L["Panel timeout desc"],
+                            order = 2,
+                            min = 10,
+                            max = 120,
+                            step = 5,
+                            hidden = function() return not Addon.db.profile.confirm.enabled end,
+                            get = function() return Addon.db.profile.confirm.timeout end,
+                            set = function(_, val) Addon.db.profile.confirm.timeout = val end,
+                        },
+                    },
+                },
                 testModeGroup = {
                     type = "group",
                     name = L["Test Mode"],
