@@ -87,6 +87,59 @@ describe("Confirm", function()
     end)
   end)
 
+  describe("CanList", function()
+    local function list(...)
+      local entries = { ... }
+      return function() return entries end
+    end
+
+    it("is false without candidates", function()
+      local c = Confirm.New()
+      c:Offer(item("hi"), 0)
+      assert.is_false(c:CanList())
+    end)
+
+    it("is false with no or one candidate", function()
+      local c = Confirm.New()
+      c:Offer(item("hi", { candidates = list() }), 0)
+      assert.is_false(c:CanList())
+      c:Offer(item("hi", { candidates = list("hi") }), 0)
+      assert.is_false(c:CanList())
+    end)
+
+    it("is false with no offer", function()
+      assert.is_false(Confirm.New():CanList())
+    end)
+
+    it("is true with two candidates", function()
+      local c = Confirm.New()
+      c:Offer(item("hi", { candidates = list("hi", "hello") }), 0)
+      assert.is_true(c:CanList())
+    end)
+  end)
+
+  describe("Choose", function()
+    it("replaces the text", function()
+      local c = Confirm.New()
+      c:Offer(item("hi"), 0)
+      assert.is_true(c:Choose("hello"))
+      assert.equal("hello", c:Current().text)
+    end)
+
+    it("rejects nil, empty and the same text", function()
+      local c = Confirm.New()
+      c:Offer(item("hi"), 0)
+      assert.is_false(c:Choose(nil))
+      assert.is_false(c:Choose(""))
+      assert.is_false(c:Choose("hi"))
+      assert.equal("hi", c:Current().text)
+    end)
+
+    it("does nothing with no offer", function()
+      assert.is_false(Confirm.New():Choose("hello"))
+    end)
+  end)
+
   it("Take returns the offer and clears it", function()
     local c = Confirm.New()
     c:Offer(item("hi"), 0)

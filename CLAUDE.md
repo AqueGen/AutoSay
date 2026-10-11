@@ -14,7 +14,7 @@ WoW addon: automatic greetings, goodbyes, and reconnect messages for party, raid
 - `Skin.lua` - Slate and gold skin for the settings window
 - `Events.lua` — WoW event registration and dispatch
 - `Messages.lua` — Built-in message databases (greetings, goodbyes, reconnects)
-- `Confirm.lua` - Ask-before-sending model (one pending line, re-roll, timeout); WoW-free, busted-tested
+- `Confirm.lua` - Ask-before-sending model (one pending line, re-roll, pick from a list, timeout); WoW-free, busted-tested
 - `ConfirmPanel.lua` - The Ask-before-sending panel frame
 - `Locales/enUS.lua` — Localization strings
 
