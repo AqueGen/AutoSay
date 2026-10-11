@@ -204,6 +204,22 @@ Kit.Pages.general = function()
                         get = function() return Addon.db.profile.confirm.timeout end,
                         set = function(_, val) Addon.db.profile.confirm.timeout = val end,
                     },
+                    confirmMove = {
+                        type = "execute",
+                        name = L["Move panel"],
+                        desc = L["Move panel desc"],
+                        order = 3,
+                        hidden = function() return not Addon.db.profile.confirm.enabled end,
+                        func = function() Addon:PreviewConfirmPanel() end,
+                    },
+                    confirmResetPosition = {
+                        type = "execute",
+                        name = L["Reset panel position"],
+                        desc = L["Reset panel position desc"],
+                        order = 4,
+                        hidden = function() return not Addon.db.profile.confirm.enabled end,
+                        func = function() Addon:ResetConfirmPanelPosition() end,
+                    },
                 },
             },
             minimapIcon = {

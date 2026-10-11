@@ -36,6 +36,18 @@ function Confirm:Reroll()
   return false
 end
 
+function Confirm:CanList()
+  local item = self.item
+  return item ~= nil and item.candidates ~= nil and #item.candidates() >= 2
+end
+
+function Confirm:Choose(text)
+  local item = self.item
+  if not item or type(text) ~= "string" or text == "" or text == item.text then return false end
+  item.text = text
+  return true
+end
+
 function Confirm:Remaining(now, timeout)
   if not self.item then return 0 end
   return math.max(0, timeout - (now - self.item.shownAt))

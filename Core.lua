@@ -1490,14 +1490,30 @@ function Addon:OfferForConfirm(message, channel, target, keepCase, offer)
         self:DebugPrint("Not in a group any more, no confirm panel:", channel, ":", message)
         return false
     end
+    local function finish(text, siteKeepCase)
+        if not text then return nil end
+        text = TruncateToChatLimit(self:PolishMessage(text, siteKeepCase))
+        if not text:match("%S") then return nil end
+        return text
+    end
     local repick
     if offer and offer.repick then
         repick = function()
-            local text, siteKeepCase = offer.repick()
-            if not text then return nil end
-            text = TruncateToChatLimit(self:PolishMessage(text, siteKeepCase))
-            if not text:match("%S") then return nil end
-            return text
+            return finish(offer.repick())
+        end
+    end
+    local candidates
+    if offer and offer.candidates then
+        candidates = function()
+            local list, seen = {}, {}
+            for _, entry in ipairs(offer.candidates()) do
+                local text = finish(entry.text, entry.keepCase)
+                if text and not seen[text] then
+                    seen[text] = true
+                    list[#list + 1] = text
+                end
+            end
+            return list
         end
     end
     self.confirm:Offer({
@@ -1506,6 +1522,7 @@ function Addon:OfferForConfirm(message, channel, target, keepCase, offer)
         target = target,
         label = offer and offer.label or "",
         repick = repick,
+        candidates = candidates,
         generation = self.state.sendGeneration,
     }, GetTime())
     self:ShowConfirmPanel(self.confirm:Current())
@@ -1516,7 +1533,7 @@ end
 function Addon:ConfirmSend()
     local item = self.confirm:Take()
     self:HideConfirmPanel()
-    if not item then return end
+    if not item or item.preview then return end
     if item.generation ~= self.state.sendGeneration then return end
     if self:IsChannelSilenced(item.channel) then return end
     if not self:IsTestMode() and ChatIsLockedDown() then
@@ -1533,6 +1550,12 @@ end
 
 function Addon:ConfirmReroll()
     if self.confirm:Reroll() then
+        self:ShowConfirmPanel(self.confirm:Current())
+    end
+end
+
+function Addon:ConfirmChoose(text)
+    if self.confirm:Choose(text) then
         self:ShowConfirmPanel(self.confirm:Current())
     end
 end
@@ -1646,13 +1669,22 @@ function Addon:PickFromPool(poolId, texts)
     return texts[math.random(#texts)]
 end
 
--- Get random message for a channel.
+local function FillEach(texts, fill, keepCase)
+    local list = {}
+    for i, text in ipairs(texts) do
+        list[i] = { text = fill(text), keepCase = keepCase }
+    end
+    return list
+end
+
+-- Every enabled message for a channel, as { text, nameMode, keepCase } entries.
 -- reason is the greeting reason ("self_join"/"others_join"/"reconnect", nil elsewhere) and gates
 -- the per-phrase trigger; wantNames prefers phrases that can carry names.
--- Returns the text, its name mode (nil = the phrase must never carry names) and its keepCase flag.
-function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantNames)
+-- nameMode nil = the phrase must never carry names.
+function Addon:GetMessagesForChannel(messageType, channel, reason, wantNames)
+    local entries = {}
     local settings = self:GetChannelSettings(channel)
-    if not settings then return nil end
+    if not settings then return entries end
 
     local messages, enabledKey, customsKey
     if messageType == "greetings" then
@@ -1670,7 +1702,7 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
         enabledKey = "enabledReconnects"
         customsKey = "customReconnects"
     else
-        return nil
+        return entries
     end
 
     -- Presets first, and the same text never enters twice: a custom copy of a preset must not
@@ -1679,7 +1711,6 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
     -- applied to whichever phrase wins, into its {names} slot or onto its end. Filtering by
     -- name-capability used to shrink a whole style down to the one or two lines written with a
     -- slot, and a set with one of them said that line to every newcomer in a row.
-    local texts, modes, keeps = {}, {}, {}
     local seen = {}
     local function AddCandidate(text, mode, keepCase)
         -- A phrase written around a {names} slot waits for an occasion that has names. The
@@ -1688,8 +1719,7 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
         if not wantNames and mode == "slot" then return end
         if seen[text] then return end
         seen[text] = true
-        local n = #texts + 1
-        texts[n], modes[n], keeps[n] = text, mode, keepCase
+        entries[#entries + 1] = { text = text, nameMode = mode, keepCase = keepCase }
     end
 
     -- Add enabled preset messages
@@ -1733,13 +1763,22 @@ function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantName
         end
     end
 
-    if #texts == 0 then return nil end
+    return entries
+end
 
+-- Get random message for a channel, same arguments as GetMessagesForChannel.
+-- Returns the text, its name mode (nil = the phrase must never carry names) and its keepCase flag.
+function Addon:GetRandomMessageForChannel(messageType, channel, reason, wantNames)
+    local entries = self:GetMessagesForChannel(messageType, channel, reason, wantNames)
+    if #entries == 0 then return nil end
+
+    local texts = {}
+    for i, entry in ipairs(entries) do texts[i] = entry.text end
     local text = self:PickFromPool(messageType .. ":" .. channel, texts)
 
-    -- First match wins, same rule the dedupe above used
-    for i = 1, #texts do
-        if texts[i] == text then return text, modes[i], keeps[i] end
+    -- First match wins, same rule the dedupe in GetMessagesForChannel used
+    for _, entry in ipairs(entries) do
+        if entry.text == text then return text, entry.nameMode, entry.keepCase end
     end
     return text
 end
@@ -1918,6 +1957,10 @@ function Addon:BuildAndSendGreeting(channel, reason, playerNames)
     local hasNames = playerNames ~= nil and #playerNames > 0
     local wantNames = hasNames and (reason == "self_join" or settings.includeNames or false)
 
+    local function fill(text, nameMode)
+        return self:AddPlayersToMessage(text, playerNames, wantNames and nameMode or nil)
+    end
+
     -- Pick a message based on reason (the humanizer rotates through the whole pool)
     local function pick()
         local text, nameMode, keepCase
@@ -1934,7 +1977,22 @@ function Addon:BuildAndSendGreeting(channel, reason, playerNames)
             text, nameMode, keepCase = self:GetRandomMessageForChannel("greetings", channel, reason, wantNames)
         end
         if not text then return nil end
-        return self:AddPlayersToMessage(text, playerNames, wantNames and nameMode or nil), keepCase
+        return fill(text, nameMode), keepCase
+    end
+
+    local function candidates()
+        local entries = {}
+        if reason == "reconnect" then
+            entries = self:GetMessagesForChannel("reconnects", channel, reason, wantNames)
+        end
+        if #entries == 0 then
+            entries = self:GetMessagesForChannel("greetings", channel, reason, wantNames)
+        end
+        local list = {}
+        for i, entry in ipairs(entries) do
+            list[i] = { text = fill(entry.text, entry.nameMode), keepCase = entry.keepCase }
+        end
+        return list
     end
 
     local message, keepCase = pick()
@@ -1945,7 +2003,7 @@ function Addon:BuildAndSendGreeting(channel, reason, playerNames)
 
     self:DebugPrint("BuildAndSend -> final message:", message)
 
-    local offer = { label = GreetingLabel[reason] or L["Confirm label greeting"], repick = pick }
+    local offer = { label = GreetingLabel[reason] or L["Confirm label greeting"], repick = pick, candidates = candidates }
     if not self:SendMessageToChat(message, channel, nil, keepCase, nil, nil, offer) then
         -- Cooldown won the race - drop it, a late greeting is just a second greeting
         self:DebugPrint("BuildAndSend -> SendMessageToChat refused (cooldown), dropping")
@@ -2014,8 +2072,11 @@ function Addon:DispatchGoodbye(channel)
 
     -- Send immediately (no delay for goodbyes since we're leaving);
     -- spend the budget slot only for a message that actually went out
-    local sent = self:DoSendMessage(message, channel, nil, keepCase,
-        { label = L["Confirm label goodbye"], repick = pick })
+    local sent = self:DoSendMessage(message, channel, nil, keepCase, {
+        label = L["Confirm label goodbye"],
+        repick = pick,
+        candidates = function() return self:GetMessagesForChannel("goodbyes", channel) end,
+    })
     if sent and self.socialGate then
         self.socialGate:Record("goodbye")
     end
@@ -2065,8 +2126,11 @@ function Addon:SendGuildGrats(name)
     -- Reserve the slot before the listening window, so an achievement wave cannot
     -- schedule N grats against the same stale counters
     self.socialGate:Record("grats", name)
+    local function fill(text)
+        return (text:gsub("{name}", name))
+    end
     local function pick()
-        return (self.humanizer:Pick("guildgrats", AutoSay.GuildGrats):gsub("{name}", name))
+        return fill(self.humanizer:Pick("guildgrats", AutoSay.GuildGrats))
     end
     local text = pick()
     local pendingId = self.socialGate:AddPending("grats", "GUILD")
@@ -2081,7 +2145,11 @@ function Addon:SendGuildGrats(name)
             if self:IsTestMode() then self:TestPrint("Grats blocked: someone-answered") end
             return
         end
-        self:SendMessageToChat(text, "GUILD", nil, nil, nil, nil, { label = L["Confirm label grats"], repick = pick })
+        self:SendMessageToChat(text, "GUILD", nil, nil, nil, nil, {
+            label = L["Confirm label grats"],
+            repick = pick,
+            candidates = function() return FillEach(AutoSay.GuildGrats, fill) end,
+        })
     end, delay)
 end
 
@@ -2102,8 +2170,11 @@ function Addon:SendGuildWelcome(name)
     -- a burst of joins must see the updated counters, not the pre-timer ones
     self.socialGate:RecordWelcome(name)
     self.socialGate:Record("welcome", name)
+    local function fill(text)
+        return (text:gsub("{name}", name))
+    end
     local function pick()
-        return (self.humanizer:Pick("guildwelcome", AutoSay.GuildWelcome):gsub("{name}", name))
+        return fill(self.humanizer:Pick("guildwelcome", AutoSay.GuildWelcome))
     end
     local text = pick()
     local pendingId = self.socialGate:AddPending("welcome", "GUILD")
@@ -2117,7 +2188,11 @@ function Addon:SendGuildWelcome(name)
             if self:IsTestMode() then self:TestPrint("Welcome blocked: someone-answered") end
             return
         end
-        self:SendMessageToChat(text, "GUILD", nil, nil, nil, nil, { label = L["Confirm label welcome"], repick = pick })
+        self:SendMessageToChat(text, "GUILD", nil, nil, nil, nil, {
+            label = L["Confirm label welcome"],
+            repick = pick,
+            candidates = function() return FillEach(AutoSay.GuildWelcome, fill) end,
+        })
     end, delay)
 end
 
@@ -2164,8 +2239,13 @@ function Addon:SendGuildGreeting()
         end
     end
 
+    local offer = {
+        label = L["Confirm label guild login"],
+        repick = pick,
+        candidates = function() return self:GetMessagesForChannel("greetings", "GUILD", "self_join") end,
+    }
     -- Spend the budget slot only for a message that actually went out
-    if self:SendMessageToChat(message, "GUILD", nil, keepCase, nil, nil, { label = L["Confirm label guild login"], repick = pick }) and self.socialGate then
+    if self:SendMessageToChat(message, "GUILD", nil, keepCase, nil, nil, offer) and self.socialGate then
         self.socialGate:Record("greeting")
     end
 end
@@ -2293,16 +2373,23 @@ function Addon:SendGuildLoginGreeting(names)
     -- Replace {name} placeholder with member name(s), capped like every other names path -
     -- a raid-night login burst must not produce a 255-byte name wall chopped mid-name
     local nameList = Logic.FormatNameList(names)
+    local function fill(text)
+        return (text:gsub("{name}", nameList))
+    end
     local function pick()
         local text = self:GetRandomGuildLoginGreeting()
-        return text and (text:gsub("{name}", nameList))
+        return text and fill(text)
     end
     local message = pick()
     if not message then
         self:DebugPrint("No login greetings enabled for GUILD")
         return
     end
-    local offer = { label = L["Confirm label member login"], repick = pick }
+    local offer = {
+        label = L["Confirm label member login"],
+        repick = pick,
+        candidates = function() return FillEach(self:GetGuildLoginTemplates(), fill) end,
+    }
 
     -- A message that polishes to nothing must not consume the cooldown or a budget slot
     local polished = self:PolishMessage(message)
@@ -2329,8 +2416,7 @@ function Addon:SendGuildLoginGreeting(names)
     end
 end
 
--- Get random guild login greeting from enabled pool
-function Addon:GetRandomGuildLoginGreeting()
+function Addon:GetGuildLoginTemplates()
     local settings = self.db.profile.guild
     local enabled = {}
 
@@ -2352,7 +2438,12 @@ function Addon:GetRandomGuildLoginGreeting()
         end
     end
 
-    return self:PickFromPool("guildlogin", enabled)
+    return enabled
+end
+
+-- Get random guild login greeting from enabled pool
+function Addon:GetRandomGuildLoginGreeting()
+    return self:PickFromPool("guildlogin", self:GetGuildLoginTemplates())
 end
 
 -- Check if should greet on self join for channel
@@ -2511,8 +2602,7 @@ function Addon:GetKeyLevel()
     return nil
 end
 
--- Get a random key announce message from enabled pool
-function Addon:GetRandomKeyAnnounce()
+function Addon:GetKeyAnnounceTemplates()
     local settings = self.db.profile.mythicplus
     local enabled = {}
 
@@ -2534,7 +2624,12 @@ function Addon:GetRandomKeyAnnounce()
         end
     end
 
-    return self:PickFromPool("keyannounce", enabled)
+    return enabled
+end
+
+-- Get a random key announce message from enabled pool
+function Addon:GetRandomKeyAnnounce()
+    return self:PickFromPool("keyannounce", self:GetKeyAnnounceTemplates())
 end
 
 -- Send key announce message to party chat
@@ -2587,13 +2682,17 @@ function Addon:SendKeyAnnounce()
     end
 
     -- Replace placeholders
-    local message = self:ReplacePlaceholders(template, dungeon, keyLevel)
+    local function fill(t)
+        return self:ReplacePlaceholders(t, dungeon, keyLevel)
+    end
+    local message = fill(template)
     local offer = {
         label = L["Confirm label key announce"],
         repick = function()
             local t = self:GetRandomKeyAnnounce()
-            return t and self:ReplacePlaceholders(t, dungeon, keyLevel), true
+            return t and fill(t), true
         end,
+        candidates = function() return FillEach(self:GetKeyAnnounceTemplates(), fill, true) end,
     }
 
     self:DebugPrint("SendKeyAnnounce:", message, "(dungeon:", dungeon,
@@ -2673,13 +2772,17 @@ function Addon:SendKeyStartAnnounce(dungeon, keyLevel, mapID)
         return false
     end
 
-    local message = self:ReplacePlaceholders(template, dungeon, keyLevel)
+    local function fill(t)
+        return self:ReplacePlaceholders(t, dungeon, keyLevel)
+    end
+    local message = fill(template)
     local offer = {
         label = L["Confirm label key start"],
         repick = function()
             local t = self:GetRandomKeyAnnounce()
-            return t and self:ReplacePlaceholders(t, dungeon, keyLevel), true
+            return t and fill(t), true
         end,
+        candidates = function() return FillEach(self:GetKeyAnnounceTemplates(), fill, true) end,
     }
     -- Home-scoped like SendKeyAnnounce: a keystone run is always the home group
     local channel = IsInRaid(LE_PARTY_CATEGORY_HOME) and "RAID" or "PARTY"
@@ -2714,8 +2817,7 @@ function Addon:SendKeyStartAnnounce(dungeon, keyLevel, mapID)
     return true
 end
 
--- Get a random completion message from enabled pool
-function Addon:GetRandomCompletionMessage(onTime, upgrade)
+function Addon:GetCompletionTemplates(onTime, upgrade)
     local settings = self.db.profile.mythicplus
     local enabled = {}
 
@@ -2748,9 +2850,15 @@ function Addon:GetRandomCompletionMessage(onTime, upgrade)
         end
     end
 
+    return enabled
+end
+
+-- Get a random completion message from enabled pool
+function Addon:GetRandomCompletionMessage(onTime, upgrade)
     -- The two outcomes keep separate histories: a timed run must not hold back a phrase
     -- because the depleted pool happened to say something like it
-    return self:PickFromPool(onTime and "completion:timed" or "completion:depleted", enabled)
+    return self:PickFromPool(onTime and "completion:timed" or "completion:depleted",
+        self:GetCompletionTemplates(onTime, upgrade))
 end
 
 -- Everything Mythic+ says is said in party chat, so "Enable Party" governs it like any other
@@ -2795,13 +2903,17 @@ function Addon:SendCompletionMessage(dungeon, keyLevel, onTime, upgrade, timeFor
         time = timeFormatted or "0:00",
     }
 
-    local message = self:ReplacePlaceholders(template, dungeon, keyLevel, extra)
+    local function fill(t)
+        return self:ReplacePlaceholders(t, dungeon, keyLevel, extra)
+    end
+    local message = fill(template)
     local offer = {
         label = onTime and L["Confirm label run timed"] or L["Confirm label run depleted"],
         repick = function()
             local t = self:GetRandomCompletionMessage(onTime, upgrade)
-            return t and self:ReplacePlaceholders(t, dungeon, keyLevel, extra), true
+            return t and fill(t), true
         end,
+        candidates = function() return FillEach(self:GetCompletionTemplates(onTime, upgrade), fill, true) end,
     }
 
     self:DebugPrint("SendCompletionMessage:", message, "(onTime:", tostring(onTime),
@@ -2938,6 +3050,22 @@ function Addon:TestConfirmPanel(variant)
             n = n % #samples + 1
             return TruncateToChatLimit(samples[n])
         end,
+        candidates = function()
+            local list = {}
+            for i, text in ipairs(samples) do list[i] = TruncateToChatLimit(text) end
+            return list
+        end,
+    }, GetTime())
+    self:ShowConfirmPanel(self.confirm:Current())
+end
+
+function Addon:PreviewConfirmPanel()
+    self.confirm:Offer({
+        text = L["Confirm preview text"],
+        channel = "PARTY",
+        label = L["Confirm preview label"],
+        generation = self.state.sendGeneration,
+        preview = true,
     }, GetTime())
     self:ShowConfirmPanel(self.confirm:Current())
 end

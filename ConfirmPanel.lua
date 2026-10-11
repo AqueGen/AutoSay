@@ -40,6 +40,23 @@ local function OnUpdate(frame, elapsed)
     frame.seconds:SetText(math.ceil(left) .. "s")
 end
 
+local function OpenList(button)
+    local item = Addon.confirm:Current()
+    if not item or not item.candidates then return end
+    local texts = item.candidates()
+    MenuUtil.CreateContextMenu(button, function(_, root)
+        root:CreateTitle(item.label)
+        for _, text in ipairs(texts) do
+            root:CreateButton(text, function()
+                if Addon.confirm:Current() == item then Addon:ConfirmChoose(text) end
+            end)
+        end
+        if #texts > 12 then
+            root:SetScrollMode(20 * 12)
+        end
+    end)
+end
+
 local function Build()
     local f = CreateFrame("Frame", "AutoSayConfirmPanel", UIParent, "BackdropTemplate")
     f:SetWidth(WIDTH)
@@ -96,6 +113,12 @@ local function Build()
     f.another:SetText(L["Confirm another"])
     f.another:SetScript("OnClick", function() Addon:ConfirmReroll() end)
 
+    f.list = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    f.list:SetSize(70, BUTTON_H)
+    f.list:SetPoint("LEFT", f.another, "RIGHT", GAP, 0)
+    f.list:SetText(L["Confirm list"])
+    f.list:SetScript("OnClick", OpenList)
+
     f.seconds = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     f.seconds:SetPoint("BOTTOMRIGHT", f.bar, "TOPRIGHT", 0, GAP)
 
@@ -112,12 +135,20 @@ function Addon:ShowConfirmPanel(item)
     panel.header:SetText(color .. "[" .. item.channel .. "]|r " .. (item.label or ""))
     panel.text:SetText(item.text)
     panel.another:SetEnabled(self.confirm:CanReroll())
+    panel.list:SetEnabled(self.confirm:CanList())
     panel:SetHeight(PAD + panel.header:GetStringHeight() + GAP + panel.text:GetStringHeight()
         + GAP + BUTTON_H + GAP + BAR_H + PAD)
     panel.sinceTick = 1
+    Place(panel)
+    panel:SetFrameStrata(item.preview and "TOOLTIP" or "DIALOG")
     panel:Show()
 end
 
 function Addon:HideConfirmPanel()
     if panel then panel:Hide() end
+end
+
+function Addon:ResetConfirmPanelPosition()
+    self.db.profile.confirm.point = nil
+    if panel then Place(panel) end
 end
