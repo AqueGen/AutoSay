@@ -46,4 +46,12 @@ Log.lua
 SelfTest.lua
 Events.lua
 Widgets.lua
-Config.lua
+Config\Kit.lua
+Config\General.lua
+Config\Style.lua
+Config\Social.lua
+Config\Group.lua
+Config\Guild.lua
+Config\MythicPlus.lua
+Config\Simulation.lua
+Config\Options.lua
