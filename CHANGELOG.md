@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.11.0](https://github.com/AqueGen/AutoSay/compare/v1.10.2...v1.11.0) (2026-10-11)
+
+
+### Features
+
+* ask before sending ([#40](https://github.com/AqueGen/AutoSay/issues/40)) ([970b222](https://github.com/AqueGen/AutoSay/commit/970b222177bf6cd2b551f1fc7005a864ca9ac305))
+* confirm panel placement and phrase picker ([#43](https://github.com/AqueGen/AutoSay/issues/43)) ([bd368b6](https://github.com/AqueGen/AutoSay/commit/bd368b641e107fd5217a06982d8bfc30aaf06c4c))
+* settings window redesign ([#42](https://github.com/AqueGen/AutoSay/issues/42)) ([e6dd5f8](https://github.com/AqueGen/AutoSay/commit/e6dd5f86b490d357d7fe6b5b20f8e4037591d07d))
+
+
+### Bug Fixes
+
+* show the phrase list in an own frame instead of the Blizzard menu ([#44](https://github.com/AqueGen/AutoSay/issues/44)) ([4308435](https://github.com/AqueGen/AutoSay/commit/43084350a1cfe9b3b70d4831088f876571057d76))
+
 ## [1.10.2](https://github.com/AqueGen/AutoSay/compare/v1.10.1...v1.10.2) (2026-10-08)
 
 
