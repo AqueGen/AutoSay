@@ -40,21 +40,69 @@ local function OnUpdate(frame, elapsed)
     frame.seconds:SetText(math.ceil(left) .. "s")
 end
 
-local function OpenList(button)
+local ROW_H, MAX_ROWS, SCROLLBAR_W = 20, 10, 22
+
+local function ListRow(lf, i)
+    local row = lf.rows[i]
+    if row then return row end
+    row = CreateFrame("Button", nil, lf.content)
+    row:SetHeight(ROW_H)
+    row:SetPoint("TOPLEFT", 0, -(i - 1) * ROW_H)
+    row:SetPoint("RIGHT", lf.content, "RIGHT")
+    row:SetHighlightTexture("Interface\\Buttons\\WHITE8X8")
+    row:GetHighlightTexture():SetVertexColor(1, 0.82, 0, 0.15)
+    row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    row.label:SetPoint("LEFT", 4, 0)
+    row.label:SetPoint("RIGHT", -4, 0)
+    row.label:SetJustifyH("LEFT")
+    row.label:SetWordWrap(false)
+    lf.rows[i] = row
+    return row
+end
+
+local function ToggleList(f)
+    local lf = f.listFrame
+    if lf:IsShown() then
+        lf:Hide()
+        return
+    end
     local item = Addon.confirm:Current()
     if not item or not item.candidates then return end
     local texts = item.candidates()
-    MenuUtil.CreateContextMenu(button, function(_, root)
-        root:CreateTitle(item.label)
-        for _, text in ipairs(texts) do
-            root:CreateButton(text, function()
-                if Addon.confirm:Current() == item then Addon:ConfirmChoose(text) end
-            end)
-        end
-        if #texts > 12 then
-            root:SetScrollMode(20 * 12)
-        end
-    end)
+    for i, text in ipairs(texts) do
+        local row = ListRow(lf, i)
+        row.label:SetText(text)
+        row:SetScript("OnClick", function()
+            lf:Hide()
+            if Addon.confirm:Current() == item then Addon:ConfirmChoose(text) end
+        end)
+        row:Show()
+    end
+    for i = #texts + 1, #lf.rows do lf.rows[i]:Hide() end
+    lf.content:SetHeight(math.max(1, #texts * ROW_H))
+    lf:SetHeight(math.min(#texts, MAX_ROWS) * ROW_H + 2 * PAD)
+    lf.scroll:SetVerticalScroll(0)
+    lf:Show()
+end
+
+local function BuildList(f)
+    local lf = CreateFrame("Frame", nil, f, "BackdropTemplate")
+    lf:SetWidth(WIDTH)
+    lf:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -2)
+    lf:SetClampedToScreen(true)
+    lf:EnableMouse(true)
+    lf:SetBackdrop(f:GetBackdrop())
+    lf:SetBackdropColor(f:GetBackdropColor())
+    lf:SetBackdropBorderColor(f:GetBackdropBorderColor())
+    lf.scroll = CreateFrame("ScrollFrame", "AutoSayConfirmListScroll", lf, "UIPanelScrollFrameTemplate")
+    lf.scroll:SetPoint("TOPLEFT", PAD, -PAD)
+    lf.scroll:SetPoint("BOTTOMRIGHT", -(PAD + SCROLLBAR_W), PAD)
+    lf.content = CreateFrame("Frame", nil, lf.scroll)
+    lf.content:SetSize(WIDTH - 2 * PAD - SCROLLBAR_W, 1)
+    lf.scroll:SetScrollChild(lf.content)
+    lf.rows = {}
+    lf:Hide()
+    return lf
 end
 
 local function Build()
@@ -117,7 +165,8 @@ local function Build()
     f.list:SetSize(70, BUTTON_H)
     f.list:SetPoint("LEFT", f.another, "RIGHT", GAP, 0)
     f.list:SetText(L["Confirm list"])
-    f.list:SetScript("OnClick", OpenList)
+    f.list:SetScript("OnClick", function() ToggleList(f) end)
+    f.listFrame = BuildList(f)
 
     f.seconds = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     f.seconds:SetPoint("BOTTOMRIGHT", f.bar, "TOPRIGHT", 0, GAP)
@@ -136,6 +185,7 @@ function Addon:ShowConfirmPanel(item)
     panel.text:SetText(item.text)
     panel.another:SetEnabled(self.confirm:CanReroll())
     panel.list:SetEnabled(self.confirm:CanList())
+    panel.listFrame:Hide()
     panel:SetHeight(PAD + panel.header:GetStringHeight() + GAP + panel.text:GetStringHeight()
         + GAP + BUTTON_H + GAP + BAR_H + PAD)
     panel.sinceTick = 1
