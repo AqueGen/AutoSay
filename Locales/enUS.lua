@@ -370,3 +370,11 @@ L["Confirm label key start"] = "Key started"
 L["Confirm label run timed"] = "Key timed"
 L["Confirm label run depleted"] = "Key depleted"
 L["Confirm label test"] = "Test"
+
+-- Settings tree
+L["Behaviour"] = "Behaviour"
+L["Group overview"] = "What the addon says in party, raid and instance chat. Pick a page on the left: when you join, when someone joins, goodbyes, reconnects."
+L["Guild overview"] = "What the addon says in guild chat: greetings when you log in and goodbyes when you log out."
+L["Mythic+ overview"] = "Mythic+ lines go to party chat: the key announce when the group is ready, and one line when the run ends, timed or depleted."
+L["Timed run"] = "Timed run"
+L["Depleted run"] = "Depleted run"

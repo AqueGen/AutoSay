@@ -6,7 +6,7 @@ local Kit = AutoSay.ConfigKit
 Kit.Pages.social = function()
     return {
         type = "group",
-        name = L["Social"],
+        name = L["Behaviour"],
         order = 5,
         args = {
             timingGroup = {

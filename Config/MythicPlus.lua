@@ -9,10 +9,13 @@ Kit.Pages.mythicplus = function()
         type = "group",
         name = "|cFFFF00FFMythic+|r",
         order = 35,
-        childGroups = "tab",
         hidden = function() return not Addon.db.profile.mythicplus.enabled end,
         args = {
-            -- Tab 1: Group Ready (key announce when group fills 5/5)
+            overview = {
+                type = "description", order = 0, fontSize = "medium",
+                name = L["Mythic+ overview"],
+            },
+            -- Group Ready (key announce when group fills 5/5)
             groupReady = {
                 type = "group",
                 name = L["Group Ready"],
@@ -140,95 +143,85 @@ Kit.Pages.mythicplus = function()
                     },
                 },
             },
-            -- Tab 2: Completion, itself split into On time / Depleted sub-tabs
-            completion = {
+            timedRun = {
                 type = "group",
-                name = L["Completion Messages"],
+                name = L["Timed run"],
                 order = 2,
-                childGroups = "tab",
                 args = {
-                    -- Non-group args render above the sub-tab strip
                     partyOffNotice = {
                         type = "description", order = 0.5, width = "full",
                         name = MythicPlusPartyNotice,
                     },
-                    -- Both switches live above the sub-tabs rather than one inside each:
-                    -- the interesting setting is usually the pair ("congratulate a timed
-                    -- run, stay quiet on a depleted one"), and that is a choice you make
-                    -- by seeing both at once
                     completionTimedEnabled = {
                         type = "toggle",
                         name = L["Send message when timed"],
                         desc = L["Send message when timed desc"],
-                        order = 1,
+                        order = 0.75,
                         width = "full",
                         get = function() return Addon.db.profile.mythicplus.completionTimedEnabled end,
                         set = function(_, val) Addon.db.profile.mythicplus.completionTimedEnabled = val end,
+                    },
+                    messages = {
+                        type = "group",
+                        name = L["Messages"],
+                        inline = true,
+                        order = 1,
+                        args = BuildMessageMatrix("mplusCompletionTimed", AutoSay.CompletionTimed,
+                            MatrixChannels({ "mythicplus" }, "enabledCompletionTimed", "mplusCompletionTimed")),
+                    },
+                    customs = {
+                        type = "group",
+                        name = L["Custom timed messages"],
+                        inline = true,
+                        order = 2,
+                        args = BuildCustomMessageList("mythicplus", "customCompletionTimed", "Custom timed messages", "mplusCompletionTimed"),
+                    },
+                    placeholderNote = {
+                        type = "description",
+                        name = "\n|cFF888888" .. L["Completion placeholder hint"] .. "|r",
+                        order = 3,
+                        fontSize = "medium",
+                    },
+                },
+            },
+            depletedRun = {
+                type = "group",
+                name = L["Depleted run"],
+                order = 3,
+                args = {
+                    partyOffNotice = {
+                        type = "description", order = 0.5, width = "full",
+                        name = MythicPlusPartyNotice,
                     },
                     completionDepletedEnabled = {
                         type = "toggle",
                         name = L["Send message when depleted"],
                         desc = L["Send message when depleted desc"],
-                        order = 2,
+                        order = 0.75,
                         width = "full",
                         get = function() return Addon.db.profile.mythicplus.completionDepletedEnabled end,
                         set = function(_, val) Addon.db.profile.mythicplus.completionDepletedEnabled = val end,
                     },
-                    timed = {
+                    messages = {
                         type = "group",
-                        name = L["On time"],
-                        order = 10,
-                        args = {
-                            messages = {
-                                type = "group",
-                                name = L["Messages"],
-                                inline = true,
-                                order = 1,
-                                args = BuildMessageMatrix("mplusCompletionTimed", AutoSay.CompletionTimed,
-                                    MatrixChannels({ "mythicplus" }, "enabledCompletionTimed", "mplusCompletionTimed")),
-                            },
-                            customs = {
-                                type = "group",
-                                name = L["Custom timed messages"],
-                                inline = true,
-                                order = 2,
-                                args = BuildCustomMessageList("mythicplus", "customCompletionTimed", "Custom timed messages", "mplusCompletionTimed"),
-                            },
-                            placeholderNote = {
-                                type = "description",
-                                name = "\n|cFF888888" .. L["Completion placeholder hint"] .. "|r",
-                                order = 3,
-                                fontSize = "medium",
-                            },
-                        },
+                        name = L["Messages"],
+                        inline = true,
+                        order = 1,
+                        args = BuildMessageMatrix("mplusCompletionDepleted", AutoSay.CompletionDepleted,
+                            MatrixChannels({ "mythicplus" }, "enabledCompletionDepleted", "mplusCompletionDepleted")),
                     },
-                    depleted = {
+                    customs = {
                         type = "group",
-                        name = L["Depleted"],
-                        order = 20,
-                        args = {
-                            messages = {
-                                type = "group",
-                                name = L["Messages"],
-                                inline = true,
-                                order = 1,
-                                args = BuildMessageMatrix("mplusCompletionDepleted", AutoSay.CompletionDepleted,
-                                    MatrixChannels({ "mythicplus" }, "enabledCompletionDepleted", "mplusCompletionDepleted")),
-                            },
-                            customs = {
-                                type = "group",
-                                name = L["Custom depleted messages"],
-                                inline = true,
-                                order = 2,
-                                args = BuildCustomMessageList("mythicplus", "customCompletionDepleted", "Custom depleted messages", "mplusCompletionDepleted"),
-                            },
-                            placeholderNote = {
-                                type = "description",
-                                name = "\n|cFF888888" .. L["Completion placeholder hint"] .. "|r",
-                                order = 3,
-                                fontSize = "medium",
-                            },
-                        },
+                        name = L["Custom depleted messages"],
+                        inline = true,
+                        order = 2,
+                        args = BuildCustomMessageList("mythicplus", "customCompletionDepleted", "Custom depleted messages", "mplusCompletionDepleted"),
+                    },
+                    placeholderNote = {
+                        type = "description",
+                        name = "\n|cFF888888" .. L["Completion placeholder hint"] .. "|r",
+                        order = 3,
+                        fontSize = "medium",
                     },
                 },
             },

@@ -154,9 +154,12 @@ Kit.Pages.guild = function()
         type = "group",
         name = "|cFF00CCFFGuild|r",
         order = 30,
-        childGroups = "tab",
         hidden = function() return not Addon.db.profile.guild.enabled end,
         args = {
+            overview = {
+                type = "description", order = 0, fontSize = "medium",
+                name = L["Guild overview"],
+            },
             greetings = {
                 type = "group",
                 name = L["Greetings"],

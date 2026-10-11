@@ -5,7 +5,7 @@ local Kit = AutoSay.ConfigKit
 local TagSuffix, groupChannelKeys, MatrixChannels, ChannelIsOff, ChannelOffNotice, AddCaptionRow, AddMatrixRow, NoneOn, BuildMessageMatrix, AddCustomGroups = Kit.TagSuffix, Kit.groupChannelKeys, Kit.MatrixChannels, Kit.ChannelIsOff, Kit.ChannelOffNotice, Kit.AddCaptionRow, Kit.AddMatrixRow, Kit.NoneOn, Kit.BuildMessageMatrix, Kit.AddCustomGroups
 
 -- Group greetings, one builder per occasion: arriving and welcoming are different moments
--- with different phrases, so each gets its own tab, its own trigger row and its own ticks.
+-- with different phrases, so each gets its own page, its own trigger row and its own ticks.
 -- Party, raid and instance share the grid, so a row reads "this setting, these channels".
 local function BuildGroupGreetingsSelf()
     local channels = MatrixChannels(groupChannelKeys, "enabledGreetingsSelf", "greetingsSelf")
@@ -64,7 +64,7 @@ local function BuildGroupGreetingsSelf()
     return args
 end
 
--- The other half of the same tab: what goes out when somebody arrives after you.
+-- The other greeting occasion: what goes out when somebody arrives after you.
 local function BuildGroupGreetingsOthers()
     local channels = MatrixChannels(groupChannelKeys, "enabledGreetingsOthers", "greetingsOthers")
     local othersJoinDesc = {
@@ -225,45 +225,40 @@ local function BuildGroupReconnects()
     return args
 end
 
--- No per-channel hiding here: the tab shows all three columns whatever the General
+-- No per-channel hiding here: each page shows all three columns whatever the General
 -- switches say, and those switches keep doing the only job they ever had - gating sends.
 Kit.Pages.group = function()
     return {
         type = "group",
         name = "|cFF33DDAA" .. L["Group"] .. "|r",
         order = 10,
-        childGroups = "tab",
         args = {
-            greetings = {
-                type = "group",
-                name = L["Greetings"],
-                order = 1,
-                childGroups = "tab",
-                args = {
-                    -- Two occasions, two tabs: the tab is the trigger, so no phrase
-                    -- needs a [self] or [newcomers] tag to say which one it serves
-                    selfJoin = {
-                        type = "group", order = 1,
-                        name = L["When I join"],
-                        args = BuildGroupGreetingsSelf(),
-                    },
-                    othersJoin = {
-                        type = "group", order = 2,
-                        name = L["When someone joins"],
-                        args = BuildGroupGreetingsOthers(),
-                    },
-                },
+            overview = {
+                type = "description", order = 0, fontSize = "medium",
+                name = L["Group overview"],
+            },
+            -- Two occasions, two pages: the page is the trigger, so no phrase
+            -- needs a [self] or [newcomers] tag to say which one it serves
+            greetingsSelf = {
+                type = "group", order = 1,
+                name = L["When I join"],
+                args = BuildGroupGreetingsSelf(),
+            },
+            greetingsOthers = {
+                type = "group", order = 2,
+                name = L["When someone joins"],
+                args = BuildGroupGreetingsOthers(),
             },
             goodbyes = {
                 type = "group",
                 name = L["Goodbyes"],
-                order = 2,
+                order = 3,
                 args = BuildGroupGoodbyes(),
             },
             reconnects = {
                 type = "group",
                 name = L["Reconnects"],
-                order = 3,
+                order = 4,
                 args = BuildGroupReconnects(),
             },
         },
