@@ -2,11 +2,12 @@ local ADDON_NAME, AutoSay = ...
 local Addon = LibStub("AceAddon-3.0"):GetAddon(ADDON_NAME)
 local L = LibStub("AceLocale-3.0"):GetLocale(ADDON_NAME)
 local Kit = AutoSay.ConfigKit
+local StyleCounts = Kit.StyleCounts
 
 Kit.Pages.general = function()
     return {
         type = "group",
-        name = L["General"],
+        name = L["Quick setup"],
         order = 1,
         args = {
             enabled = {
@@ -17,18 +18,6 @@ Kit.Pages.general = function()
                 width = "full",
                 get = function() return Addon.db.profile.enabled end,
                 set = function(_, val) Addon.db.profile.enabled = val end,
-            },
-            minimapIcon = {
-                type = "toggle",
-                name = L["Show minimap icon"],
-                desc = L["Show or hide the minimap button"],
-                order = 2,
-                width = "full",
-                get = function() return not Addon.db.profile.minimap.hide end,
-                set = function(_, val)
-                    Addon.db.profile.minimap.hide = not val
-                    Addon:UpdateMinimapIcon()
-                end,
             },
             channelsGroup = {
                 type = "group",
@@ -110,11 +99,68 @@ Kit.Pages.general = function()
                     },
                 },
             },
+            styleGroup = {
+                type = "group",
+                name = L["Style"],
+                inline = true,
+                order = 6,
+                args = {
+                    mainStyle = {
+                        type = "select",
+                        name = L["Main style"],
+                        desc = L["Main style desc"],
+                        order = 1,
+                        width = 1.5,
+                        values = function()
+                            local v = { custom = L["Custom mix"] }
+                            for _, id in ipairs(AutoSay.MessageStyles) do v[id] = L["Style " .. id] end
+                            return v
+                        end,
+                        sorting = function()
+                            local s = { "custom" }
+                            for _, id in ipairs(AutoSay.MessageStyles) do s[#s + 1] = id end
+                            return s
+                        end,
+                        get = function() return Addon.db.profile.mainStyle or "custom" end,
+                        set = function(_, id)
+                            if id == "custom" then
+                                Addon.db.profile.mainStyle = nil
+                                return
+                            end
+                            Addon.db.profile.mainStyle = id
+                            Addon:ApplyStyleBundle(id, true, true)
+                        end,
+                        confirm = function(_, id)
+                            if id == "custom" then return false end
+                            return L["Main style confirm"]
+                        end,
+                    },
+                    mixIn = {
+                        type = "multiselect",
+                        name = L["Mix in"],
+                        desc = L["Mix in desc"],
+                        order = 2,
+                        width = "full",
+                        values = function()
+                            local v = {}
+                            for _, id in ipairs(AutoSay.MessageStyles) do
+                                if id ~= Addon.db.profile.mainStyle then v[id] = L["Style " .. id] end
+                            end
+                            return v
+                        end,
+                        get = function(_, id)
+                            local _, _, _, full = StyleCounts(id)
+                            return full
+                        end,
+                        set = function(_, id, val) Addon:ApplyStyleBundle(id, false, val) end,
+                    },
+                },
+            },
             confirmGroup = {
                 type = "group",
                 name = L["Ask before sending"],
                 inline = true,
-                order = 6,
+                order = 7,
                 args = {
                     confirmEnabled = {
                         type = "toggle",
@@ -142,6 +188,18 @@ Kit.Pages.general = function()
                         set = function(_, val) Addon.db.profile.confirm.timeout = val end,
                     },
                 },
+            },
+            minimapIcon = {
+                type = "toggle",
+                name = L["Show minimap icon"],
+                desc = L["Show or hide the minimap button"],
+                order = 15,
+                width = "full",
+                get = function() return not Addon.db.profile.minimap.hide end,
+                set = function(_, val)
+                    Addon.db.profile.minimap.hide = not val
+                    Addon:UpdateMinimapIcon()
+                end,
             },
             testModeGroup = {
                 type = "group",
@@ -184,13 +242,13 @@ Kit.Pages.general = function()
                     local AceConfigDialog = LibStub("AceConfigDialog-3.0")
                     local status = AceConfigDialog:GetStatusTable("AutoSay")
                     status.width = 1000
-                    status.height = 700
+                    status.height = 900
                     status.top = nil
                     status.left = nil
                     local frame = AceConfigDialog.OpenFrames["AutoSay"]
                     if frame then
                         frame:SetWidth(1000)
-                        frame:SetHeight(700)
+                        frame:SetHeight(900)
                         frame.frame:ClearAllPoints()
                         frame.frame:SetPoint("CENTER")
                     end

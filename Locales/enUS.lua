@@ -378,3 +378,12 @@ L["Guild overview"] = "What the addon says in guild chat: greetings when you log
 L["Mythic+ overview"] = "Mythic+ lines go to party chat: the key announce when the group is ready, and one line when the run ends, timed or depleted."
 L["Timed run"] = "Timed run"
 L["Depleted run"] = "Depleted run"
+
+-- Quick setup
+L["Quick setup"] = "Quick setup"
+L["Main style"] = "Main style"
+L["Main style desc"] = "Turns on every phrase of this style and turns off the other ready-made phrases. Your own custom messages and the time-of-day phrases stay as they are."
+L["Main style confirm"] = "Switch the ready-made phrases to this style? Phrases of other styles will be turned off."
+L["Custom mix"] = "Custom mix"
+L["Mix in"] = "Mix in"
+L["Mix in desc"] = "Add or remove a whole style on top of the main one. A style is ticked when all of its phrases are on."

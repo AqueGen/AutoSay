@@ -1170,7 +1170,12 @@ function Addon:SlashCommand(input)
     end
 end
 
+function Addon:BumpConfigView()
+    self.configViewEpoch = (self.configViewEpoch or 0) + 1
+end
+
 function Addon:OpenConfig()
+    self:BumpConfigView()
     local AceConfigDialog = LibStub("AceConfigDialog-3.0")
 
     -- Restore saved window status or set default size
@@ -1801,6 +1806,7 @@ function Addon:ApplyStyleBundle(style, replace, state)
         end
     end
 
+    self:BumpConfigView()
     LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
     local doneKey = state and "Style bundle applied" or "Style bundle removed"
     self:Print(L[doneKey] .. ": |cFFFFFF00" .. L["Style " .. style] .. "|r")
@@ -1830,6 +1836,7 @@ function Addon:SetTaggedPhrasesEnabled(kind, state)
         end
     end
 
+    self:BumpConfigView()
     LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
     self:Print(L[state and "Phrases enabled on all channels" or "Phrases disabled on all channels"])
 end
