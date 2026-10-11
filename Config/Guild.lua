@@ -152,7 +152,7 @@ end
 Kit.Pages.guild = function()
     return {
         type = "group",
-        name = "|cFF00CCFFGuild|r",
+        name = L["Guild"],
         order = 30,
         hidden = function() return not Addon.db.profile.guild.enabled end,
         args = {

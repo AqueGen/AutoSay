@@ -7,7 +7,7 @@ local TagSuffix, MatrixChannels, MythicPlusPartyNotice, BuildMessageMatrix, Buil
 Kit.Pages.mythicplus = function()
     return {
         type = "group",
-        name = "|cFFFF00FFMythic+|r",
+        name = L["Mythic+"],
         order = 35,
         hidden = function() return not Addon.db.profile.mythicplus.enabled end,
         args = {

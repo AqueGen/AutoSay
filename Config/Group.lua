@@ -230,7 +230,7 @@ end
 Kit.Pages.group = function()
     return {
         type = "group",
-        name = "|cFF33DDAA" .. L["Group"] .. "|r",
+        name = L["Group"],
         order = 10,
         args = {
             overview = {
