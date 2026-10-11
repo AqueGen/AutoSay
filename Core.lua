@@ -647,6 +647,7 @@ end
 
 function Addon:OnProfileSwitched(event, _, sourceName)
     self:ConfirmDismiss()
+    self:BumpConfigView()
     -- Rotation is per pool, not per profile: without this, phrases spent under the profile
     -- you left stay spent under the one you arrived at
     if self.humanizer then self.humanizer.rounds = {} end
@@ -1170,7 +1171,12 @@ function Addon:SlashCommand(input)
     end
 end
 
+function Addon:BumpConfigView()
+    self.configViewEpoch = (self.configViewEpoch or 0) + 1
+end
+
 function Addon:OpenConfig()
+    self:BumpConfigView()
     local AceConfigDialog = LibStub("AceConfigDialog-3.0")
 
     -- Restore saved window status or set default size
@@ -1188,11 +1194,11 @@ function Addon:OpenConfig()
 
     AceConfigDialog:Open("AutoSay")
 
-    -- Hook frame close to save window status
     local frame = AceConfigDialog.OpenFrames["AutoSay"]
     if frame then
+        self:SkinConfigWindow(frame)
         frame:SetStatusText(L["Made in Ukraine"])
-        frame:SetCallback("OnClose", function(widget, event)
+        frame:SetCallback("OnRelease", function(widget)
             local s = AceConfigDialog:GetStatusTable("AutoSay")
             self.db.profile.configWindowStatus = {
                 width = s.width,
@@ -1200,8 +1206,7 @@ function Addon:OpenConfig()
                 top = s.top,
                 left = s.left,
             }
-            AceConfigDialog.OpenFrames["AutoSay"] = nil
-            LibStub("AceGUI-3.0"):Release(widget)
+            self:UnskinConfigWindow(widget)
         end)
     end
 end
@@ -1217,7 +1222,7 @@ function Addon:IsChannelSilenced(channel)
     end
     self:DebugPrint("Raid-sized instance group, skipping message")
     if self:IsTestMode() then
-        self:TestPrint("Message blocked: LFR and battlegrounds are skipped (General tab)")
+        self:TestPrint("Message blocked: LFR and battlegrounds are skipped (Quick setup page)")
     end
     return true
 end
@@ -1801,6 +1806,7 @@ function Addon:ApplyStyleBundle(style, replace, state)
         end
     end
 
+    self:BumpConfigView()
     LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
     local doneKey = state and "Style bundle applied" or "Style bundle removed"
     self:Print(L[doneKey] .. ": |cFFFFFF00" .. L["Style " .. style] .. "|r")
@@ -1830,6 +1836,7 @@ function Addon:SetTaggedPhrasesEnabled(kind, state)
         end
     end
 
+    self:BumpConfigView()
     LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
     self:Print(L[state and "Phrases enabled on all channels" or "Phrases disabled on all channels"])
 end
@@ -2754,7 +2761,7 @@ function Addon:MythicPlusChannelOpen()
     if settings and settings.enabled == false then
         self:DebugPrint("Party channel disabled, no Mythic+ announcement")
         if self:IsTestMode() then
-            self:TestPrint("Message blocked: the Party channel is off (General tab)")
+            self:TestPrint("Message blocked: the Party channel is off (Quick setup page)")
         end
         return false
     end
