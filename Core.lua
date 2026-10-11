@@ -1197,6 +1197,7 @@ function Addon:OpenConfig()
     -- Hook frame close to save window status
     local frame = AceConfigDialog.OpenFrames["AutoSay"]
     if frame then
+        self:SkinConfigWindow(frame)
         frame:SetStatusText(L["Made in Ukraine"])
         frame:SetCallback("OnClose", function(widget, event)
             local s = AceConfigDialog:GetStatusTable("AutoSay")
@@ -1223,7 +1224,7 @@ function Addon:IsChannelSilenced(channel)
     end
     self:DebugPrint("Raid-sized instance group, skipping message")
     if self:IsTestMode() then
-        self:TestPrint("Message blocked: LFR and battlegrounds are skipped (General tab)")
+        self:TestPrint("Message blocked: LFR and battlegrounds are skipped (Quick setup page)")
     end
     return true
 end
@@ -2762,7 +2763,7 @@ function Addon:MythicPlusChannelOpen()
     if settings and settings.enabled == false then
         self:DebugPrint("Party channel disabled, no Mythic+ announcement")
         if self:IsTestMode() then
-            self:TestPrint("Message blocked: the Party channel is off (General tab)")
+            self:TestPrint("Message blocked: the Party channel is off (Quick setup page)")
         end
         return false
     end

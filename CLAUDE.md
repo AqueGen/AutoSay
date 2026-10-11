@@ -10,7 +10,8 @@ WoW addon: automatic greetings, goodbyes, and reconnect messages for party, raid
 
 ## Key Files
 - `Core.lua` — Main logic: event handling, message sending, cooldowns, queue, hooks
-- `Config.lua` — AceConfig UI definition (tabs: General, Style, Social, Group, Guild, M+, Test). The Group tab covers party/raid/instance with one shared phrase list and a checkbox column per channel; the db layout stays per channel (`db.profile.party/raid/instance`)
+- `Config/` - AceConfig UI definition: `Kit.lua` shared helpers, one file per tree page (Quick setup, Style, Behaviour, Group, Guild, M+, Test), `Options.lua` the root table plus the Blizzard stub. The Group page covers party/raid/instance with one shared phrase list and a checkbox column per channel; the db layout stays per channel (`db.profile.party/raid/instance`)
+- `Skin.lua` - Slate and gold skin for the settings window
 - `Events.lua` — WoW event registration and dispatch
 - `Messages.lua` — Built-in message databases (greetings, goodbyes, reconnects)
 - `Confirm.lua` - Ask-before-sending model (one pending line, re-roll, timeout); WoW-free, busted-tested
@@ -34,6 +35,7 @@ WoW addon: automatic greetings, goodbyes, and reconnect messages for party, raid
 ## UI Conventions
 
 - The Blizzard AddOns tab holds a **button that opens the standalone window**, not the option tree. Two AceConfig tables exist for this: `AutoSay` is the real tree, `AutoSay-Blizzard` is the stub that `AddToBlizOptions` gets. Registering the real tree in both places squeezes every phrase matrix into a panel too narrow for it.
+- The settings window is skinned only while it is open and restored when AceGUI releases it, because AceGUI widgets are pooled and shared by every Ace addon.
 
 ## WoW Addon Rules
 

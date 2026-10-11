@@ -46,6 +46,7 @@ Log.lua
 SelfTest.lua
 Events.lua
 Widgets.lua
+Skin.lua
 Config\Kit.lua
 Config\General.lua
 Config\Style.lua

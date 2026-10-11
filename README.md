@@ -83,6 +83,8 @@ Install via your preferred addon manager:
 
 ## Configuration Guide
 
+The first settings page is **Quick setup**: turn channels on, pick a main style, mix in other styles and switch Ask before sending. Each phrase list shows only the selected phrases at first; press **All phrases** to see and tick the rest, **Selected only** to go back.
+
 ### Party/Raid Settings
 1. Open settings with `/as`
 2. Select **Party** or **Raid** tab
