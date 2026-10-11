@@ -39,6 +39,7 @@ MessageLogic.lua
 Messages.lua
 SocialGate.lua
 Humanizer.lua
+Confirm.lua
 Core.lua
 Log.lua
 SelfTest.lua
