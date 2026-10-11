@@ -387,3 +387,9 @@ L["Main style confirm"] = "Switch the ready-made phrases to this style? Phrases 
 L["Custom mix"] = "Custom mix"
 L["Mix in"] = "Mix in"
 L["Mix in desc"] = "Add or remove a whole style on top of the main one. A style is ticked when all of its phrases are on."
+
+-- Phrase list views
+L["Selected N of M"] = "Selected: %d of %d"
+L["All phrases"] = "All phrases"
+L["Selected only"] = "Selected only"
+L["Nothing selected hint"] = "Nothing selected - pick a style on Quick setup or open All phrases."

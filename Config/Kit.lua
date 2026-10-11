@@ -8,6 +8,8 @@ local MAX_CUSTOM_MESSAGES = 10
 
 -- Per-pool accordion fold state: shownStyle[poolId][style] = open (UI only, not saved)
 local shownStyle = {}
+local showAll = {}
+local snapshots = {}
 
 -- The same grey [tag] the phrase rows use, for the switches that control that tag -
 -- seeing [newcomers] on both ends makes the wiring obvious
@@ -343,7 +345,46 @@ end
 local function BuildMessageMatrix(poolId, pool, channels)
     local matrix = #channels > 1
     pool = PoolForChannels(pool, channels)
+    local function Selected()
+        local snap = snapshots[poolId]
+        local epoch = Addon.configViewEpoch or 0
+        if not snap or snap.epoch ~= epoch then
+            local tables = {}
+            for i, ch in ipairs(channels) do tables[i] = ch.tableFn() end
+            snap = { epoch = epoch, keys = AutoSay.MessageLogic.SelectedKeys(pool, tables) }
+            snapshots[poolId] = snap
+        end
+        return snap.keys
+    end
+    local function AllView() return showAll[poolId] == true end
     local args = {}
+
+    args.viewCount = {
+        type = "description", order = 0.1, width = 1.6, fontSize = "medium",
+        hidden = AllView,
+        name = function()
+            local n = 0
+            for _ in pairs(Selected()) do n = n + 1 end
+            return string.format(L["Selected N of M"], n, #pool)
+        end,
+    }
+    args.viewToggle = {
+        type = "execute", order = 0.2, width = 0.8,
+        name = function() return AllView() and L["Selected only"] or L["All phrases"] end,
+        func = function()
+            showAll[poolId] = not AllView() or nil
+            Addon:BumpConfigView()
+            LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+        end,
+    }
+    args.viewEmpty = {
+        type = "description", order = 0.3, width = "full",
+        hidden = function() return AllView() or next(Selected()) ~= nil end,
+        name = "|cFFFFD100" .. L["Nothing selected hint"] .. "|r",
+    }
+    if matrix then
+        AddCaptionRow(args, "cap_selected", 0.6, channels, AllView)
+    end
 
     args.emptyNotice = {
         type = "description", order = 0.4, width = "full",
@@ -408,12 +449,14 @@ local function BuildMessageMatrix(poolId, pool, channels)
         end
 
         local folded = function() return #styles > 1 and not open[style] end
+        local sectionHidden = function() return not AllView() or folded() end
 
         -- Pools without style phrases (guild login greetings) get a plain list, no accordion
         if #styles > 1 then
             args["head_" .. style] = {
                 type = "execute", order = order, width = "full",
                 dialogControl = "AutoSayCollapse",
+                hidden = function() return not AllView() end,
                 -- The leading "-"/"+" is the fold-state contract: AutoSayCollapse
                 -- strips it and renders it as the [-]/[+] expand icon.
                 -- "active right now / whole category" either way: with the section folded
@@ -450,7 +493,7 @@ local function BuildMessageMatrix(poolId, pool, channels)
                 type = "execute", order = order, width = 0.7,
                 name = L["Enable all"],
                 desc = L["Enable every phrase of this section on every channel shown"],
-                hidden = folded,
+                hidden = sectionHidden,
                 disabled = function()
                     for _, msg in ipairs(entries) do
                         for _, ch in ipairs(channels) do
@@ -470,7 +513,7 @@ local function BuildMessageMatrix(poolId, pool, channels)
                 type = "execute", order = order + 0.1, width = 0.7,
                 name = L["Disable all"],
                 desc = L["Disable every phrase of this section on every channel shown"],
-                hidden = folded,
+                hidden = sectionHidden,
                 disabled = function()
                     for _, msg in ipairs(entries) do
                         for _, ch in ipairs(channels) do
@@ -486,27 +529,33 @@ local function BuildMessageMatrix(poolId, pool, channels)
                     LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
                 end,
             }
-            AddRowBreak(args, "allrow_" .. style, order + 0.2, folded)
+            AddRowBreak(args, "allrow_" .. style, order + 0.2, sectionHidden)
             order = order + 1
 
             if matrix then
-                AddCaptionRow(args, "cap_" .. style, order, channels, folded)
+                AddCaptionRow(args, "cap_" .. style, order, channels, sectionHidden)
                 order = order + 1
             end
         end
 
         for _, msg in ipairs(entries) do
             local plainLabel = PresetLabel(msg, msg.style ~= nil)
+            local taggedLabel = PresetLabel(msg, false)
+            local rowHidden = function()
+                if AllView() then return folded() end
+                return not Selected()[msg.key]
+            end
             -- AceConfig greys a checkbox but not a description, so a row nothing can send
             -- would keep its bright label above three dead ticks unless we colour it here
             local rowLabel = function()
+                local label = AllView() and plainLabel or taggedLabel
                 for _, ch in ipairs(channels) do
-                    if PhraseActive(msg, ch.settingsFn, ch.poolKind, ch.key) then return plainLabel end
+                    if PhraseActive(msg, ch.settingsFn, ch.poolKind, ch.key) then return label end
                 end
-                return "|cFF7F7F7F" .. plainLabel:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "") .. "|r"
+                return "|cFF7F7F7F" .. label:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "") .. "|r"
             end
             if matrix then
-                AddMatrixRow(args, "m_" .. msg.key, order, rowLabel, folded, channels, function(ch)
+                AddMatrixRow(args, "m_" .. msg.key, order, rowLabel, rowHidden, channels, function(ch)
                     return {
                         -- Greyed out, not gone: the row's tag names the switch that re-activates it
                         disabled = function() return not PhraseActive(msg, ch.settingsFn, ch.poolKind, ch.key) end,
@@ -520,11 +569,11 @@ local function BuildMessageMatrix(poolId, pool, channels)
                 local ch = channels[1]
                 args["m_" .. msg.key] = {
                     type = "toggle",
-                    name = plainLabel,
+                    name = function() return AllView() and plainLabel or taggedLabel end,
                     order = order,
                     -- One column: tags must be readable without hovering, folding beats truncation
                     width = "full",
-                    hidden = folded,
+                    hidden = rowHidden,
                     disabled = function() return not PhraseActive(msg, ch.settingsFn, ch.poolKind, ch.key) end,
                     get = function() return ch.tableFn()[msg.key] end,
                     set = function(_, val)
