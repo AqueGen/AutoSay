@@ -48,9 +48,9 @@ Events.lua
 Widgets.lua
 Skin.lua
 Config\Kit.lua
-Config\General.lua
+Config\QuickSetup.lua
 Config\Style.lua
-Config\Social.lua
+Config\Behaviour.lua
 Config\Group.lua
 Config\Guild.lua
 Config\MythicPlus.lua

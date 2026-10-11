@@ -91,7 +91,6 @@ function Addon:SkinConfigWindow(widget)
             end
         end
         widget.titletext:SetTextColor(unpack(GOLD))
-        widget:SetCallback("OnRelease", function(w) Addon:UnskinConfigWindow(w) end)
         if not widget.autosayHooked then
             widget.autosayHooked = true
             hooksecurefunc(widget, "Show", function(w)
@@ -105,9 +104,9 @@ end
 function Addon:UnskinConfigWindow(widget)
     local skin = widget.autosaySkin
     if not skin then return end
+    widget.autosaySkin = nil
     UnskinTree(skin)
     Restore(widget.frame, skin.frame)
     for _, region in ipairs(skin.hidden) do region:Show() end
     widget.titletext:SetTextColor(unpack(skin.titleColor))
-    widget.autosaySkin = nil
 end

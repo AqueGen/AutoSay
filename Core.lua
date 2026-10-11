@@ -1194,12 +1194,11 @@ function Addon:OpenConfig()
 
     AceConfigDialog:Open("AutoSay")
 
-    -- Hook frame close to save window status
     local frame = AceConfigDialog.OpenFrames["AutoSay"]
     if frame then
         self:SkinConfigWindow(frame)
         frame:SetStatusText(L["Made in Ukraine"])
-        frame:SetCallback("OnClose", function(widget, event)
+        frame:SetCallback("OnRelease", function(widget)
             local s = AceConfigDialog:GetStatusTable("AutoSay")
             self.db.profile.configWindowStatus = {
                 width = s.width,
@@ -1207,8 +1206,7 @@ function Addon:OpenConfig()
                 top = s.top,
                 left = s.left,
             }
-            AceConfigDialog.OpenFrames["AutoSay"] = nil
-            LibStub("AceGUI-3.0"):Release(widget)
+            self:UnskinConfigWindow(widget)
         end)
     end
 end

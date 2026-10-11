@@ -140,7 +140,6 @@ Kit.Pages.general = function()
                         name = L["Mix in"],
                         desc = L["Mix in desc"],
                         order = 2,
-                        width = "full",
                         values = function()
                             local v = {}
                             for _, id in ipairs(AutoSay.MessageStyles) do

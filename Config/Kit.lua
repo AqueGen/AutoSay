@@ -21,10 +21,12 @@ end
 -- then the role/faction tag, then the trigger: [fun, tank, self].
 -- Inside its own style group the style word is redundant, so it is left out.
 -- Time-of-day phrases have no style word, just their band: [morning] / [evening] / [night].
-local function PresetLabel(msg, ownStyleGroup)
+local function PresetLabel(msg, ownStyleGroup, styleName)
     if msg.band then return msg.text .. " |cFF888888[" .. msg.band .. "]|r" end
     local tags = {}
-    if msg.style and not ownStyleGroup then table.insert(tags, msg.style) end
+    if msg.style and not ownStyleGroup then
+        table.insert(tags, styleName and L["Style " .. msg.style] or msg.style)
+    end
     if msg.role then
         -- The role reads best as its group-finder icon, not a word
         table.insert(tags, string.format("|A:roleicon-tiny-%s:14:14|a", AutoSay.RoleWords[msg.role] or "dps"))
@@ -364,7 +366,14 @@ local function BuildMessageMatrix(poolId, pool, channels)
         hidden = AllView,
         name = function()
             local n = 0
-            for _ in pairs(Selected()) do n = n + 1 end
+            for key in pairs(Selected()) do
+                for _, ch in ipairs(channels) do
+                    if ch.tableFn()[key] then
+                        n = n + 1
+                        break
+                    end
+                end
+            end
             return string.format(L["Selected N of M"], n, #pool)
         end,
     }
@@ -383,7 +392,8 @@ local function BuildMessageMatrix(poolId, pool, channels)
         name = "|cFFFFD100" .. L["Nothing selected hint"] .. "|r",
     }
     if matrix then
-        AddCaptionRow(args, "cap_selected", 0.6, channels, AllView)
+        AddCaptionRow(args, "cap_selected", 0.6, channels,
+            function() return AllView() or next(Selected()) == nil end)
     end
 
     args.emptyNotice = {
@@ -540,7 +550,7 @@ local function BuildMessageMatrix(poolId, pool, channels)
 
         for _, msg in ipairs(entries) do
             local plainLabel = PresetLabel(msg, msg.style ~= nil)
-            local taggedLabel = PresetLabel(msg, false)
+            local taggedLabel = PresetLabel(msg, false, true)
             local rowHidden = function()
                 if AllView() then return folded() end
                 return not Selected()[msg.key]

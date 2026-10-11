@@ -83,33 +83,45 @@ Install via your preferred addon manager:
 
 ## Configuration Guide
 
-The first settings page is **Quick setup**: turn channels on, pick a main style, mix in other styles and switch Ask before sending. Each phrase list shows only the selected phrases at first; press **All phrases** to see and tick the rest, **Selected only** to go back.
+Open settings with `/as`. The pages are listed on the left of the window. Each phrase list shows only the selected phrases at first; press **All phrases** to see and tick the rest, **Selected only** to go back.
 
-### Party/Raid Settings
-1. Open settings with `/as`
-2. Select **Party** or **Raid** tab
-3. Enable the channel
-4. Choose triggers:
-   - **On Self Join** - Greet when you join
-   - **On Others Join** - Greet when others join
-   - **On Reconnect** - Send reconnect message after DC
-   - **Include Names** - Add player names to greetings
-   - **Send Farewell** - Say goodbye when leaving
-5. Select messages in **Greetings**, **Farewells**, and **Reconnects** sub-tabs
+### Quick setup
+- **Channels** - Turn Party, Raid, Instance, Guild and Mythic+ on or off, and skip LFR and battlegrounds
+- **Style** - Pick a main style and mix in other styles
+- **Ask before sending** - Every message waits in a small panel first, with its own timeout
+- Minimap icon, Simulation switch, window size reset and Reset to Defaults
 
-### Guild Settings
-1. Select **Guild** tab
-2. Enable guild messages
-3. Configure:
-   - **On Login** - Send greeting when you log in
-   - **On Logout** - Send farewell when you log out
-4. Select your preferred messages
+### Group
+Party, raid and instance share one phrase list with a checkbox column per channel.
+- **When I join** - **On self join**, and **Name the group when I join** to add the group's names
+- **When someone joins** - **On others join**, **Only if leader**, and **Name whoever joined**
+- **Goodbyes** - **Send goodbye on leave** and **Send goodbye when the run ends**
+- **Reconnects** - **On reconnect**, sent after a disconnect
 
-### General Settings
+### Guild
+Shown while the Guild channel is on.
+- **Greetings** - **On login**, sent when you log in
+- **Goodbyes** - **On logout**, sent when you log out
 
-- **Cooldown** - Minimum seconds between messages (default: 5s, separate for guild/group)
-- **Message Delay** - Delay before sending (default: 1s)
-- **Debug Mode** - Enable detailed console logging
+### Mythic+
+Shown while the Mythic+ channel is on. Messages go to party chat.
+- **Group ready** - Announce your key when the group is full or when the key starts, optionally with the key level
+- **Timed run** - Send a message when the key is timed
+- **Depleted run** - Send a message when the timer is missed
+
+### Style
+Style bundles turn a whole set of phrases on or off across every channel. Role-based and time-of-day phrases have their own switches here, and **Lowercase first letter** sets the tone.
+
+### Behaviour
+- **Timing** - Message delay, cooldown and human typing delay
+- **Limits** - Hourly message budget, per-person cooldown and social listening
+- Congratulate guild achievements and welcome new guild members
+
+### Simulation
+Shown while Simulation is on (Quick setup or `/as testmode`). Buttons fake joins, leaves, reconnects, guild logins and Mythic+ runs without sending anything, and the Debug section holds the debug log and the session log.
+
+### Profiles
+Save different configurations and pick one per character.
 
 ## Built-in Messages
 
