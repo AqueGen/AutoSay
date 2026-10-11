@@ -123,6 +123,7 @@ function Addon:GROUP_JOINED(event, category)
                 self.state.pendingGroupSends[handle] = nil
             end
         end
+        self:DropConfirmOffer(function(item) return item.channel == "INSTANCE_CHAT" end)
     else
         -- Clear stale M+ listing cache when joining a new group
         -- (prevents announce from firing with old data when joining someone else's group)
@@ -153,6 +154,9 @@ function Addon:GROUP_JOINED(event, category)
                 self.state.pendingGroupSends[handle] = nil
             end
         end
+        self:DropConfirmOffer(function(item)
+            return item.channel ~= "GUILD" and not (instanceSurvives and item.channel == "INSTANCE_CHAT")
+        end)
     end
     -- Join time is where the once-per-group guards reset: GROUP_LEFT fires milliseconds
     -- after the leave hook, which would make the goodbye guard useless. Only the joined
@@ -219,6 +223,12 @@ end
 -- Handle GROUP_LEFT - we left a group. Fires once per category (home/instance).
 function Addon:GROUP_LEFT(event, category)
     self:DebugPrint("EVENT: GROUP_LEFT - We left the group, category:", tostring(category))
+    self:DropConfirmOffer(function(item)
+        if item.channel == "GUILD" then return false end
+        if category == LE_PARTY_CATEGORY_INSTANCE then return item.channel == "INSTANCE_CHAT" end
+        if category == LE_PARTY_CATEGORY_HOME then return item.channel ~= "INSTANCE_CHAT" end
+        return true
+    end)
 
     -- Note: Goodbye is now sent via HookLeaveGroupFunctions() BEFORE leaving
     -- This event fires AFTER we've already left, so we just reset state here

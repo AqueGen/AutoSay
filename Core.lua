@@ -226,6 +226,11 @@ local defaults = {
         messageDelay = 1.0,
         cooldown = 5,
 
+        confirm = {
+            enabled = false,
+            timeout = 30,
+        },
+
         -- Party settings
         party = {
             enabled = true,
@@ -459,6 +464,7 @@ function Addon:OnInitialize()
         -- have each of them holding back a phrase the other one said
         lastPicks = self.db.char.lastPicks,
     }
+    self.confirm = AutoSay.Confirm.New()
     self.socialGate:Prune()
 
     -- Register slash commands
@@ -1092,6 +1098,9 @@ function Addon:SlashCommand(input)
         elseif subcmd == "hour" then
             local _, _, hourArg = self:GetArgs(input, 3)
             self:TestSetHour(hourArg)
+        elseif subcmd == "confirm" then
+            local _, _, variant = self:GetArgs(input, 3)
+            self:TestConfirmPanel(variant)
         elseif subcmd == "reset" then
             self:TestReset()
         elseif subcmd == "resetgate" or subcmd == "rg" then
@@ -1118,6 +1127,7 @@ function Addon:SlashCommand(input)
             self:Print("  /as test keystart - Simulate the key start announce (duplicate and new key)")
             self:Print("  /as test role tank|healer|dps - Simulate assigned role")
             self:Print("  /as test hour <0-23>|off - Simulate time-of-day band")
+            self:Print("  /as test confirm [long] - Show the Ask-before-sending panel with a sample line")
             self:Print("  /as test reset - Reset test state")
             self:Print("  /as test resetgate - Clear social gate counters (budget, cooldowns, welcomed list)")
             self:Print("  /as test status - Show test status")
@@ -1242,7 +1252,7 @@ end
 -- whose precondition can expire (the key announce's 5/5) re-checks right before dispatch.
 -- Optional onSent() fires only when the line actually went out: state that must record
 -- "this was SAID" (announcedKey) belongs there, not on the scheduling result.
-function Addon:SendMessageToChat(message, channel, target, keepCase, validate, onSent)
+function Addon:SendMessageToChat(message, channel, target, keepCase, validate, onSent, offer)
     if not self.db.profile.enabled then
         self:DebugPrint("Addon disabled, not sending")
         return false
@@ -1293,7 +1303,7 @@ function Addon:SendMessageToChat(message, channel, target, keepCase, validate, o
                 self:DebugPrint("Dropping delayed send - no longer valid")
                 return
             end
-            if self:DoSendMessage(message, channel, target, keepCase) and onSent then
+            if self:DoSendMessage(message, channel, target, keepCase, offer) and onSent then
                 onSent()
             end
         end, delay)
@@ -1304,7 +1314,7 @@ function Addon:SendMessageToChat(message, channel, target, keepCase, validate, o
         return true
     end
     -- Immediate path: the caller's budget/flag spend must reflect what actually happened
-    local ok = self:DoSendMessage(message, channel, target, keepCase)
+    local ok = self:DoSendMessage(message, channel, target, keepCase, offer)
     if ok and onSent then onSent() end
     return ok
 end
@@ -1327,6 +1337,7 @@ end
 -- Chat colour per channel for the test-mode "would send" line
 local ChannelColor = {}
 for _, c in ipairs(AutoSay.Channels) do ChannelColor[c.chat] = c.color end
+Addon.ChannelColor = ChannelColor
 
 -- Returns true when a message actually went out (or was simulated in test mode) - callers
 -- Whether the client currently refuses chat from addon code. Calling SendChatMessage in
@@ -1369,7 +1380,7 @@ local function RawSend(message, channel, target)
 end
 
 -- that spend a budget slot on the dispatch must not spend it on a drop
-function Addon:DoSendMessage(message, channel, target, keepCase)
+function Addon:DoSendMessage(message, channel, target, keepCase, offer)
     if not message then
         self:DebugPrint("No message to send")
         return false
@@ -1388,6 +1399,13 @@ function Addon:DoSendMessage(message, channel, target, keepCase)
         return false
     end
 
+    if self.db.profile.confirm.enabled then
+        return self:OfferForConfirm(message, channel, target, keepCase, offer)
+    end
+    return self:SendPolished(message, channel, target)
+end
+
+function Addon:SendPolished(message, channel, target)
     -- Update appropriate cooldown based on channel type
     local function updateCooldown()
         if channel == "GUILD" then
@@ -1455,6 +1473,65 @@ function Addon:DoSendMessage(message, channel, target, keepCase)
 
     self:DebugPrint("Failed to send to", channel, ":", message)
     return false
+end
+
+function Addon:OfferForConfirm(message, channel, target, keepCase, offer)
+    if not self:IsTestMode() and ChatIsLockedDown() then
+        self:DebugPrint("Chat is closed to addons here, no confirm panel:", channel, ":", message)
+        return false
+    end
+    local repick
+    if offer and offer.repick then
+        repick = function()
+            local text, siteKeepCase = offer.repick()
+            if not text then return nil end
+            if siteKeepCase == nil then siteKeepCase = keepCase end
+            text = TruncateToChatLimit(self:PolishMessage(text, siteKeepCase))
+            if not text:match("%S") then return nil end
+            return text
+        end
+    end
+    self.confirm:Offer({
+        text = message,
+        channel = channel,
+        target = target,
+        label = offer and offer.label or "",
+        repick = repick,
+        generation = self.state.sendGeneration,
+    }, GetTime())
+    self:ShowConfirmPanel(self.confirm:Current())
+    self:DebugPrint("Waiting for confirmation:", channel, ":", message)
+    return true
+end
+
+function Addon:ConfirmSend()
+    local item = self.confirm:Take()
+    self:HideConfirmPanel()
+    if not item then return end
+    if item.generation ~= self.state.sendGeneration then return end
+    if self:IsChannelSilenced(item.channel) then return end
+    if not self:IsTestMode() and ChatIsLockedDown() then
+        self:Print(L["Chat locked to addons"])
+        return
+    end
+    self:SendPolished(item.text, item.channel, item.target)
+end
+
+function Addon:ConfirmDismiss()
+    self.confirm:Dismiss()
+    self:HideConfirmPanel()
+end
+
+function Addon:ConfirmReroll()
+    if self.confirm:Reroll() then
+        self:ShowConfirmPanel(self.confirm:Current())
+    end
+end
+
+function Addon:DropConfirmOffer(predicate)
+    if self.confirm:DismissIf(predicate) then
+        self:HideConfirmPanel()
+    end
 end
 
 -- Instance zone-in greeting flag. Mirrored into db.char so a /reload inside the instance
@@ -1864,6 +1941,10 @@ end
 -- Send goodbye. Returns true only when a line actually went out, so the caller's
 -- once-per-leave guard is not burned on a bail-out.
 function Addon:SendGoodbye(channel)
+    if self.db.profile.confirm.enabled then
+        self:TestPrint("Goodbye skipped (Ask before sending is on)")
+        return false
+    end
     local settings = self:GetChannelSettings(channel)
     if settings and not settings.sendGoodbye then
         self:DebugPrint(channel, "goodbyes disabled")
@@ -2056,6 +2137,10 @@ end
 -- Send guild goodbye on logout
 function Addon:SendGuildGoodbye()
     self:DebugPrint("SendGuildGoodbye called")
+    if self.db.profile.confirm.enabled then
+        self:TestPrint("Guild goodbye skipped (Ask before sending is on)")
+        return
+    end
     local db = self.db.profile
 
     if not db.enabled then
@@ -2778,6 +2863,25 @@ function Addon:TestSetHour(hourArg)
     self:TestPrint(L["Simulated hour set"] .. ": " .. hour .. " (" .. band .. ")")
 end
 
+function Addon:TestConfirmPanel(variant)
+    local samples = { "hi all", "hello!", "o/ ty for the inv" }
+    if variant == "long" then
+        samples = { string.rep("a long line that wraps ", 11), string.rep("another long line ", 14) }
+    end
+    local n = 1
+    self.confirm:Offer({
+        text = TruncateToChatLimit(samples[1]),
+        channel = "PARTY",
+        label = L["Confirm label test"],
+        generation = self.state.sendGeneration,
+        repick = function()
+            n = n % #samples + 1
+            return TruncateToChatLimit(samples[n])
+        end,
+    }, GetTime())
+    self:ShowConfirmPanel(self.confirm:Current())
+end
+
 -- Entering a new simulated group drops whatever the previous one still had in flight, the
 -- way GROUP_JOINED does for real groups. Without it a greeting built for one simulation
 -- lands in the next: schedule a 5-player instance greeting, switch to /as test lfr inside
@@ -2791,6 +2895,7 @@ function Addon:TestCancelPendingSends()
         self:CancelTimer(handle)
     end
     self.state.pendingGroupSends = {}
+    self:DropConfirmOffer(function(item) return item.channel ~= "GUILD" end)
     -- The M+ simulation schedules its own untracked join timers. They are fenced by the
     -- flow generation rather than sendGeneration, so replacing a simulation strands them
     -- without touching a guild send that has nothing to do with the group.

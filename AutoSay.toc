@@ -41,6 +41,7 @@ SocialGate.lua
 Humanizer.lua
 Confirm.lua
 Core.lua
+ConfirmPanel.lua
 Log.lua
 SelfTest.lua
 Events.lua
