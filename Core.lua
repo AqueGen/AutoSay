@@ -1485,7 +1485,6 @@ function Addon:OfferForConfirm(message, channel, target, keepCase, offer)
         repick = function()
             local text, siteKeepCase = offer.repick()
             if not text then return nil end
-            if siteKeepCase == nil then siteKeepCase = keepCase end
             text = TruncateToChatLimit(self:PolishMessage(text, siteKeepCase))
             if not text:match("%S") then return nil end
             return text
