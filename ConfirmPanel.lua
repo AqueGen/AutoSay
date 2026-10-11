@@ -47,7 +47,9 @@ local function OpenList(button)
     MenuUtil.CreateContextMenu(button, function(_, root)
         root:CreateTitle(item.label)
         for _, text in ipairs(texts) do
-            root:CreateButton(text, function() Addon:ConfirmChoose(text) end)
+            root:CreateButton(text, function()
+                if Addon.confirm:Current() == item then Addon:ConfirmChoose(text) end
+            end)
         end
         if #texts > 12 then
             root:SetScrollMode(20 * 12)
