@@ -1890,6 +1890,12 @@ function Addon:SendGreeting(playerNames, reason)
     return self:BuildAndSendGreeting(channel, reason, playerNames)
 end
 
+local GreetingLabel = {
+    self_join = L["Confirm label greeting"],
+    others_join = L["Confirm label newcomer"],
+    reconnect = L["Confirm label reconnect"],
+}
+
 -- Build a greeting message and send it. Returns true when it reached the send pipeline.
 function Addon:BuildAndSendGreeting(channel, reason, playerNames)
     local settings = self:GetChannelSettings(channel)
@@ -1902,30 +1908,34 @@ function Addon:BuildAndSendGreeting(channel, reason, playerNames)
     local wantNames = hasNames and (reason == "self_join" or settings.includeNames or false)
 
     -- Pick a message based on reason (the humanizer rotates through the whole pool)
-    local message, nameMode, keepCase
-    if reason == "reconnect" then
-        message, nameMode, keepCase = self:GetRandomMessageForChannel("reconnects", channel, reason, wantNames)
-        if not message then
-            -- Deliberate: this fallback may pick a [self]-tagged greeting even when
-            -- "On self join" is off - a reconnect IS a self event, and going silent when the
-            -- user explicitly enabled reconnect greetings would be the worse behaviour
-            self:DebugPrint("No reconnects enabled for", channel, "- falling back to greetings")
-            message, nameMode, keepCase = self:GetRandomMessageForChannel("greetings", channel, reason, wantNames)
+    local function pick()
+        local text, nameMode, keepCase
+        if reason == "reconnect" then
+            text, nameMode, keepCase = self:GetRandomMessageForChannel("reconnects", channel, reason, wantNames)
+            if not text then
+                -- Deliberate: this fallback may pick a [self]-tagged greeting even when
+                -- "On self join" is off - a reconnect IS a self event, and going silent when the
+                -- user explicitly enabled reconnect greetings would be the worse behaviour
+                self:DebugPrint("No reconnects enabled for", channel, "- falling back to greetings")
+                text, nameMode, keepCase = self:GetRandomMessageForChannel("greetings", channel, reason, wantNames)
+            end
+        else
+            text, nameMode, keepCase = self:GetRandomMessageForChannel("greetings", channel, reason, wantNames)
         end
-    else
-        message, nameMode, keepCase = self:GetRandomMessageForChannel("greetings", channel, reason, wantNames)
+        if not text then return nil end
+        return self:AddPlayersToMessage(text, playerNames, wantNames and nameMode or nil), keepCase
     end
 
+    local message, keepCase = pick()
     if not message then
         self:DebugPrint("No greetings enabled for", channel)
         return false
     end
 
-    message = self:AddPlayersToMessage(message, playerNames, wantNames and nameMode or nil)
-
     self:DebugPrint("BuildAndSend -> final message:", message)
 
-    if not self:SendMessageToChat(message, channel, nil, keepCase) then
+    local offer = { label = GreetingLabel[reason] or L["Confirm label greeting"], repick = pick }
+    if not self:SendMessageToChat(message, channel, nil, keepCase, nil, nil, offer) then
         -- Cooldown won the race - drop it, a late greeting is just a second greeting
         self:DebugPrint("BuildAndSend -> SendMessageToChat refused (cooldown), dropping")
         return false
@@ -1981,7 +1991,11 @@ function Addon:DispatchGoodbye(channel)
     end
 
     -- Get random goodbye for this channel
-    local message, _, keepCase = self:GetRandomMessageForChannel("goodbyes", channel)
+    local function pick()
+        local text, _, keepCase = self:GetRandomMessageForChannel("goodbyes", channel)
+        return text, keepCase
+    end
+    local message, keepCase = pick()
     if not message then
         self:DebugPrint("No goodbyes enabled for", channel)
         return false
@@ -1989,7 +2003,8 @@ function Addon:DispatchGoodbye(channel)
 
     -- Send immediately (no delay for goodbyes since we're leaving);
     -- spend the budget slot only for a message that actually went out
-    local sent = self:DoSendMessage(message, channel, nil, keepCase)
+    local sent = self:DoSendMessage(message, channel, nil, keepCase,
+        { label = L["Confirm label goodbye"], repick = pick })
     if sent and self.socialGate then
         self.socialGate:Record("goodbye")
     end
@@ -2039,7 +2054,10 @@ function Addon:SendGuildGrats(name)
     -- Reserve the slot before the listening window, so an achievement wave cannot
     -- schedule N grats against the same stale counters
     self.socialGate:Record("grats", name)
-    local text = self.humanizer:Pick("guildgrats", AutoSay.GuildGrats):gsub("{name}", name)
+    local function pick()
+        return (self.humanizer:Pick("guildgrats", AutoSay.GuildGrats):gsub("{name}", name))
+    end
+    local text = pick()
     local pendingId = self.socialGate:AddPending("grats", "GUILD")
     local generation = self.state.sendGeneration
     local delay = 4 + math.random() * 6 -- 4-10s listening window per spec
@@ -2052,7 +2070,7 @@ function Addon:SendGuildGrats(name)
             if self:IsTestMode() then self:TestPrint("Grats blocked: someone-answered") end
             return
         end
-        self:SendMessageToChat(text, "GUILD")
+        self:SendMessageToChat(text, "GUILD", nil, nil, nil, nil, { label = L["Confirm label grats"], repick = pick })
     end, delay)
 end
 
@@ -2073,7 +2091,10 @@ function Addon:SendGuildWelcome(name)
     -- a burst of joins must see the updated counters, not the pre-timer ones
     self.socialGate:RecordWelcome(name)
     self.socialGate:Record("welcome", name)
-    local text = self.humanizer:Pick("guildwelcome", AutoSay.GuildWelcome):gsub("{name}", name)
+    local function pick()
+        return (self.humanizer:Pick("guildwelcome", AutoSay.GuildWelcome):gsub("{name}", name))
+    end
+    local text = pick()
     local pendingId = self.socialGate:AddPending("welcome", "GUILD")
     local generation = self.state.sendGeneration
     local delay = 5 + math.random() * 10 -- 5-15s per spec
@@ -2085,7 +2106,7 @@ function Addon:SendGuildWelcome(name)
             if self:IsTestMode() then self:TestPrint("Welcome blocked: someone-answered") end
             return
         end
-        self:SendMessageToChat(text, "GUILD")
+        self:SendMessageToChat(text, "GUILD", nil, nil, nil, nil, { label = L["Confirm label welcome"], repick = pick })
     end, delay)
 end
 
@@ -2113,7 +2134,11 @@ function Addon:SendGuildGreeting()
 
     -- Get random greeting for guild. Logging in IS a self join: without the reason,
     -- FitsContext rejects every [self]-tagged phrase the guild tab shows as active.
-    local message, _, keepCase = self:GetRandomMessageForChannel("greetings", "GUILD", "self_join")
+    local function pick()
+        local text, _, keepCase = self:GetRandomMessageForChannel("greetings", "GUILD", "self_join")
+        return text, keepCase
+    end
+    local message, keepCase = pick()
     if not message then
         self:DebugPrint("No greetings enabled for GUILD")
         return
@@ -2129,7 +2154,7 @@ function Addon:SendGuildGreeting()
     end
 
     -- Spend the budget slot only for a message that actually went out
-    if self:SendMessageToChat(message, "GUILD", nil, keepCase) and self.socialGate then
+    if self:SendMessageToChat(message, "GUILD", nil, keepCase, nil, nil, { label = L["Confirm label guild login"], repick = pick }) and self.socialGate then
         self.socialGate:Record("greeting")
     end
 end
@@ -2254,16 +2279,19 @@ function Addon:SendGuildLoginGreeting(names)
         end
     end
 
-    -- Get random login greeting
-    local message = self:GetRandomGuildLoginGreeting()
+    -- Replace {name} placeholder with member name(s), capped like every other names path -
+    -- a raid-night login burst must not produce a 255-byte name wall chopped mid-name
+    local nameList = Logic.FormatNameList(names)
+    local function pick()
+        local text = self:GetRandomGuildLoginGreeting()
+        return text and (text:gsub("{name}", nameList))
+    end
+    local message = pick()
     if not message then
         self:DebugPrint("No login greetings enabled for GUILD")
         return
     end
-
-    -- Replace {name} placeholder with member name(s), capped like every other names path -
-    -- a raid-night login burst must not produce a 255-byte name wall chopped mid-name
-    message = message:gsub("{name}", Logic.FormatNameList(names))
+    local offer = { label = L["Confirm label member login"], repick = pick }
 
     -- A message that polishes to nothing must not consume the cooldown or a budget slot
     local polished = self:PolishMessage(message)
@@ -2283,10 +2311,10 @@ function Addon:SendGuildLoginGreeting(names)
         local generation = self.state.sendGeneration
         self:ScheduleTimer(function()
             if generation ~= self.state.sendGeneration then return end
-            self:DoSendMessage(message, "GUILD")
+            self:DoSendMessage(message, "GUILD", nil, nil, offer)
         end, delay)
     else
-        self:DoSendMessage(message, "GUILD")
+        self:DoSendMessage(message, "GUILD", nil, nil, offer)
     end
 end
 
@@ -2549,6 +2577,13 @@ function Addon:SendKeyAnnounce()
 
     -- Replace placeholders
     local message = self:ReplacePlaceholders(template, dungeon, keyLevel)
+    local offer = {
+        label = L["Confirm label key announce"],
+        repick = function()
+            local t = self:GetRandomKeyAnnounce()
+            return t and self:ReplacePlaceholders(t, dungeon, keyLevel), true
+        end,
+    }
 
     self:DebugPrint("SendKeyAnnounce:", message, "(dungeon:", dungeon,
         "level:", tostring(keyLevel) .. ")")
@@ -2572,7 +2607,7 @@ function Addon:SendKeyAnnounce()
     local recordSaid = function()
         self.state.announcedKey = { mapID = mapID, dungeon = dungeon, level = keyLevel }
     end
-    if self:SendMessageToChat(message, channel, nil, true, stillValid, recordSaid) then
+    if self:SendMessageToChat(message, channel, nil, true, stillValid, recordSaid, offer) then
         self.state.keyAnnounceRetried = false
         return
     end
@@ -2597,7 +2632,7 @@ function Addon:SendKeyAnnounce()
             self:DebugPrint("Key announce retry no longer valid, dropping")
             return
         end
-        self:SendMessageToChat(message, channel, nil, true, stillValid, recordSaid)
+        self:SendMessageToChat(message, channel, nil, true, stillValid, recordSaid, offer)
     end, wait)
 end
 
@@ -2628,6 +2663,13 @@ function Addon:SendKeyStartAnnounce(dungeon, keyLevel, mapID)
     end
 
     local message = self:ReplacePlaceholders(template, dungeon, keyLevel)
+    local offer = {
+        label = L["Confirm label key start"],
+        repick = function()
+            local t = self:GetRandomKeyAnnounce()
+            return t and self:ReplacePlaceholders(t, dungeon, keyLevel), true
+        end,
+    }
     -- Home-scoped like SendKeyAnnounce: a keystone run is always the home group
     local channel = IsInRaid(LE_PARTY_CATEGORY_HOME) and "RAID" or "PARTY"
 
@@ -2642,7 +2684,7 @@ function Addon:SendKeyStartAnnounce(dungeon, keyLevel, mapID)
     end
     local function Attempt()
         self.state.startAnnounceTimer = nil
-        if self:SendMessageToChat(message, channel, nil, true, nil, recordSaid) then
+        if self:SendMessageToChat(message, channel, nil, true, nil, recordSaid, offer) then
             return
         end
         if retried then
@@ -2743,6 +2785,13 @@ function Addon:SendCompletionMessage(dungeon, keyLevel, onTime, upgrade, timeFor
     }
 
     local message = self:ReplacePlaceholders(template, dungeon, keyLevel, extra)
+    local offer = {
+        label = onTime and L["Confirm label run timed"] or L["Confirm label run depleted"],
+        repick = function()
+            local t = self:GetRandomCompletionMessage(onTime, upgrade)
+            return t and self:ReplacePlaceholders(t, dungeon, keyLevel, extra), true
+        end,
+    }
 
     self:DebugPrint("SendCompletionMessage:", message, "(onTime:", tostring(onTime),
         "dungeon:", dungeon, "level:", tostring(keyLevel), "upgrade:", tostring(upgrade) .. ")")
@@ -2750,7 +2799,7 @@ function Addon:SendCompletionMessage(dungeon, keyLevel, onTime, upgrade, timeFor
     -- Always party in M+ dungeon. Routed through the normal pipeline for truncation,
     -- cooldown and test mode; keepCase keeps the dungeon name capitalized.
     local channel = "PARTY"
-    if not self:SendMessageToChat(message, channel, nil, true) then
+    if not self:SendMessageToChat(message, channel, nil, true, nil, nil, offer) then
         -- A completion line that lands half a minute late is noise, so no retry
         self:DebugPrint("Completion message dropped (cooldown or addon disabled)")
         return false
