@@ -115,9 +115,16 @@ function Addon:ShowConfirmPanel(item)
     panel:SetHeight(PAD + panel.header:GetStringHeight() + GAP + panel.text:GetStringHeight()
         + GAP + BUTTON_H + GAP + BAR_H + PAD)
     panel.sinceTick = 1
+    Place(panel)
+    panel:SetFrameStrata(item.preview and "TOOLTIP" or "DIALOG")
     panel:Show()
 end
 
 function Addon:HideConfirmPanel()
     if panel then panel:Hide() end
+end
+
+function Addon:ResetConfirmPanelPosition()
+    self.db.profile.confirm.point = nil
+    if panel then Place(panel) end
 end

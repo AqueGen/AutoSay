@@ -379,6 +379,12 @@ L["Confirm label key start"] = "Key started"
 L["Confirm label run timed"] = "Key timed"
 L["Confirm label run depleted"] = "Key depleted"
 L["Confirm label test"] = "Test"
+L["Move panel"] = "Move panel"
+L["Move panel desc"] = "Shows the panel with a sample line on top of everything. Drag it where you want it; the spot is saved. Send on this sample only closes it."
+L["Reset panel position"] = "Reset panel position"
+L["Reset panel position desc"] = "Puts the panel back in the middle of the screen, a little above the centre."
+L["Confirm preview label"] = "Drag me"
+L["Confirm preview text"] = "This is where the line to send will show up."
 
 -- Settings tree
 L["Behaviour"] = "Behaviour"

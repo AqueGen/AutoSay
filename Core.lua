@@ -1516,7 +1516,7 @@ end
 function Addon:ConfirmSend()
     local item = self.confirm:Take()
     self:HideConfirmPanel()
-    if not item then return end
+    if not item or item.preview then return end
     if item.generation ~= self.state.sendGeneration then return end
     if self:IsChannelSilenced(item.channel) then return end
     if not self:IsTestMode() and ChatIsLockedDown() then
@@ -2938,6 +2938,17 @@ function Addon:TestConfirmPanel(variant)
             n = n % #samples + 1
             return TruncateToChatLimit(samples[n])
         end,
+    }, GetTime())
+    self:ShowConfirmPanel(self.confirm:Current())
+end
+
+function Addon:PreviewConfirmPanel()
+    self.confirm:Offer({
+        text = L["Confirm preview text"],
+        channel = "PARTY",
+        label = L["Confirm preview label"],
+        generation = self.state.sendGeneration,
+        preview = true,
     }, GetTime())
     self:ShowConfirmPanel(self.confirm:Current())
 end
