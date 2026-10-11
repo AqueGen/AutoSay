@@ -647,6 +647,7 @@ end
 
 function Addon:OnProfileSwitched(event, _, sourceName)
     self:ConfirmDismiss()
+    self:BumpConfigView()
     -- Rotation is per pool, not per profile: without this, phrases spent under the profile
     -- you left stay spent under the one you arrived at
     if self.humanizer then self.humanizer.rounds = {} end
