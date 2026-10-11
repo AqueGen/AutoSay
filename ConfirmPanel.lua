@@ -67,7 +67,7 @@ local function Build()
 
     f.header = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.header:SetPoint("TOPLEFT", PAD, -PAD)
-    f.header:SetPoint("RIGHT", f.close, "LEFT", -4, 0)
+    f.header:SetPoint("TOPRIGHT", f, "TOPRIGHT", -(PAD + 24), -PAD)
     f.header:SetJustifyH("LEFT")
 
     f.text = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")

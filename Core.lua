@@ -646,6 +646,7 @@ function Addon:OnProfileDeleted(_, _, name)
 end
 
 function Addon:OnProfileSwitched(event, _, sourceName)
+    self:ConfirmDismiss()
     -- Rotation is per pool, not per profile: without this, phrases spent under the profile
     -- you left stay spent under the one you arrived at
     if self.humanizer then self.humanizer.rounds = {} end
@@ -1478,6 +1479,10 @@ end
 function Addon:OfferForConfirm(message, channel, target, keepCase, offer)
     if not self:IsTestMode() and ChatIsLockedDown() then
         self:DebugPrint("Chat is closed to addons here, no confirm panel:", channel, ":", message)
+        return false
+    end
+    if channel ~= "GUILD" and not self:GetChatChannel() then
+        self:DebugPrint("Not in a group any more, no confirm panel:", channel, ":", message)
         return false
     end
     local repick
