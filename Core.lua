@@ -1555,9 +1555,8 @@ function Addon:ConfirmReroll()
 end
 
 function Addon:ConfirmChoose(text)
-    if self.confirm:Choose(text) then
-        self:ShowConfirmPanel(self.confirm:Current())
-    end
+    self.confirm:Choose(text)
+    self:ConfirmSend()
 end
 
 function Addon:DropConfirmOffer(predicate)
