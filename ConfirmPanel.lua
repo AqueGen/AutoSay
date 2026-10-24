@@ -6,9 +6,9 @@ local WIDTH, PAD, GAP, BUTTON_H, BAR_H = 380, 10, 8, 22, 3
 
 local panel
 
-local function SavePoint(frame)
+local function SavePoint(frame, key)
     local point, _, relativePoint, x, y = frame:GetPoint(1)
-    Addon.db.profile.confirm.point = { point, relativePoint, x, y }
+    Addon.db.profile.confirm[key] = { point, relativePoint, x, y }
 end
 
 local function Place(frame)
@@ -19,6 +19,27 @@ local function Place(frame)
     else
         frame:SetPoint("CENTER", UIParent, "CENTER", 0, 180)
     end
+end
+
+local function PlaceList(lf)
+    lf:ClearAllPoints()
+    local p = Addon.db.profile.confirm.listPoint
+    if p then
+        lf:SetPoint(p[1], UIParent, p[2], p[3], p[4])
+    else
+        lf:SetPoint("TOPLEFT", lf:GetParent(), "BOTTOMLEFT", 0, -2)
+    end
+end
+
+local function MakeDraggable(frame, key)
+    frame:SetMovable(true)
+    frame:EnableMouse(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", frame.StartMoving)
+    frame:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        SavePoint(self, key)
+    end)
 end
 
 local function OnUpdate(frame, elapsed)
@@ -40,7 +61,7 @@ local function OnUpdate(frame, elapsed)
     frame.seconds:SetText(math.ceil(left) .. "s")
 end
 
-local ROW_H, MAX_ROWS, SCROLLBAR_W = 20, 10, 22
+local ROW_H, MAX_ROWS, SCROLLBAR_W, TITLE_H = 20, 10, 22, 16
 
 local function ListRow(lf, i)
     local row = lf.rows[i]
@@ -80,22 +101,25 @@ local function ToggleList(f)
     end
     for i = #texts + 1, #lf.rows do lf.rows[i]:Hide() end
     lf.content:SetHeight(math.max(1, #texts * ROW_H))
-    lf:SetHeight(math.min(#texts, MAX_ROWS) * ROW_H + 2 * PAD)
+    lf:SetHeight(TITLE_H + math.min(#texts, MAX_ROWS) * ROW_H + 2 * PAD)
     lf.scroll:SetVerticalScroll(0)
+    PlaceList(lf)
     lf:Show()
 end
 
 local function BuildList(f)
     local lf = CreateFrame("Frame", nil, f, "BackdropTemplate")
     lf:SetWidth(WIDTH)
-    lf:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -2)
     lf:SetClampedToScreen(true)
-    lf:EnableMouse(true)
+    MakeDraggable(lf, "listPoint")
     lf:SetBackdrop(f:GetBackdrop())
     lf:SetBackdropColor(f:GetBackdropColor())
     lf:SetBackdropBorderColor(f:GetBackdropBorderColor())
+    lf.title = lf:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    lf.title:SetPoint("TOPLEFT", PAD, -PAD)
+    lf.title:SetText(L["Confirm list title"])
     lf.scroll = CreateFrame("ScrollFrame", "AutoSayConfirmListScroll", lf, "UIPanelScrollFrameTemplate")
-    lf.scroll:SetPoint("TOPLEFT", PAD, -PAD)
+    lf.scroll:SetPoint("TOPLEFT", PAD, -(PAD + TITLE_H))
     lf.scroll:SetPoint("BOTTOMRIGHT", -(PAD + SCROLLBAR_W), PAD)
     lf.content = CreateFrame("Frame", nil, lf.scroll)
     lf.content:SetSize(WIDTH - 2 * PAD - SCROLLBAR_W, 1)
@@ -110,14 +134,7 @@ local function Build()
     f:SetWidth(WIDTH)
     f:SetFrameStrata("DIALOG")
     f:SetClampedToScreen(true)
-    f:SetMovable(true)
-    f:EnableMouse(true)
-    f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", f.StartMoving)
-    f:SetScript("OnDragStop", function(self)
-        self:StopMovingOrSizing()
-        SavePoint(self)
-    end)
+    MakeDraggable(f, "point")
     f:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8X8",
         edgeFile = "Interface\\Buttons\\WHITE8X8",
@@ -200,5 +217,9 @@ end
 
 function Addon:ResetConfirmPanelPosition()
     self.db.profile.confirm.point = nil
-    if panel then Place(panel) end
+    self.db.profile.confirm.listPoint = nil
+    if panel then
+        Place(panel)
+        PlaceList(panel.listFrame)
+    end
 end
