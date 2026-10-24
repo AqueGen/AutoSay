@@ -60,6 +60,20 @@ local function ListRow(lf, i)
     return row
 end
 
+local function PlaceList(f, lf)
+    lf:ClearAllPoints()
+    local w = lf:GetWidth() + 2
+    if UIParent:GetRight() - f:GetRight() >= w then
+        lf:SetPoint("TOPLEFT", f, "TOPRIGHT", 2, 0)
+    elseif f:GetLeft() >= w then
+        lf:SetPoint("TOPRIGHT", f, "TOPLEFT", -2, 0)
+    elseif f:GetBottom() >= lf:GetHeight() + 2 then
+        lf:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -2)
+    else
+        lf:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 2)
+    end
+end
+
 local function ToggleList(f)
     local lf = f.listFrame
     if lf:IsShown() then
@@ -82,13 +96,13 @@ local function ToggleList(f)
     lf.content:SetHeight(math.max(1, #texts * ROW_H))
     lf:SetHeight(math.min(#texts, MAX_ROWS) * ROW_H + 2 * PAD)
     lf.scroll:SetVerticalScroll(0)
+    PlaceList(f, lf)
     lf:Show()
 end
 
 local function BuildList(f)
     local lf = CreateFrame("Frame", nil, f, "BackdropTemplate")
     lf:SetWidth(WIDTH)
-    lf:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -2)
     lf:SetClampedToScreen(true)
     lf:EnableMouse(true)
     lf:SetBackdrop(f:GetBackdrop())
