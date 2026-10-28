@@ -15,7 +15,7 @@ Screenshots to keep on the listing, in this order (the first one is the header i
 
 ## Summary
 
-Automatic greetings, farewells and reconnect messages for party, raid, instance and guild chat. 460 phrases in 14 styles, phrases for your role, custom messages, Mythic+ key announcements and per-channel settings.
+Automatic greetings, farewells and reconnect messages for party, raid, instance and guild chat. About 470 phrases in 14 styles, phrases for your role, custom messages, Mythic+ key announcements and per-channel settings.
 
 ---
 
@@ -44,7 +44,7 @@ AutoSay handles the social basics so you don't have to. It greets the group when
 - Greets you joining, and other people joining after you
 - Says goodbye when you leave the group, log out or quit
 - Sends a reconnect line after a disconnect, with the greetings as a fallback
-- Around 300 built-in phrases, each with its own checkbox
+- About 470 built-in phrases, each with its own checkbox
 - Up to 10 custom messages per message type
 - Picks at random from what you enabled, and avoids repeating itself
 - Can name the people who joined, and merges several names into one line
