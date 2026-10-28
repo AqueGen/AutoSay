@@ -87,16 +87,12 @@ Open settings with `/as`. The pages are listed on the left of the window. Each p
 
 ### Quick setup
 - **Channels** - Turn Party, Raid, Instance, Guild and Mythic+ on or off, and skip LFR and battlegrounds
-- **Style** - Pick a main style and mix in other styles
+- **Style** - Pick a main style, see which styles are mixed in (**Change styles** opens the Style page), and switch role-based and time-of-day phrases on or off
 - **Ask before sending** - Every message waits in a small panel first, with its own timeout
-- Minimap icon, Simulation switch, window size reset and Reset to Defaults
 
 ### Group
-Party, raid and instance share one phrase list with a checkbox column per channel.
-- **When I join** - **On self join**, and **Name the group when I join** to add the group's names
-- **When someone joins** - **On others join**, **Only if leader**, and **Name whoever joined**
-- **Goodbyes** - **Send goodbye on leave** and **Send goodbye when the run ends**
-- **Reconnects** - **On reconnect**, sent after a disconnect
+The Group page holds every switch in one grid: a row per moment (**Greet when I join**, **Name the group when I join**, **Greet when someone joins**, **Only if leader**, **Name whoever joined**, **Send goodbye on leave**, **Send goodbye when the run ends**, **On reconnect**) and a column for Party, Raid and Instance (an instance group is rejoined through the queue, so **On reconnect** has no Instance cell).
+The pages under it are the phrase lists - **When I join**, **When someone joins**, **Goodbyes**, **Reconnects**. One tick per phrase covers party, raid and instance together, and **My own lines** under each list are shared by those chats too.
 
 ### Guild
 Shown while the Guild channel is on.
@@ -104,21 +100,19 @@ Shown while the Guild channel is on.
 - **Goodbyes** - **On logout**, sent when you log out
 
 ### Mythic+
-Shown while the Mythic+ channel is on. Messages go to party chat.
-- **Group ready** - Announce your key when the group is full or when the key starts, optionally with the key level
-- **Timed run** - Send a message when the key is timed
-- **Depleted run** - Send a message when the timer is missed
+Shown while the Mythic+ channel is on. Messages go to party chat. The Mythic+ page holds the switches: announce your key when the group is full or when the key starts, the key level, dungeon names in your client language, and a message when the key is timed or depleted. The pages under it are the phrase lists - **Group ready**, **Timed run**, **Depleted run**.
 
 ### Style
-Style bundles turn a whole set of phrases on or off across every channel. Role-based and time-of-day phrases have their own switches here, and **Lowercase first letter** sets the tone.
+One tick per style turns its whole set of phrases on or off across every channel. A gold name is partly on, with the count beside it.
 
 ### Behaviour
-- **Timing** - Message delay, cooldown and human typing delay
+- **Timing** - Message delay, cooldown, human typing delay and lowercase first letter
 - **Limits** - Hourly message budget, per-person cooldown and social listening
-- Congratulate guild achievements and welcome new guild members
+- **Guild** - Congratulate guild achievements and welcome new guild members
+- **Advanced** - Minimap icon, Simulation switch, window size reset and Reset to Defaults
 
 ### Simulation
-Shown while Simulation is on (Quick setup or `/as testmode`). Buttons fake joins, leaves, reconnects, guild logins and Mythic+ runs without sending anything, and the Debug section holds the debug log and the session log.
+Shown while Simulation is on (Behaviour page or `/as testmode`). Buttons fake joins, leaves, reconnects, guild logins and Mythic+ runs without sending anything, and the Debug section holds the debug log and the session log.
 
 ### Profiles
 Save different configurations and pick one per character.

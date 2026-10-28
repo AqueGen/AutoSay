@@ -6,8 +6,8 @@ Wago takes the same Markdown in its description field.
 
 Screenshots to keep on the listing, in this order (the first one is the header image):
 
-1. The Style tab with a set expanded, so the counts and the Enable all / Disable all pair are visible.
-2. The Group tab: the phrase list with the Party, Raid and Instance columns and a greyed column.
+1. The Style tab: one tick per style, a gold partly-on style with its count.
+2. The Group tab: the trigger grid with the Party, Raid and Instance columns and a greyed column.
 3. A party chat window with two or three greetings actually sent, in different styles.
 4. The Mythic+ tab, or a chat line announcing a key.
 
@@ -44,8 +44,8 @@ AutoSay handles the social basics so you don't have to. It greets the group when
 - Greets you joining, and other people joining after you
 - Says goodbye when you leave the group, log out or quit
 - Sends a reconnect line after a disconnect, with the greetings as a fallback
-- Around 300 built-in phrases, each with its own checkbox per channel
-- Up to 10 custom messages per channel and message type
+- Around 300 built-in phrases, each with its own checkbox
+- Up to 10 custom messages per message type
 - Picks at random from what you enabled, and avoids repeating itself
 - Can name the people who joined, and merges several names into one line
 

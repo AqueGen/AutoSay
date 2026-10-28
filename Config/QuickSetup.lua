@@ -2,25 +2,30 @@ local ADDON_NAME, AutoSay = ...
 local Addon = LibStub("AceAddon-3.0"):GetAddon(ADDON_NAME)
 local L = LibStub("AceLocale-3.0"):GetLocale(ADDON_NAME)
 local Kit = AutoSay.ConfigKit
-local StyleCounts = Kit.StyleCounts
+local StyleCounts, TagSuffix = Kit.StyleCounts, Kit.TagSuffix
 
-local function MixInArgs()
-    local args = {}
-    for i, id in ipairs(AutoSay.MessageStyles) do
-        args[id] = {
-            type = "toggle",
-            name = L["Style " .. id],
-            desc = L["Style " .. id .. " voice"] .. "\n\n" .. L["Mix in desc"],
-            order = i,
-            hidden = function() return id == Addon.db.profile.mainStyle end,
-            get = function()
-                local _, _, _, full = StyleCounts(id)
-                return full
-            end,
-            set = function(_, val) Addon:ApplyStyleBundle(id, false, val) end,
-        }
+-- The styles mixed in beside the main one, as one line: the ticks live on the Style page
+local function MixInSummary()
+    local names = {}
+    for _, id in ipairs(AutoSay.MessageStyles) do
+        if id ~= Addon.db.profile.mainStyle then
+            local _, selected = StyleCounts(id)
+            if selected > 0 then names[#names + 1] = L["Style " .. id] end
+        end
     end
-    return args
+    return L["Mix in"] .. ": |cFFFFFFFF" .. (#names > 0 and table.concat(names, ", ") or L["nothing"]) .. "|r"
+end
+
+local function SocialToggle(order, field, name, desc)
+    return {
+        type = "toggle", order = order, width = "full",
+        name = name, desc = desc,
+        get = function() return Addon.db.profile.social[field] end,
+        set = function(_, v)
+            Addon.db.profile.social[field] = v
+            LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- regrey the phrase lists
+        end,
+    }
 end
 
 Kit.Pages.general = function()
@@ -165,12 +170,22 @@ Kit.Pages.general = function()
                         end,
                     },
                     mixIn = {
-                        type = "group",
-                        name = L["Mix in"],
-                        inline = true,
-                        order = 2,
-                        args = MixInArgs(),
+                        type = "description", order = 2, width = "full", fontSize = "medium",
+                        name = MixInSummary,
                     },
+                    editStyles = {
+                        type = "execute", order = 1.2, width = 0.8,
+                        name = L["Change styles"],
+                        desc = L["Mix in desc"],
+                        func = function() LibStub("AceConfigDialog-3.0"):SelectGroup("AutoSay", "style") end,
+                    },
+                    rolePhrases = SocialToggle(3, "rolePhrases",
+                        L["Role-based phrases"]
+                            .. " |A:roleicon-tiny-tank:14:14|a|A:roleicon-tiny-healer:14:14|a|A:roleicon-tiny-dps:14:14|a",
+                        L["Role-based phrases desc"]),
+                    timeOfDay = SocialToggle(4, "timeOfDay",
+                        L["Time-of-day phrases"] .. TagSuffix("morning/evening/night"),
+                        L["Time-of-day phrases desc"]),
                 },
             },
             confirmGroup = {
@@ -221,115 +236,6 @@ Kit.Pages.general = function()
                         func = function() Addon:ResetConfirmPanelPosition() end,
                     },
                 },
-            },
-            minimapIcon = {
-                type = "toggle",
-                name = L["Show minimap icon"],
-                desc = L["Show or hide the minimap button"],
-                order = 15,
-                width = "full",
-                get = function() return not Addon.db.profile.minimap.hide end,
-                set = function(_, val)
-                    Addon.db.profile.minimap.hide = not val
-                    Addon:UpdateMinimapIcon()
-                end,
-            },
-            testModeGroup = {
-                type = "group",
-                name = L["Test Mode"],
-                inline = true,
-                order = 17,
-                args = {
-                    testModeEnabled = {
-                        type = "toggle",
-                        name = L["Enable Test Mode"],
-                        desc = L["Enable test mode desc"],
-                        order = 1,
-                        width = "full",
-                        get = function() return Addon.db.profile.testMode end,
-                        set = function(_, val)
-                            Addon.db.profile.testMode = val
-                            -- Same invalidation as the slash toggle: delayed sends
-                            -- built under the previous mode must not fire
-                            Addon.state.sendGeneration = Addon.state.sendGeneration + 1
-                            if val then
-                                Addon:Print("|cFFFF9900Simulation:|r |cFF00FF00ON|r")
-                            else
-                                Addon:Print("|cFFFF9900Simulation:|r |cFFFF0000OFF|r")
-                                Addon:TestReset()
-                                Addon.db.profile.debugMode = false
-                            end
-                            LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
-                        end,
-                    },
-                },
-            },
-            resetWindowSize = {
-                type = "execute",
-                name = L["Reset window size"],
-                desc = L["Reset settings window to default size and position"],
-                order = 19,
-                width = 1.5,
-                func = function()
-                    Addon.db.profile.configWindowStatus = nil
-                    local AceConfigDialog = LibStub("AceConfigDialog-3.0")
-                    local status = AceConfigDialog:GetStatusTable("AutoSay")
-                    status.width = 1000
-                    status.height = 900
-                    status.top = nil
-                    status.left = nil
-                    local frame = AceConfigDialog.OpenFrames["AutoSay"]
-                    if frame then
-                        frame:SetWidth(1000)
-                        frame:SetHeight(900)
-                        frame.frame:ClearAllPoints()
-                        frame.frame:SetPoint("CENTER")
-                    end
-                end,
-            },
-            resetDefaults = {
-                type = "execute",
-                name = L["Reset to Defaults"],
-                desc = L["Reset defaults desc"],
-                order = 20,
-                width = 1.5,
-                confirm = true,
-                confirmText = L["Reset defaults confirm"],
-                func = function()
-                    -- Snapshot before the reset flips it: a live simulation must be torn
-                    -- down completely (fabricated M+ listing, pending batches, flow flag),
-                    -- not just have its timers invalidated - but TestReset must NOT run
-                    -- for a user who never touched test mode, since it re-arms mid-group
-                    -- greeting/goodbye state
-                    local wasTestMode = Addon.db.profile.testMode
-                    -- ResetProfile fires OnProfileReset, and that callback stamps the
-                    -- one-shot migrations - without it the next login would migrate the
-                    -- freshly reset profile straight back off its defaults
-                    Addon.db:ResetProfile()
-                    -- ResetProfile only touches the profile, and "reset everything" has
-                    -- to mean the character's own memory too: the budget it has spent
-                    -- this hour, who it has already welcomed, and which phrase each pool
-                    -- said last. Left behind, a fresh-looking config would still be
-                    -- refusing to greet someone it met an hour ago.
-                    Addon:ClearGateCounters()
-                    Addon:ClearPhraseHistory()
-                    if wasTestMode then
-                        Addon:TestReset() -- bumps sendGeneration itself
-                    else
-                        -- Still invalidate delayed sends built before the reset. The
-                        -- guild-login batch cannot rely on its own stale-generation
-                        -- clear (a NEW login would cancel that timer and inherit the
-                        -- names), so drop the batch here explicitly.
-                        Addon.state.sendGeneration = Addon.state.sendGeneration + 1
-                        if Addon.state.guildLoginTimer then
-                            Addon:CancelTimer(Addon.state.guildLoginTimer)
-                            Addon.state.guildLoginTimer = nil
-                        end
-                        Addon.state.pendingGuildLogins = {}
-                    end
-                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
-                    Addon:Print(L["Settings reset to defaults"])
-                end,
             },
         },
     }
