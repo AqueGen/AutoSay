@@ -271,16 +271,6 @@ local function AddMatrixRow(args, key, order, label, hidden, channels, cellFn)
     AddRowBreak(args, key, order + #channels * 0.1 + 0.01, hidden)
 end
 
--- Hide a dependent row only once no channel has its parent switched on
-local function NoneOn(channels, field)
-    return function()
-        for _, ch in ipairs(channels) do
-            if Addon.db.profile[ch.key][field] then return false end
-        end
-        return true
-    end
-end
-
 -- Style-grouped preset picker for one message pool: an accordion of style sections.
 -- Each section header is a full-width button that folds/unfolds its rows;
 -- "Classic" (every untagged phrase) starts open, styles start folded.
@@ -345,8 +335,14 @@ local function PoolForChannels(pool, channels)
 end
 
 -- One tick per phrase, whatever the number of channels: a ticked row is on in every channel
--- the list serves. The db keeps its per-channel tables, so a row reads as ticked while any
--- channel has it, and a click writes the same value to all of them.
+-- the list serves. The db keeps its per-channel tables, and a profile from before the merge
+-- can still differ between them: such a row shows AceGUI's grey "mixed" tick, and a click
+-- writes the same value to all of them.
+local function TriState(onCount, total)
+    if onCount == 0 then return false end
+    if onCount == total then return true end
+    return nil
+end
 local function BuildMessageMatrix(poolId, pool, channels)
     pool = PoolForChannels(pool, channels)
     local function Selected()
@@ -493,6 +489,41 @@ local function BuildMessageMatrix(poolId, pool, channels)
                 end,
             }
             order = order + 1
+
+            -- Only inside an opened section of All phrases: the way to take one style into or
+            -- out of this occasion alone, where the Style page switches it everywhere.
+            -- Each greys once there is nothing left for it to do.
+            local sectionHidden = function() return not AllView() or folded() end
+            local function SetSection(val)
+                for _, msg in ipairs(entries) do
+                    for _, ch in ipairs(channels) do ch.tableFn()[msg.key] = val end
+                end
+                LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+            end
+            local function AnyIs(val)
+                for _, msg in ipairs(entries) do
+                    for _, ch in ipairs(channels) do
+                        if (ch.tableFn()[msg.key] and true or false) == val then return true end
+                    end
+                end
+                return false
+            end
+            args["all_" .. style] = {
+                type = "execute", order = order, width = 0.7,
+                name = L["Enable all"], desc = L["Tick every phrase of this section"],
+                hidden = sectionHidden,
+                disabled = function() return not AnyIs(false) end,
+                func = function() SetSection(true) end,
+            }
+            args["none_" .. style] = {
+                type = "execute", order = order + 0.1, width = 0.7,
+                name = L["Disable all"], desc = L["Untick every phrase of this section"],
+                hidden = sectionHidden,
+                disabled = function() return not AnyIs(true) end,
+                func = function() SetSection(false) end,
+            }
+            AddRowBreak(args, "allrow_" .. style, order + 0.2, sectionHidden)
+            order = order + 1
         end
 
         for _, msg in ipairs(entries) do
@@ -516,14 +547,17 @@ local function BuildMessageMatrix(poolId, pool, channels)
                     end
                     return true
                 end,
+                tristate = #channels > 1,
                 get = function()
+                    local on = 0
                     for _, ch in ipairs(channels) do
-                        if ch.tableFn()[msg.key] then return true end
+                        if ch.tableFn()[msg.key] then on = on + 1 end
                     end
-                    return false
+                    return TriState(on, #channels)
                 end,
+                -- AceGUI cycles a tristate box ticked -> mixed -> clear, so nil means clear here
                 set = function(_, val)
-                    for _, ch in ipairs(channels) do ch.tableFn()[msg.key] = val end
+                    for _, ch in ipairs(channels) do ch.tableFn()[msg.key] = val == true end
                 end,
             }
             order = order + 1
@@ -706,15 +740,38 @@ local function BuildSharedCustomList(channels, customsKey, labelKey)
                 end
                 return true
             end,
+            -- Mixed while a line written before the lists were shared is on in some chats only
+            tristate = true,
             get = function()
-                local on = false
-                EachCustomEntry(channels, customsKey, Text(), function(entry)
-                    if entry.enabled then on = true end
+                local on = {}
+                EachCustomEntry(channels, customsKey, Text(), function(entry, ch)
+                    if entry.enabled then on[ch.key] = true end
                 end)
-                return on
+                local n = 0
+                for _ in pairs(on) do n = n + 1 end
+                return TriState(n, #channels)
             end,
+            -- Ticking makes the line go out in every chat, so a chat that lacks it gets a copy
             set = function(_, val)
-                EachCustomEntry(channels, customsKey, Text(), function(entry) entry.enabled = val end)
+                local text = Text()
+                if val == true then
+                    for _, ch in ipairs(channels) do
+                        local settings = Addon.db.profile[ch.key]
+                        settings[customsKey] = settings[customsKey] or {}
+                        local present = false
+                        for _, entry in ipairs(settings[customsKey]) do
+                            if entry.text == text then present = true end
+                        end
+                        if not present then
+                            if #settings[customsKey] >= MAX_CUSTOM_MESSAGES then
+                                Addon:Print(L["Own lines full"])
+                            else
+                                table.insert(settings[customsKey], { text = text, enabled = true })
+                            end
+                        end
+                    end
+                end
+                EachCustomEntry(channels, customsKey, text, function(entry) entry.enabled = val == true end)
             end,
         }
         args["delete_" .. idx] = {
@@ -910,7 +967,6 @@ Kit.ChannelOffNotice = ChannelOffNotice
 Kit.MythicPlusPartyNotice = MythicPlusPartyNotice
 Kit.AddCaptionRow = AddCaptionRow
 Kit.AddMatrixRow = AddMatrixRow
-Kit.NoneOn = NoneOn
 Kit.BuildMessageMatrix = BuildMessageMatrix
 Kit.BuildCustomMessageList = BuildCustomMessageList
 Kit.AddCustomGroups = AddCustomGroups

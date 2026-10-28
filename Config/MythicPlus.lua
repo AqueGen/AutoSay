@@ -78,8 +78,9 @@ Kit.Pages.mythicplus = function()
                         L["Include key level"], L["Include key level desc"]),
                     useClientLanguage = Toggle(4, "useClientLanguage",
                         L["Use client language for dungeon names"], DungeonNamesDesc),
+                    -- Under the two announce toggles it explains
                     howItWorks = {
-                        type = "description", order = 5, fontSize = "medium",
+                        type = "description", order = 2.5, fontSize = "medium",
                         name = "|cFF888888" .. L["M+ how it works"] .. "|r",
                     },
                 },

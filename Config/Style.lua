@@ -16,9 +16,10 @@ local function ClassFlavour(style)
     return "\n\n|cFF808080" .. L["Class flavour"] .. ":|r " .. table.concat(names, ", ")
 end
 
--- One tick per style. Ticked means every phrase of the style is on; clicking a half-on
--- style finishes it, clicking a full one switches it off. The name says which of the
--- three it is: grey off, gold partly on with the count, green all on.
+-- One tick per style: ticked when every phrase of it is on, AceGUI's grey "mixed" tick when
+-- some are. A click cycles ticked -> mixed -> clear, so a partly-on style clears in one
+-- click and a cleared one fills in one more. The name repeats it in colour: grey off,
+-- gold partly on with the count, green all on.
 local function StyleToggles()
     local args = {
         desc = { type = "description", order = 0, name = L["Style bundle desc"] },
@@ -32,12 +33,21 @@ local function StyleToggles()
                 if full then return "|cFF00FF00" .. L["Style " .. style] .. "|r" end
                 return string.format("|cFFFFD100%s|r |cFFAAAAAA%d/%d|r", L["Style " .. style], selected, total)
             end,
-            desc = function() return BundleDesc(style) .. ClassFlavour(style) end,
-            get = function()
-                local _, _, _, full = StyleCounts(style)
-                return full
+            desc = function()
+                -- How many of the ticked phrases the current switches let out, when not all
+                local _, selected, sendable = StyleCounts(style)
+                local note = sendable < selected
+                    and ("\n\n|cFFFF7F3F" .. string.format(L["%d sendable now"], sendable) .. "|r") or ""
+                return BundleDesc(style) .. ClassFlavour(style) .. note
             end,
-            set = function(_, val) Addon:ApplyStyleBundle(style, false, val) end,
+            tristate = true,
+            get = function()
+                local _, selected, _, full = StyleCounts(style)
+                if full then return true end
+                if selected == 0 then return false end
+                return nil
+            end,
+            set = function(_, val) Addon:ApplyStyleBundle(style, false, val == true) end,
         }
     end
     return args

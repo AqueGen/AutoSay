@@ -2,7 +2,7 @@ local ADDON_NAME, AutoSay = ...
 local Addon = LibStub("AceAddon-3.0"):GetAddon(ADDON_NAME)
 local L = LibStub("AceLocale-3.0"):GetLocale(ADDON_NAME)
 local Kit = AutoSay.ConfigKit
-local TagSuffix, groupChannelKeys, MatrixChannels, ChannelIsOff, ChannelOffNotice, AddCaptionRow, AddMatrixRow, NoneOn, BuildMessageMatrix, AddCustomGroups = Kit.TagSuffix, Kit.groupChannelKeys, Kit.MatrixChannels, Kit.ChannelIsOff, Kit.ChannelOffNotice, Kit.AddCaptionRow, Kit.AddMatrixRow, Kit.NoneOn, Kit.BuildMessageMatrix, Kit.AddCustomGroups
+local TagSuffix, groupChannelKeys, MatrixChannels, ChannelIsOff, ChannelOffNotice, AddCaptionRow, AddMatrixRow, BuildMessageMatrix, AddCustomGroups = Kit.TagSuffix, Kit.groupChannelKeys, Kit.MatrixChannels, Kit.ChannelIsOff, Kit.ChannelOffNotice, Kit.AddCaptionRow, Kit.AddMatrixRow, Kit.BuildMessageMatrix, Kit.AddCustomGroups
 
 local function Refresh()
     LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- regrey the phrase lists
@@ -46,7 +46,7 @@ local function BuildTriggers()
             instance = L["Send greeting once after you zone into the instance"],
         }))
     AddMatrixRow(args, "includeGroupNames", 3, "    " .. L["Name the group when I join"] .. TagSuffix("names"),
-        NoneOn(channels, "onSelfJoin"), channels,
+        nil, channels,
         TriggerCell("includeGroupNames", L["Add names of current group members to the greeting"], "onSelfJoin"))
     AddMatrixRow(args, "onOthersJoin", 4, L["Greet when someone joins"], nil, channels,
         TriggerCell("onOthersJoin", {
@@ -54,15 +54,13 @@ local function BuildTriggers()
             raid = L["Send greeting when others join your raid"],
             instance = L["Send greeting when others join your instance group"],
         }))
-    AddMatrixRow(args, "onOthersJoinLeaderOnly", 5, "    " .. L["Only if leader"],
-        NoneOn(channels, "onOthersJoin"), channels,
+    AddMatrixRow(args, "onOthersJoinLeaderOnly", 5, "    " .. L["Only if leader"], nil, channels,
         TriggerCell("onOthersJoinLeaderOnly", {
             party = L["Only greet newcomers when you are the party leader"],
             raid = L["Only greet newcomers when you are the raid leader"],
             instance = L["Only greet newcomers when you are the group leader"],
         }, "onOthersJoin"))
-    AddMatrixRow(args, "includeNames", 6, "    " .. L["Name whoever joined"] .. TagSuffix("names"),
-        NoneOn(channels, "onOthersJoin"), channels,
+    AddMatrixRow(args, "includeNames", 6, "    " .. L["Name whoever joined"] .. TagSuffix("names"), nil, channels,
         TriggerCell("includeNames", L["Add joined player names to the greeting"], "onOthersJoin"))
     AddMatrixRow(args, "sendGoodbye", 7, L["Send goodbye on leave"], nil, channels,
         TriggerCell("sendGoodbye", {
@@ -81,12 +79,12 @@ local function BuildTriggers()
     return args
 end
 
--- A phrase list page: the ticks, then the player's own lines. The switches live on the
--- Group page above, so these pages hold nothing else.
+-- A phrase list page: the player's own lines on top, where they are found without scrolling
+-- past the presets, then the ticks. The switches live on the Group page above.
 local function ListPage(order, name, poolId, pool, channels, customsKey, customsLabel)
     local args = {
         messagesGroup = {
-            type = "group", name = L["Messages"], inline = true, order = 2,
+            type = "group", name = L["Messages"], inline = true, order = 20,
             args = BuildMessageMatrix(poolId, pool, channels),
         },
     }
@@ -110,10 +108,10 @@ Kit.Pages.group = function()
             },
             greetingsSelf = ListPage(1, L["When I join"], "groupGreetingsSelf", AutoSay.Greetings,
                 MatrixChannels(groupChannelKeys, "enabledGreetingsSelf", "greetingsSelf"),
-                "customGreetings", "Custom greetings"),
+                "customGreetings", "Custom greetings both pages"),
             greetingsOthers = ListPage(2, L["When someone joins"], "groupGreetingsOthers", AutoSay.Greetings,
                 MatrixChannels(groupChannelKeys, "enabledGreetingsOthers", "greetingsOthers"),
-                "customGreetings", "Custom greetings"),
+                "customGreetings", "Custom greetings both pages"),
             goodbyes = ListPage(3, L["Goodbyes"], "groupGoodbyes", AutoSay.Goodbyes,
                 MatrixChannels(groupChannelKeys, "enabledGoodbyes", "goodbyes"),
                 "customGoodbyes", "Custom goodbyes"),
