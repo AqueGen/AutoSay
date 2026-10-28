@@ -23,6 +23,11 @@ Automatic greetings, farewells and reconnect messages for party, raid, instance 
 
 AutoSay handles the social basics so you don't have to. It greets the group when you join, says goodbye when you leave, and tells people you are back after a disconnect. It works in party, raid, instance (LFG, LFR, battlegrounds) and guild chat, and every phrase it can say is a checkbox you own.
 
+### New in 1.12
+
+- **A simpler settings window.** One tick per phrase covers party, raid and instance together, and a style is a single tick. Every switch for group chat sits on the Group page, and every Mythic+ switch on the Mythic+ page; the pages under them are just the phrase lists.
+- **Pick the line yourself.** With Ask before sending on, the list of lines opens beside the panel, and a click sends the one you pick.
+
 ### New in 1.7
 
 - **Greetings split by occasion.** What you say on arriving and what you say to whoever arrives after you are two lists now, each with its own tab, its own trigger and its own ticks.
@@ -65,7 +70,7 @@ AutoSay handles the social basics so you don't have to. It greets the group when
 ### Settings
 
 - `/autosay` or `/as` opens the panel
-- Party, raid, instance and guild each keep their own settings
+- Party, raid, instance and guild each keep their own triggers; party, raid and instance share one set of phrases
 - Test mode replays every trigger without a word reaching real chat
 - Profiles per character or shared across the account
 - `/as selftest` checks the addon against your own settings and reports what it found
