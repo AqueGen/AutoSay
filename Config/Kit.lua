@@ -284,8 +284,8 @@ end
 -- Style-grouped preset picker for one message pool: an accordion of style sections.
 -- Each section header is a full-width button that folds/unfolds its rows;
 -- "Classic" (every untagged phrase) starts open, styles start folded.
--- poolId keys the fold state; channels is a list of { key, tableFn, settingsFn } - one entry
--- renders the plain single-column list, several render the shared checkbox matrix.
+-- poolId keys the fold state; channels is a list of { key, tableFn, settingsFn } that every
+-- tick in the list writes to.
 --- Channels that could speak but have nothing to say: the trigger is on, the channel is on,
 --- and not one phrase of this pool is ticked for it. Silence with no explanation anywhere,
 --- until now.
@@ -344,8 +344,10 @@ local function PoolForChannels(pool, channels)
     return kept
 end
 
+-- One tick per phrase, whatever the number of channels: a ticked row is on in every channel
+-- the list serves. The db keeps its per-channel tables, so a row reads as ticked while any
+-- channel has it, and a click writes the same value to all of them.
 local function BuildMessageMatrix(poolId, pool, channels)
-    local matrix = #channels > 1
     pool = PoolForChannels(pool, channels)
     local function Selected()
         local snap = snapshots[poolId]
@@ -391,10 +393,6 @@ local function BuildMessageMatrix(poolId, pool, channels)
         hidden = function() return AllView() or next(Selected()) ~= nil end,
         name = "|cFFFFD100" .. L["Nothing selected hint"] .. "|r",
     }
-    if matrix then
-        AddCaptionRow(args, "cap_selected", 0.6, channels,
-            function() return AllView() or next(Selected()) == nil end)
-    end
 
     args.emptyNotice = {
         type = "description", order = 0.4, width = "full",
@@ -459,7 +457,6 @@ local function BuildMessageMatrix(poolId, pool, channels)
         end
 
         local folded = function() return #styles > 1 and not open[style] end
-        local sectionHidden = function() return not AllView() or folded() end
 
         -- Pools without style phrases (guild login greetings) get a plain list, no accordion
         if #styles > 1 then
@@ -496,56 +493,6 @@ local function BuildMessageMatrix(poolId, pool, channels)
                 end,
             }
             order = order + 1
-
-            -- Both buttons grey out once there is nothing left for them to do, the way the
-            -- style rows do it, and neither asks first: the other one puts it all back
-            args["all_" .. style] = {
-                type = "execute", order = order, width = 0.7,
-                name = L["Enable all"],
-                desc = L["Enable every phrase of this section on every channel shown"],
-                hidden = sectionHidden,
-                disabled = function()
-                    for _, msg in ipairs(entries) do
-                        for _, ch in ipairs(channels) do
-                            if not ch.tableFn()[msg.key] then return false end
-                        end
-                    end
-                    return true
-                end,
-                func = function()
-                    for _, msg in ipairs(entries) do
-                        for _, ch in ipairs(channels) do ch.tableFn()[msg.key] = true end
-                    end
-                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
-                end,
-            }
-            args["none_" .. style] = {
-                type = "execute", order = order + 0.1, width = 0.7,
-                name = L["Disable all"],
-                desc = L["Disable every phrase of this section on every channel shown"],
-                hidden = sectionHidden,
-                disabled = function()
-                    for _, msg in ipairs(entries) do
-                        for _, ch in ipairs(channels) do
-                            if ch.tableFn()[msg.key] then return false end
-                        end
-                    end
-                    return true
-                end,
-                func = function()
-                    for _, msg in ipairs(entries) do
-                        for _, ch in ipairs(channels) do ch.tableFn()[msg.key] = false end
-                    end
-                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
-                end,
-            }
-            AddRowBreak(args, "allrow_" .. style, order + 0.2, sectionHidden)
-            order = order + 1
-
-            if matrix then
-                AddCaptionRow(args, "cap_" .. style, order, channels, sectionHidden)
-                order = order + 1
-            end
         end
 
         for _, msg in ipairs(entries) do
@@ -555,47 +502,48 @@ local function BuildMessageMatrix(poolId, pool, channels)
                 if AllView() then return folded() end
                 return not Selected()[msg.key]
             end
-            -- AceConfig greys a checkbox but not a description, so a row nothing can send
-            -- would keep its bright label above three dead ticks unless we colour it here
-            local rowLabel = function()
-                local label = AllView() and plainLabel or taggedLabel
-                for _, ch in ipairs(channels) do
-                    if PhraseActive(msg, ch.settingsFn, ch.poolKind, ch.key) then return label end
-                end
-                return "|cFF7F7F7F" .. label:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "") .. "|r"
-            end
-            if matrix then
-                AddMatrixRow(args, "m_" .. msg.key, order, rowLabel, rowHidden, channels, function(ch)
-                    return {
-                        -- Greyed out, not gone: the row's tag names the switch that re-activates it
-                        disabled = function() return not PhraseActive(msg, ch.settingsFn, ch.poolKind, ch.key) end,
-                        get = function() return ch.tableFn()[msg.key] end,
-                        set = function(_, val)
-                            ch.tableFn()[msg.key] = val
-                        end,
-                    }
-                end)
-            else
-                local ch = channels[1]
-                args["m_" .. msg.key] = {
-                    type = "toggle",
-                    name = function() return AllView() and plainLabel or taggedLabel end,
-                    order = order,
-                    -- One column: tags must be readable without hovering, folding beats truncation
-                    width = "full",
-                    hidden = rowHidden,
-                    disabled = function() return not PhraseActive(msg, ch.settingsFn, ch.poolKind, ch.key) end,
-                    get = function() return ch.tableFn()[msg.key] end,
-                    set = function(_, val)
-                        ch.tableFn()[msg.key] = val
-                    end,
-                }
-            end
+            args["m_" .. msg.key] = {
+                type = "toggle",
+                name = function() return AllView() and plainLabel or taggedLabel end,
+                order = order,
+                -- One column: tags must be readable without hovering, folding beats truncation
+                width = "full",
+                hidden = rowHidden,
+                -- Greyed out, not gone, while no channel could send it
+                disabled = function()
+                    for _, ch in ipairs(channels) do
+                        if PhraseActive(msg, ch.settingsFn, ch.poolKind, ch.key) then return false end
+                    end
+                    return true
+                end,
+                get = function()
+                    for _, ch in ipairs(channels) do
+                        if ch.tableFn()[msg.key] then return true end
+                    end
+                    return false
+                end,
+                set = function(_, val)
+                    for _, ch in ipairs(channels) do ch.tableFn()[msg.key] = val end
+                end,
+            }
             order = order + 1
         end
     end
 
     return args
+end
+
+-- {dungeon}/{key} only resolve on the M+ path; elsewhere they are stripped on send.
+-- The text is accepted, but the player hears about it once per session.
+local function WarnMPlusTokens(text)
+    if Addon.mplusTokenHintShown then return end
+    for _, token in ipairs(AutoSay.MPlusTokens) do
+        if text:find(token, 1, true) then
+            Addon.mplusTokenHintShown = true
+            Addon:Print(L["Mythic+ placeholders ({dungeon}, {key}, {upgrade}, {time}) only work in Mythic+ messages - they are removed from other messages."])
+            return
+        end
+    end
 end
 
 -- Build a custom message list UI group for any message type
@@ -686,17 +634,7 @@ local function BuildCustomMessageList(channel, customsKey, labelKey, poolKind)
         get = function() return "" end,
         set = function(_, val)
             if val and val ~= "" then
-                -- {dungeon}/{key} only resolve on the M+ path; elsewhere they are stripped
-                -- on send. Accept the text, but say so once per session.
-                local hasMPlusToken = false
-                for _, token in ipairs(AutoSay.MPlusTokens) do
-                    if val:find(token, 1, true) then hasMPlusToken = true end
-                end
-                if channel ~= "mythicplus" and not Addon.mplusTokenHintShown and hasMPlusToken then
-                    Addon.mplusTokenHintShown = true
-                    Addon:Print(L["Mythic+ placeholders ({dungeon}, {key}, {upgrade}, {time}) only work in Mythic+ messages - they are removed from other messages."])
-                end
-
+                if channel ~= "mythicplus" then WarnMPlusTokens(val) end
                 local list = Addon.db.profile[channel][customsKey]
                 if not list then
                     list = {}
@@ -713,18 +651,137 @@ local function BuildCustomMessageList(channel, customsKey, labelKey, poolKind)
     return args
 end
 
--- Custom messages stay per channel - one inline list each, under the shared matrix
-local function AddCustomGroups(args, channels, customsKey, labelKey, order)
-    local poolKind = channels[1] and channels[1].poolKind
-    for i, ch in ipairs(channels) do
-        args["custom_" .. ch.key] = {
-            type = "group",
-            name = channelLabel[ch.key],
-            inline = true,
-            order = order + i,
-            args = BuildCustomMessageList(ch.key, customsKey, labelKey, poolKind),
+-- One list of own lines for several channels. The db keeps a list per channel; this shows
+-- their texts once each and writes every add, tick and delete to all of them.
+local function SharedCustomTexts(channels, customsKey)
+    local texts, seen = {}, {}
+    for _, ch in ipairs(channels) do
+        for _, entry in ipairs(Addon.db.profile[ch.key][customsKey] or {}) do
+            if entry.text and not seen[entry.text] then
+                seen[entry.text] = true
+                texts[#texts + 1] = entry.text
+            end
+        end
+    end
+    return texts
+end
+
+local function EachCustomEntry(channels, customsKey, text, fn)
+    for _, ch in ipairs(channels) do
+        for _, entry in ipairs(Addon.db.profile[ch.key][customsKey] or {}) do
+            if entry.text == text then fn(entry, ch) end
+        end
+    end
+end
+
+local function BuildSharedCustomList(channels, customsKey, labelKey)
+    local args = {
+        header = {
+            type = "description", order = 1, fontSize = "medium",
+            name = function()
+                return string.format("%s (%d/%d)", L[labelKey],
+                    #SharedCustomTexts(channels, customsKey), MAX_CUSTOM_MESSAGES)
+            end,
+        },
+    }
+    -- A slot for every line the per-channel lists can hold between them: lists written
+    -- apart before they were shared can add up to more than one list's cap
+    local slots = #channels * MAX_CUSTOM_MESSAGES
+    for i = 1, slots do
+        local idx = i
+        local baseOrder = 10 + (i - 1) * 3
+        local function Text() return SharedCustomTexts(channels, customsKey)[idx] end
+        local function Hidden() return Text() == nil end
+        args["toggle_" .. idx] = {
+            type = "toggle", order = baseOrder, width = 2.5,
+            name = function() return Text() or "" end,
+            hidden = Hidden,
+            disabled = function()
+                local text = Text()
+                if not text then return false end
+                for _, ch in ipairs(channels) do
+                    if PhraseActive({ key = "custom", text = text }, ch.settingsFn, ch.poolKind, ch.key) then
+                        return false
+                    end
+                end
+                return true
+            end,
+            get = function()
+                local on = false
+                EachCustomEntry(channels, customsKey, Text(), function(entry)
+                    if entry.enabled then on = true end
+                end)
+                return on
+            end,
+            set = function(_, val)
+                EachCustomEntry(channels, customsKey, Text(), function(entry) entry.enabled = val end)
+            end,
+        }
+        args["delete_" .. idx] = {
+            type = "execute", order = baseOrder + 1, width = 0.5,
+            name = L["Delete"],
+            hidden = Hidden,
+            func = function()
+                local text = Text()
+                for _, ch in ipairs(channels) do
+                    local list = Addon.db.profile[ch.key][customsKey]
+                    for j = #(list or {}), 1, -1 do
+                        if list[j].text == text then table.remove(list, j) end
+                    end
+                end
+                LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+            end,
         }
     end
+    args.newMessageInput = {
+        type = "input", order = 10 + slots * 3, width = "full",
+        name = L["Add"],
+        hidden = function()
+            return #SharedCustomTexts(channels, customsKey) >= MAX_CUSTOM_MESSAGES
+        end,
+        validate = function(_, val)
+            -- SendChatMessage errors out above 255 bytes
+            if val and #val > 255 then return L["Message is too long (max 255 characters)"] end
+            return true
+        end,
+        get = function() return "" end,
+        set = function(_, val)
+            if not val or val == "" then return end
+            -- All chats or none: a line that went into some lists only would read as on
+            -- while another chat never says it
+            local adds = {}
+            for _, ch in ipairs(channels) do
+                local settings = Addon.db.profile[ch.key]
+                settings[customsKey] = settings[customsKey] or {}
+                local present = false
+                for _, entry in ipairs(settings[customsKey]) do
+                    if entry.text == val then present = true end
+                end
+                if not present then
+                    if #settings[customsKey] >= MAX_CUSTOM_MESSAGES then
+                        Addon:Print(L["Own lines full"])
+                        return
+                    end
+                    adds[#adds + 1] = settings[customsKey]
+                end
+            end
+            WarnMPlusTokens(val)
+            for _, list in ipairs(adds) do
+                table.insert(list, { text = val, enabled = true })
+            end
+            EachCustomEntry(channels, customsKey, val, function(entry) entry.enabled = true end)
+            LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+        end,
+    }
+    return args
+end
+
+local function AddCustomGroups(args, channels, customsKey, labelKey, order)
+    args.customShared = {
+        type = "group", inline = true, order = order,
+        name = L["My own lines"],
+        args = BuildSharedCustomList(channels, customsKey, labelKey),
+    }
 end
 
 -- Tooltip body of a style bundle button: its phrases, one line per AutoSay.StylePools header
@@ -775,7 +832,7 @@ end
 --- selected ticked on at least one channel
 --- sendable of those, the ones at least one channel could send right now
 --- full     every phrase ticked on every channel that has the pool, which is what
----          "Enable all" would produce - a phrase ticked in one channel only must not
+---          ticking the style would produce - a phrase ticked in one channel only must not
 ---          colour the set as finished
 local function CountPhrases(matches)
     local total, selected, sendable, full = 0, 0, 0, true
@@ -810,16 +867,6 @@ end
 
 local function StyleCounts(style)
     return CountPhrases(function(msg) return AutoSay.MessageLogic.StyleMatches(msg, style) end)
-end
-
---- The same numbers for the two tag sets, so their buttons can grey on the same rule the
---- style rows use. Matchers mirror TagMatchers in Core.
-local tagMatchers = {
-    role = function(msg) return msg.role ~= nil or msg.text:find("{role}", 1, true) ~= nil end,
-    band = function(msg) return msg.band ~= nil end,
-}
-local function TagCounts(kind)
-    return CountPhrases(tagMatchers[kind])
 end
 
 local bundleDescCache = {}
@@ -861,7 +908,6 @@ Kit.MatrixChannels = MatrixChannels
 Kit.ChannelIsOff = ChannelIsOff
 Kit.ChannelOffNotice = ChannelOffNotice
 Kit.MythicPlusPartyNotice = MythicPlusPartyNotice
-Kit.AddRowBreak = AddRowBreak
 Kit.AddCaptionRow = AddCaptionRow
 Kit.AddMatrixRow = AddMatrixRow
 Kit.NoneOn = NoneOn
@@ -870,5 +916,4 @@ Kit.BuildCustomMessageList = BuildCustomMessageList
 Kit.AddCustomGroups = AddCustomGroups
 Kit.ClassLabel = ClassLabel
 Kit.StyleCounts = StyleCounts
-Kit.TagCounts = TagCounts
 Kit.BundleDesc = BundleDesc

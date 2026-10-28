@@ -36,6 +36,13 @@ Kit.Pages.social = function()
                         get = function() return Addon.db.profile.social.typingDelay end,
                         set = function(_, v) Addon.db.profile.social.typingDelay = v end,
                     },
+                    lowercaseFirst = {
+                        type = "toggle", order = 4, width = "full",
+                        name = L["Lowercase first letter"],
+                        desc = L["Lowercase first letter desc"],
+                        get = function() return Addon.db.profile.social.lowercaseFirst end,
+                        set = function(_, v) Addon.db.profile.social.lowercaseFirst = v end,
+                    },
                 },
             },
             limitsGroup = {
@@ -65,19 +72,130 @@ Kit.Pages.social = function()
                     },
                 },
             },
-            guildGrats = {
-                type = "toggle", order = 6, width = "full",
-                name = L["Congratulate guild achievements"],
-                desc = L["Send grats when a guild member earns an achievement"],
-                get = function() return Addon.db.profile.social.guildGrats end,
-                set = function(_, v) Addon.db.profile.social.guildGrats = v end,
+            guildGroup = {
+                type = "group", name = L["Guild"], inline = true, order = 6,
+                args = {
+                    guildGrats = {
+                        type = "toggle", order = 1, width = "full",
+                        name = L["Congratulate guild achievements"],
+                        desc = L["Send grats when a guild member earns an achievement"],
+                        get = function() return Addon.db.profile.social.guildGrats end,
+                        set = function(_, v) Addon.db.profile.social.guildGrats = v end,
+                    },
+                    guildWelcome = {
+                        type = "toggle", order = 2, width = "full",
+                        name = L["Welcome new guild members"],
+                        desc = L["Greet players who join the guild (max 2 per hour, once per player)"],
+                        get = function() return Addon.db.profile.social.guildWelcome end,
+                        set = function(_, v) Addon.db.profile.social.guildWelcome = v end,
+                    },
+                },
             },
-            guildWelcome = {
-                type = "toggle", order = 7, width = "full",
-                name = L["Welcome new guild members"],
-                desc = L["Greet players who join the guild (max 2 per hour, once per player)"],
-                get = function() return Addon.db.profile.social.guildWelcome end,
-                set = function(_, v) Addon.db.profile.social.guildWelcome = v end,
+            advanced = {
+                type = "group", name = L["Advanced"], inline = true, order = 20,
+                args = {
+                    minimapIcon = {
+                        type = "toggle",
+                        name = L["Show minimap icon"],
+                        desc = L["Show or hide the minimap button"],
+                        order = 15,
+                        width = "full",
+                        get = function() return not Addon.db.profile.minimap.hide end,
+                        set = function(_, val)
+                            Addon.db.profile.minimap.hide = not val
+                            Addon:UpdateMinimapIcon()
+                        end,
+                    },
+                    testModeEnabled = {
+                        type = "toggle",
+                        name = L["Enable Test Mode"],
+                        desc = L["Enable test mode desc"],
+                        order = 17,
+                        width = "full",
+                        get = function() return Addon.db.profile.testMode end,
+                        set = function(_, val)
+                            Addon.db.profile.testMode = val
+                            -- Same invalidation as the slash toggle: delayed sends
+                            -- built under the previous mode must not fire
+                            Addon.state.sendGeneration = Addon.state.sendGeneration + 1
+                            if val then
+                                Addon:Print("|cFFFF9900Simulation:|r |cFF00FF00ON|r")
+                            else
+                                Addon:Print("|cFFFF9900Simulation:|r |cFFFF0000OFF|r")
+                                Addon:TestReset()
+                                Addon.db.profile.debugMode = false
+                            end
+                            LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+                        end,
+                    },
+                    resetWindowSize = {
+                        type = "execute",
+                        name = L["Reset window size"],
+                        desc = L["Reset settings window to default size and position"],
+                        order = 19,
+                        width = 1.5,
+                        func = function()
+                            Addon.db.profile.configWindowStatus = nil
+                            local AceConfigDialog = LibStub("AceConfigDialog-3.0")
+                            local status = AceConfigDialog:GetStatusTable("AutoSay")
+                            status.width = 1000
+                            status.height = 900
+                            status.top = nil
+                            status.left = nil
+                            local frame = AceConfigDialog.OpenFrames["AutoSay"]
+                            if frame then
+                                frame:SetWidth(1000)
+                                frame:SetHeight(900)
+                                frame.frame:ClearAllPoints()
+                                frame.frame:SetPoint("CENTER")
+                            end
+                        end,
+                    },
+                    resetDefaults = {
+                        type = "execute",
+                        name = L["Reset to Defaults"],
+                        desc = L["Reset defaults desc"],
+                        order = 20,
+                        width = 1.5,
+                        confirm = true,
+                        confirmText = L["Reset defaults confirm"],
+                        func = function()
+                            -- Snapshot before the reset flips it: a live simulation must be torn
+                            -- down completely (fabricated M+ listing, pending batches, flow flag),
+                            -- not just have its timers invalidated - but TestReset must NOT run
+                            -- for a user who never touched test mode, since it re-arms mid-group
+                            -- greeting/goodbye state
+                            local wasTestMode = Addon.db.profile.testMode
+                            -- ResetProfile fires OnProfileReset, and that callback stamps the
+                            -- one-shot migrations - without it the next login would migrate the
+                            -- freshly reset profile straight back off its defaults
+                            Addon.db:ResetProfile()
+                            -- ResetProfile only touches the profile, and "reset everything" has
+                            -- to mean the character's own memory too: the budget it has spent
+                            -- this hour, who it has already welcomed, and which phrase each pool
+                            -- said last. Left behind, a fresh-looking config would still be
+                            -- refusing to greet someone it met an hour ago.
+                            Addon:ClearGateCounters()
+                            Addon:ClearPhraseHistory()
+                            if wasTestMode then
+                                Addon:TestReset() -- bumps sendGeneration itself
+                            else
+                                -- Still invalidate delayed sends built before the reset. The
+                                -- guild-login batch cannot rely on its own stale-generation
+                                -- clear (a NEW login would cancel that timer and inherit the
+                                -- names), so drop the batch here explicitly.
+                                Addon.state.sendGeneration = Addon.state.sendGeneration + 1
+                                if Addon.state.guildLoginTimer then
+                                    Addon:CancelTimer(Addon.state.guildLoginTimer)
+                                    Addon.state.guildLoginTimer = nil
+                                end
+                                Addon.state.pendingGuildLogins = {}
+                            end
+                            LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
+                            Addon:Print(L["Settings reset to defaults"])
+                        end,
+                    },
+                },
             },
         },
     }

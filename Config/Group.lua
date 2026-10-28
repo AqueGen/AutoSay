@@ -4,229 +4,96 @@ local L = LibStub("AceLocale-3.0"):GetLocale(ADDON_NAME)
 local Kit = AutoSay.ConfigKit
 local TagSuffix, groupChannelKeys, MatrixChannels, ChannelIsOff, ChannelOffNotice, AddCaptionRow, AddMatrixRow, NoneOn, BuildMessageMatrix, AddCustomGroups = Kit.TagSuffix, Kit.groupChannelKeys, Kit.MatrixChannels, Kit.ChannelIsOff, Kit.ChannelOffNotice, Kit.AddCaptionRow, Kit.AddMatrixRow, Kit.NoneOn, Kit.BuildMessageMatrix, Kit.AddCustomGroups
 
--- Group greetings, one builder per occasion: arriving and welcoming are different moments
--- with different phrases, so each gets its own page, its own trigger row and its own ticks.
--- Party, raid and instance share the grid, so a row reads "this setting, these channels".
-local function BuildGroupGreetingsSelf()
-    local channels = MatrixChannels(groupChannelKeys, "enabledGreetingsSelf", "greetingsSelf")
-    local selfJoinDesc = {
-        party = L["Send greeting when you join a party"],
-        raid = L["Send greeting when you join a raid"],
-        -- Instance groups greet on zone-in instead of on group form
-        instance = L["Send greeting once after you zone into the instance"],
-    }
-
-    local triggers = {}
-    triggers.offNotice = {
-        type = "description", order = 0.5, width = "full",
-        name = ChannelOffNotice(channels),
-    }
-    AddCaptionRow(triggers, "captions", 1, channels)
-    AddMatrixRow(triggers, "onSelfJoin", 2, L["On self join"], nil, channels, function(ch)
-            return {
-                disabled = function() return ChannelIsOff(ch) end,
-                desc = selfJoinDesc[ch.key],
-                get = function() return Addon.db.profile[ch.key].onSelfJoin end,
-                set = function(_, val)
-                    Addon.db.profile[ch.key].onSelfJoin = val
-                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
-                end,
-            }
-        end)
-    AddMatrixRow(triggers, "includeGroupNames", 3,
-        L["Name the group when I join"] .. TagSuffix("names"),
-        NoneOn(channels, "onSelfJoin"), channels, function(ch)
-            return {
-                -- Off with its channel as well as with its parent trigger: two reasons,
-                -- one cell, and the channel one has to win rather than be overwritten
-                disabled = function()
-                    return ChannelIsOff(ch) or not Addon.db.profile[ch.key].onSelfJoin
-                end,
-                desc = L["Add names of current group members to the greeting"],
-                get = function() return Addon.db.profile[ch.key].includeGroupNames end,
-                set = function(_, val)
-                    Addon.db.profile[ch.key].includeGroupNames = val
-                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
-                end,
-            }
-        end)
-
-    local args = {
-        triggersGroup = {
-            type = "group", name = L["Triggers"], inline = true, order = 1, args = triggers,
-        },
-        messagesGroup = {
-            type = "group", name = L["Messages"], inline = true, order = 2,
-            args = BuildMessageMatrix("groupGreetingsSelf", AutoSay.Greetings, channels),
-        },
-    }
-    AddCustomGroups(args, channels, "customGreetings", "Custom greetings", 10)
-    return args
+local function Refresh()
+    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- regrey the phrase lists
 end
 
--- The other greeting occasion: what goes out when somebody arrives after you.
-local function BuildGroupGreetingsOthers()
-    local channels = MatrixChannels(groupChannelKeys, "enabledGreetingsOthers", "greetingsOthers")
-    local othersJoinDesc = {
-        party = L["Send greeting when others join your party"],
-        raid = L["Send greeting when others join your raid"],
-        instance = L["Send greeting when others join your instance group"],
-    }
-    local leaderOnlyDesc = {
-        party = L["Only greet newcomers when you are the party leader"],
-        raid = L["Only greet newcomers when you are the raid leader"],
-        instance = L["Only greet newcomers when you are the group leader"],
-    }
-
-    local triggers = {}
-    triggers.offNotice = {
-        type = "description", order = 0.5, width = "full",
-        name = ChannelOffNotice(channels),
-    }
-    AddCaptionRow(triggers, "captions", 1, channels)
-    AddMatrixRow(triggers, "onOthersJoin", 2, L["On others join"], nil, channels, function(ch)
-            return {
-                disabled = function() return ChannelIsOff(ch) end,
-                desc = othersJoinDesc[ch.key],
-                get = function() return Addon.db.profile[ch.key].onOthersJoin end,
-                set = function(_, val)
-                    Addon.db.profile[ch.key].onOthersJoin = val
-                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay") -- refilter the phrase lists
-                end,
-            }
-        end)
-    AddMatrixRow(triggers, "onOthersJoinLeaderOnly", 3,
-        L["Only if leader"], NoneOn(channels, "onOthersJoin"), channels, function(ch)
-            return {
-                disabled = function()
-                    return ChannelIsOff(ch) or not Addon.db.profile[ch.key].onOthersJoin
-                end,
-                desc = leaderOnlyDesc[ch.key],
-                get = function() return Addon.db.profile[ch.key].onOthersJoinLeaderOnly end,
-                set = function(_, val) Addon.db.profile[ch.key].onOthersJoinLeaderOnly = val end,
-            }
-        end)
-    AddMatrixRow(triggers, "includeNames", 4,
-        L["Name whoever joined"] .. TagSuffix("names"),
-        NoneOn(channels, "onOthersJoin"), channels, function(ch)
-            return {
-                disabled = function()
-                    return ChannelIsOff(ch) or not Addon.db.profile[ch.key].onOthersJoin
-                end,
-                desc = L["Add joined player names to the greeting"],
-                get = function() return Addon.db.profile[ch.key].includeNames end,
-                set = function(_, val)
-                    Addon.db.profile[ch.key].includeNames = val
-                    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
-                end,
-            }
-        end)
-
-    local args = {
-        triggersGroup = {
-            type = "group", name = L["Triggers"], inline = true, order = 1, args = triggers,
-        },
-        messagesGroup = {
-            type = "group", name = L["Messages"], inline = true, order = 2,
-            args = BuildMessageMatrix("groupGreetingsOthers", AutoSay.Greetings, channels),
-        },
-    }
-    AddCustomGroups(args, channels, "customGreetings", "Custom greetings", 10)
-    return args
-end
-
--- Group goodbyes: same grid, a single trigger row
-local function BuildGroupGoodbyes()
-    local channels = MatrixChannels(groupChannelKeys, "enabledGoodbyes", "goodbyes")
-    local goodbyeDesc = {
-        party = L["Send goodbye when leaving party"],
-        raid = L["Send goodbye when leaving raid"],
-        instance = L["Send goodbye when leaving instance group"],
-    }
-
-    local triggers = {}
-    triggers.offNotice = {
-        type = "description", order = 0.5, width = "full",
-        name = ChannelOffNotice(channels),
-    }
-    AddCaptionRow(triggers, "captions", 1, channels)
-    AddMatrixRow(triggers, "sendGoodbye", 2,
-        L["Send goodbye on leave"], nil, channels, function(ch)
-            return {
-                disabled = function() return ChannelIsOff(ch) end,
-                desc = goodbyeDesc[ch.key],
-                get = function() return Addon.db.profile[ch.key].sendGoodbye end,
-                set = function(_, val) Addon.db.profile[ch.key].sendGoodbye = val end,
-            }
-        end)
-    -- Its own row rather than a qualifier under the one above: the two occasions are
-    -- independent, and either can be on without the other
-    AddMatrixRow(triggers, "sendGoodbyeOnRunEnd", 3,
-        L["Send goodbye when the run ends"], nil, channels, function(ch)
-            return {
-                disabled = function() return ChannelIsOff(ch) end,
-                desc = L["Send goodbye when the run ends desc"],
-                get = function() return Addon.db.profile[ch.key].sendGoodbyeOnRunEnd end,
-                set = function(_, val) Addon.db.profile[ch.key].sendGoodbyeOnRunEnd = val end,
-            }
-        end)
-
-    local args = {
-        triggersGroup = {
-            type = "group", name = L["Triggers"], inline = true, order = 1, args = triggers,
-        },
-        messagesGroup = {
-            type = "group", name = L["Messages"], inline = true, order = 2,
-            args = BuildMessageMatrix("groupGoodbyes", AutoSay.Goodbyes, channels),
-        },
-    }
-    AddCustomGroups(args, channels, "customGoodbyes", "Custom goodbyes", 10)
-    return args
-end
-
--- Group reconnects: two columns only - an instance group is rejoined through the queue,
--- so it has no reconnect trigger and no reconnect phrases
-local function BuildGroupReconnects()
-    local channels = MatrixChannels({ "party", "raid" }, "enabledReconnects", "reconnects")
-    local reconnectDesc = {
-        party = L["Send greeting when you reconnect to party"],
-        raid = L["Send greeting when you reconnect to raid"],
-    }
-
-    local triggers = {}
-    triggers.offNotice = {
-        type = "description", order = 0.5, width = "full",
-        name = ChannelOffNotice(channels),
-    }
-    AddCaptionRow(triggers, "captions", 1, channels)
-    AddMatrixRow(triggers, "onReconnect", 2, L["On reconnect"], nil, channels, function(ch)
+-- A trigger cell for one channel. A sub-option (parent set) is off with its channel as
+-- well as with its parent trigger: two reasons, one cell, and the channel one has to win.
+local function TriggerCell(field, desc, parent)
+    return function(ch)
         return {
-            disabled = function() return ChannelIsOff(ch) end,
-            desc = reconnectDesc[ch.key],
-            get = function() return Addon.db.profile[ch.key].onReconnect end,
-            set = function(_, val) Addon.db.profile[ch.key].onReconnect = val end,
+            disabled = function()
+                return ChannelIsOff(ch) or (parent ~= nil and not Addon.db.profile[ch.key][parent])
+            end,
+            desc = type(desc) == "table" and desc[ch.key] or desc,
+            get = function() return Addon.db.profile[ch.key][field] end,
+            set = function(_, val)
+                Addon.db.profile[ch.key][field] = val
+                Refresh()
+            end,
         }
-    end)
-    triggers.instanceNote = {
-        type = "description", order = 3, fontSize = "small",
-        name = "|cFF888888" .. L["Reconnects instance note"] .. "|r",
-    }
+    end
+end
 
+-- Every switch of the Group page in one grid: the rows are the moments, the columns the
+-- chats. Instance is rejoined through the queue, so the reconnect row has no Instance cell.
+local function BuildTriggers()
+    local channels = MatrixChannels(groupChannelKeys, "enabledGreetingsSelf", "greetingsSelf")
+    local reconnectChannels = MatrixChannels({ "party", "raid" }, "enabledReconnects", "reconnects")
     local args = {
-        triggersGroup = {
-            type = "group", name = L["Triggers"], inline = true, order = 1, args = triggers,
-        },
-        messagesGroup = {
-            type = "group", name = L["Messages"], inline = true, order = 2,
-            args = BuildMessageMatrix("groupReconnects", AutoSay.Reconnects, channels),
+        offNotice = {
+            type = "description", order = 0.5, width = "full",
+            name = ChannelOffNotice(channels),
         },
     }
-    AddCustomGroups(args, channels, "customReconnects", "Custom reconnects", 10)
+    AddCaptionRow(args, "captions", 1, channels)
+    AddMatrixRow(args, "onSelfJoin", 2, L["Greet when I join"], nil, channels,
+        TriggerCell("onSelfJoin", {
+            party = L["Send greeting when you join a party"],
+            raid = L["Send greeting when you join a raid"],
+            -- Instance groups greet on zone-in instead of on group form
+            instance = L["Send greeting once after you zone into the instance"],
+        }))
+    AddMatrixRow(args, "includeGroupNames", 3, "    " .. L["Name the group when I join"] .. TagSuffix("names"),
+        NoneOn(channels, "onSelfJoin"), channels,
+        TriggerCell("includeGroupNames", L["Add names of current group members to the greeting"], "onSelfJoin"))
+    AddMatrixRow(args, "onOthersJoin", 4, L["Greet when someone joins"], nil, channels,
+        TriggerCell("onOthersJoin", {
+            party = L["Send greeting when others join your party"],
+            raid = L["Send greeting when others join your raid"],
+            instance = L["Send greeting when others join your instance group"],
+        }))
+    AddMatrixRow(args, "onOthersJoinLeaderOnly", 5, "    " .. L["Only if leader"],
+        NoneOn(channels, "onOthersJoin"), channels,
+        TriggerCell("onOthersJoinLeaderOnly", {
+            party = L["Only greet newcomers when you are the party leader"],
+            raid = L["Only greet newcomers when you are the raid leader"],
+            instance = L["Only greet newcomers when you are the group leader"],
+        }, "onOthersJoin"))
+    AddMatrixRow(args, "includeNames", 6, "    " .. L["Name whoever joined"] .. TagSuffix("names"),
+        NoneOn(channels, "onOthersJoin"), channels,
+        TriggerCell("includeNames", L["Add joined player names to the greeting"], "onOthersJoin"))
+    AddMatrixRow(args, "sendGoodbye", 7, L["Send goodbye on leave"], nil, channels,
+        TriggerCell("sendGoodbye", {
+            party = L["Send goodbye when leaving party"],
+            raid = L["Send goodbye when leaving raid"],
+            instance = L["Send goodbye when leaving instance group"],
+        }))
+    -- Its own row rather than a qualifier of the one above: either can be on without the other
+    AddMatrixRow(args, "sendGoodbyeOnRunEnd", 8, L["Send goodbye when the run ends"], nil, channels,
+        TriggerCell("sendGoodbyeOnRunEnd", L["Send goodbye when the run ends desc"]))
+    AddMatrixRow(args, "onReconnect", 9, L["On reconnect"], nil, reconnectChannels,
+        TriggerCell("onReconnect", {
+            party = L["Send greeting when you reconnect to party"],
+            raid = L["Send greeting when you reconnect to raid"],
+        }))
     return args
 end
 
--- No per-channel hiding here: each page shows all three columns whatever the General
--- switches say, and those switches keep doing the only job they ever had - gating sends.
+-- A phrase list page: the ticks, then the player's own lines. The switches live on the
+-- Group page above, so these pages hold nothing else.
+local function ListPage(order, name, poolId, pool, channels, customsKey, customsLabel)
+    local args = {
+        messagesGroup = {
+            type = "group", name = L["Messages"], inline = true, order = 2,
+            args = BuildMessageMatrix(poolId, pool, channels),
+        },
+    }
+    AddCustomGroups(args, channels, customsKey, customsLabel, 10)
+    return { type = "group", order = order, name = name, args = args }
+end
+
 Kit.Pages.group = function()
     return {
         type = "group",
@@ -237,30 +104,23 @@ Kit.Pages.group = function()
                 type = "description", order = 0, fontSize = "medium",
                 name = L["Group overview"],
             },
-            -- Two occasions, two pages: the page is the trigger, so no phrase
-            -- needs a [self] or [newcomers] tag to say which one it serves
-            greetingsSelf = {
-                type = "group", order = 1,
-                name = L["When I join"],
-                args = BuildGroupGreetingsSelf(),
+            triggersGroup = {
+                type = "group", name = L["Triggers"], inline = true, order = 0.5,
+                args = BuildTriggers(),
             },
-            greetingsOthers = {
-                type = "group", order = 2,
-                name = L["When someone joins"],
-                args = BuildGroupGreetingsOthers(),
-            },
-            goodbyes = {
-                type = "group",
-                name = L["Goodbyes"],
-                order = 3,
-                args = BuildGroupGoodbyes(),
-            },
-            reconnects = {
-                type = "group",
-                name = L["Reconnects"],
-                order = 4,
-                args = BuildGroupReconnects(),
-            },
+            greetingsSelf = ListPage(1, L["When I join"], "groupGreetingsSelf", AutoSay.Greetings,
+                MatrixChannels(groupChannelKeys, "enabledGreetingsSelf", "greetingsSelf"),
+                "customGreetings", "Custom greetings"),
+            greetingsOthers = ListPage(2, L["When someone joins"], "groupGreetingsOthers", AutoSay.Greetings,
+                MatrixChannels(groupChannelKeys, "enabledGreetingsOthers", "greetingsOthers"),
+                "customGreetings", "Custom greetings"),
+            goodbyes = ListPage(3, L["Goodbyes"], "groupGoodbyes", AutoSay.Goodbyes,
+                MatrixChannels(groupChannelKeys, "enabledGoodbyes", "goodbyes"),
+                "customGoodbyes", "Custom goodbyes"),
+            -- An instance group is rejoined through the queue: no reconnect list of its own
+            reconnects = ListPage(4, L["Reconnects"], "groupReconnects", AutoSay.Reconnects,
+                MatrixChannels({ "party", "raid" }, "enabledReconnects", "reconnects"),
+                "customReconnects", "Custom reconnects"),
         },
     }
 end
