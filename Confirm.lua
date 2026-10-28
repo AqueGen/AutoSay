@@ -41,6 +41,16 @@ function Confirm:CanList()
   return item ~= nil and item.candidates ~= nil and #item.candidates() >= 2
 end
 
+function Confirm:Pinned(pins)
+  local pinned = {}
+  local item = self.item
+  if not item or not item.candidates then return pinned end
+  for _, entry in ipairs(item.candidates()) do
+    if pins[entry.template] then pinned[#pinned + 1] = entry end
+  end
+  return pinned
+end
+
 function Confirm:Choose(text)
   local item = self.item
   if not item or type(text) ~= "string" or text == "" or text == item.text then return false end

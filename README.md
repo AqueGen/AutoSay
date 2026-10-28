@@ -37,7 +37,7 @@ Choose when messages are sent:
 - **Player Names** - Optionally include joining player's name in greetings
 - **Cooldown System** - Separate cooldowns for guild and group messages (default: 5s)
 - **Message Delay** - Configurable delay before sending (default: 1s)
-- **Ask Before Sending** - Optional: every message waits in a small panel with Send and Another, or click one in the list to send it; leave and logout goodbyes stay silent in this mode
+- **Ask Before Sending** - Optional: every message waits in a small panel with Send and Another, or click one in the list to send it; star a phrase in the list to keep it as a quick button on the panel (the plain default phrases start starred); leave and logout goodbyes stay silent in this mode
 - **Test Mode** - Test all functionality without sending actual messages
 - **Debug Mode** - Detailed logging for troubleshooting
 - **Profile Support** - Save different configurations per character

@@ -198,6 +198,34 @@ local defaultCompletionDepleted = {
     tyfun = false,
 }
 
+-- Pins are keyed by phrase template, so one pin covers every channel and pool the phrase is
+-- offered in. Shipped pins: the first three plain phrases each pool enables by default.
+local PIN_DEFAULTS_PER_POOL = 3
+local function DefaultPins()
+    local pins = {}
+    local function AddPool(messages, enabled)
+        local n = 0
+        for _, msg in ipairs(messages) do
+            if n == PIN_DEFAULTS_PER_POOL then return end
+            local text = enabled and msg.text or msg
+            if not enabled or (enabled[msg.key] and not msg.style and not msg.band and not msg.role and not msg.faction) then
+                pins[text] = true
+                n = n + 1
+            end
+        end
+    end
+    AddPool(AutoSay.Greetings, defaultGreetings)
+    AddPool(AutoSay.Goodbyes, defaultGoodbyes)
+    AddPool(AutoSay.Reconnects, defaultReconnects)
+    AddPool(AutoSay.KeyAnnounce, defaultKeyAnnounce)
+    AddPool(AutoSay.CompletionTimed, defaultCompletionTimed)
+    AddPool(AutoSay.CompletionDepleted, defaultCompletionDepleted)
+    AddPool(AutoSay.GuildLoginGreetings, defaultGuildLoginGreetings)
+    AddPool(AutoSay.GuildGrats)
+    AddPool(AutoSay.GuildWelcome)
+    return pins
+end
+
 -- Deep copy helper for defaults
 local function DeepCopy(orig)
     local copy = {}
@@ -229,6 +257,7 @@ local defaults = {
         confirm = {
             enabled = false,
             timeout = 30,
+            pins = DefaultPins(),
         },
 
         -- Party settings
@@ -1510,7 +1539,7 @@ function Addon:OfferForConfirm(message, channel, target, keepCase, offer)
                 local text = finish(entry.text, entry.keepCase)
                 if text and not seen[text] then
                     seen[text] = true
-                    list[#list + 1] = text
+                    list[#list + 1] = { text = text, template = entry.template or entry.text }
                 end
             end
             return list
@@ -1557,6 +1586,22 @@ end
 function Addon:ConfirmChoose(text)
     self.confirm:Choose(text)
     self:ConfirmSend()
+end
+
+function Addon:IsConfirmPinned(template)
+    return self.db.profile.confirm.pins[template] == true
+end
+
+-- An unpin is stored as false: nil would bring a shipped pin back from the defaults
+function Addon:ToggleConfirmPin(template)
+    local pins = self.db.profile.confirm.pins
+    pins[template] = pins[template] ~= true
+    local item = self.confirm:Current()
+    if item then self:ShowConfirmPanel(item, true) end
+end
+
+function Addon:ConfirmPinned()
+    return self.confirm:Pinned(self.db.profile.confirm.pins)
 end
 
 function Addon:DropConfirmOffer(predicate)
@@ -1671,7 +1716,7 @@ end
 local function FillEach(texts, fill, keepCase)
     local list = {}
     for i, text in ipairs(texts) do
-        list[i] = { text = fill(text), keepCase = keepCase }
+        list[i] = { text = fill(text), template = text, keepCase = keepCase }
     end
     return list
 end
@@ -1960,7 +2005,7 @@ function Addon:BuildAndSendGreeting(channel, reason, playerNames)
         end
         local list = {}
         for i, entry in ipairs(entries) do
-            list[i] = { text = fill(entry.text, entry.nameMode), keepCase = entry.keepCase }
+            list[i] = { text = fill(entry.text, entry.nameMode), template = entry.text, keepCase = entry.keepCase }
         end
         return list
     end
@@ -3022,7 +3067,7 @@ function Addon:TestConfirmPanel(variant)
         end,
         candidates = function()
             local list = {}
-            for i, text in ipairs(samples) do list[i] = TruncateToChatLimit(text) end
+            for i, text in ipairs(samples) do list[i] = { text = TruncateToChatLimit(text), template = text } end
             return list
         end,
     }, GetTime())
