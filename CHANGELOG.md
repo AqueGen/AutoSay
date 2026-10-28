@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.12.0](https://github.com/AqueGen/AutoSay/compare/v1.11.0...v1.12.0) (2026-10-28)
+
+
+### Features
+
+* **confirm:** open the phrase list beside the panel and send on click ([#45](https://github.com/AqueGen/AutoSay/issues/45)) ([c030d13](https://github.com/AqueGen/AutoSay/commit/c030d13139449406e13ed3d32016f6fbd7bd23f8))
+* settings with one tick per phrase and the switches in one place ([#48](https://github.com/AqueGen/AutoSay/issues/48)) ([a4053dc](https://github.com/AqueGen/AutoSay/commit/a4053dcc31aac06b7b99d882ee1bc4a4df9ad932))
+* show the addon as AutoSay ([#47](https://github.com/AqueGen/AutoSay/issues/47)) ([3b1bc15](https://github.com/AqueGen/AutoSay/commit/3b1bc1577dbed0e60dda4c2025cb7dddea434db7))
+
+
+### Bug Fixes
+
+* ticking a shared own line changes all chats or none ([#49](https://github.com/AqueGen/AutoSay/issues/49)) ([c24b211](https://github.com/AqueGen/AutoSay/commit/c24b211a8277bbe0ced817a7c47ae8d6aa389273))
+
 ## [1.11.0](https://github.com/AqueGen/AutoSay/compare/v1.10.2...v1.11.0) (2026-10-11)
 
 
