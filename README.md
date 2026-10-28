@@ -29,8 +29,8 @@ Choose when messages are sent:
 - **12 Built-in Greetings** - From casual "Hi!" to friendly "Hello there!"
 - **12 Built-in Farewells** - From simple "Bye!" to "Later all!"
 - **14 Reconnect Messages** - From "Back!" to "Sorry, got disconnected!"
-- **Custom Messages** - Add your own personalized messages per channel
-- **Per-Channel Selection** - Enable different messages for different channels
+- **Custom Messages** - Add your own lines for each occasion; party, raid and instance share one list, guild and Mythic+ keep their own
+- **Per-Occasion Selection** - Tick the phrases for each occasion; one tick covers party, raid and instance, and each chat has its own triggers
 - **Random Selection** - Messages are randomly picked from your enabled pool
 
 ### Additional Features

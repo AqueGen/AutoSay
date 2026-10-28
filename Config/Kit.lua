@@ -751,10 +751,12 @@ local function BuildSharedCustomList(channels, customsKey, labelKey)
                 for _ in pairs(on) do n = n + 1 end
                 return TriState(n, #channels)
             end,
-            -- Ticking makes the line go out in every chat, so a chat that lacks it gets a copy
+            -- Ticking makes the line go out in every chat, so a chat that lacks it gets a copy.
+            -- All chats or none, as with Add: a full list leaves the row as it was.
             set = function(_, val)
                 local text = Text()
                 if val == true then
+                    local missing = {}
                     for _, ch in ipairs(channels) do
                         local settings = Addon.db.profile[ch.key]
                         settings[customsKey] = settings[customsKey] or {}
@@ -765,10 +767,13 @@ local function BuildSharedCustomList(channels, customsKey, labelKey)
                         if not present then
                             if #settings[customsKey] >= MAX_CUSTOM_MESSAGES then
                                 Addon:Print(L["Own lines full"])
-                            else
-                                table.insert(settings[customsKey], { text = text, enabled = true })
+                                return
                             end
+                            missing[#missing + 1] = settings[customsKey]
                         end
+                    end
+                    for _, list in ipairs(missing) do
+                        table.insert(list, { text = text, enabled = true })
                     end
                 end
                 EachCustomEntry(channels, customsKey, text, function(entry) entry.enabled = val == true end)
