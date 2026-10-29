@@ -90,6 +90,10 @@ local function Build()
     f:SetToplevel(true)
     f:SetClampedToScreen(true)
     f:EnableMouse(true)
+    f:SetMovable(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", f.StartMoving)
+    f:SetScript("OnDragStop", f.StopMovingOrSizing)
     f:SetPoint("CENTER")
     f:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8X8",
