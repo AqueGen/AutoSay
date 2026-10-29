@@ -351,6 +351,12 @@ L["Confirm list"] = "List"
 L["Confirm pin"] = "Pin as a quick button"
 L["Confirm unpin"] = "Unpin"
 L["Pin tooltip"] = "Star: a quick button on the Ask before sending panel"
+
+-- What's new
+L["News title"] = "New in AutoSay"
+L["News confirm"] = "Pick what to say yourself. Each message waits in a small panel: send it, roll another, or open List and click any phrase. Star a phrase in List or in the settings lists to keep it as a quick button on the panel. Hi!, Bye! and the other plain lines start starred."
+L["Open settings"] = "Open settings"
+L["Close"] = "Close"
 L["Chat locked to addons"] = "Chat is closed to addons here - the message was not sent."
 L["Confirm label greeting"] = "Greeting"
 L["Confirm label newcomer"] = "Greeting a newcomer"

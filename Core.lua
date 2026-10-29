@@ -377,6 +377,7 @@ local defaults = {
         -- Session log (see Log.lua). Account-wide as well: a session spans characters,
         -- and the recording must survive a /reload to be worth anything.
         log = { recording = false, entries = {} },
+        newsSeen = 0, -- id of the last What's new message shown (see WhatsNew.lua)
     },
 
     char = {
@@ -462,6 +463,7 @@ function Addon:OnInitialize()
     self.priorProfiles = priorProfiles
     self.priorTimeOfDay = priorTimeOfDay
     self.priorBandGoodbyes = priorBandGoodbyes
+    self.newInstall = AutoSayDB == nil
 
     -- Initialize database
     self.db = LibStub("AceDB-3.0"):New("AutoSayDB", defaults, true)
@@ -903,6 +905,8 @@ function Addon:OnEnable()
     self:ScheduleRepeatingTimer(function()
         self.db.char.lastSeenTime = time()
     end, 60)
+
+    self:ScheduleNews()
 
     self:DebugPrint("Addon enabled")
 end
@@ -1586,6 +1590,12 @@ end
 function Addon:ConfirmChoose(text)
     self.confirm:Choose(text)
     self:ConfirmSend()
+end
+
+function Addon:SetConfirmEnabled(on)
+    self.db.profile.confirm.enabled = on
+    if not on then self:ConfirmDismiss() end
+    LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
 end
 
 function Addon:IsConfirmPinned(template)

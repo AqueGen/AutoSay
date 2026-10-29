@@ -201,11 +201,7 @@ Kit.Pages.general = function()
                         order = 1,
                         width = "full",
                         get = function() return Addon.db.profile.confirm.enabled end,
-                        set = function(_, val)
-                            Addon.db.profile.confirm.enabled = val
-                            if not val then Addon:ConfirmDismiss() end
-                            LibStub("AceConfigRegistry-3.0"):NotifyChange("AutoSay")
-                        end,
+                        set = function(_, val) Addon:SetConfirmEnabled(val) end,
                     },
                     confirmTimeout = {
                         type = "range",

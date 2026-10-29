@@ -42,6 +42,7 @@ Humanizer.lua
 Confirm.lua
 Core.lua
 ConfirmPanel.lua
+WhatsNew.lua
 Log.lua
 SelfTest.lua
 Events.lua
