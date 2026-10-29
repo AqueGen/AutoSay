@@ -118,6 +118,36 @@ describe("Confirm", function()
     end)
   end)
 
+  describe("Pinned", function()
+    local function entries(...)
+      local list = {}
+      for i, template in ipairs({ ... }) do list[i] = { text = template .. "!", template = template } end
+      return function() return list end
+    end
+
+    it("keeps pinned candidates in list order", function()
+      local c = Confirm.New()
+      c:Offer(item("hi", { candidates = entries("hi", "yo", "hey") }), 0)
+      local pinned = c:Pinned({ hey = true, hi = true, yo = false })
+      assert.equal(2, #pinned)
+      assert.equal("hi!", pinned[1].text)
+      assert.equal("hey!", pinned[2].text)
+    end)
+
+    it("ignores pins that are not candidates now", function()
+      local c = Confirm.New()
+      c:Offer(item("hi", { candidates = entries("hi") }), 0)
+      assert.equal(0, #c:Pinned({ bye = true }))
+    end)
+
+    it("is empty without candidates or an offer", function()
+      local c = Confirm.New()
+      assert.equal(0, #c:Pinned({ hi = true }))
+      c:Offer(item("hi"), 0)
+      assert.equal(0, #c:Pinned({ hi = true }))
+    end)
+  end)
+
   describe("Choose", function()
     it("replaces the text", function()
       local c = Confirm.New()

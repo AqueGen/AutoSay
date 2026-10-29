@@ -114,3 +114,76 @@ local function Constructor()
 end
 
 AceGUI:RegisterWidgetType(Type, Constructor, Version)
+
+--[[-----------------------------------------------------------------------------
+AutoSayPin Widget
+A star that pins a phrase as a quick button on the Ask before sending panel.
+Rendered by AceConfigDialog for a "toggle" option with dialogControl = "AutoSayPin".
+-------------------------------------------------------------------------------]]
+local PinType, PinVersion = "AutoSayPin", 1
+if (AceGUI:GetWidgetVersion(PinType) or 0) >= PinVersion then return end
+
+local ON_ATLAS, OFF_ATLAS = "auctionhouse-icon-favorite", "auctionhouse-icon-favorite-off"
+
+local function Pin_OnClick(frame)
+    AceGUI:ClearFocus()
+    local self = frame.obj
+    self:SetValue(not self.checked)
+    self:Fire("OnValueChanged", self.checked)
+end
+
+local pinMethods = {
+    ["OnAcquire"] = function(self)
+        self:SetHeight(24)
+        self:SetWidth(24)
+        self:SetDisabled(false)
+        self:SetValue(false)
+    end,
+
+    ["SetValue"] = function(self, value)
+        self.checked = value and true or false
+        self.icon:SetAtlas(self.checked and ON_ATLAS or OFF_ATLAS)
+    end,
+
+    ["GetValue"] = function(self)
+        return self.checked
+    end,
+
+    ["SetDisabled"] = function(self, disabled)
+        self.disabled = disabled
+        if disabled then self.frame:Disable() else self.frame:Enable() end
+        self.icon:SetDesaturated(disabled and true or false)
+    end,
+
+    -- The toggle path of AceConfigDialog calls these; a star has no label or image
+    ["SetLabel"] = function() end,
+    ["SetTriState"] = function() end,
+    ["SetDescription"] = function() end,
+    ["SetImage"] = function() end,
+}
+
+local function PinConstructor()
+    local frame = CreateFrame("Button", nil, UIParent)
+    frame:Hide()
+    frame:EnableMouse(true)
+    frame:SetScript("OnClick", Pin_OnClick)
+    frame:SetScript("OnEnter", Control_OnEnter)
+    frame:SetScript("OnLeave", Control_OnLeave)
+
+    local icon = frame:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(16, 16)
+    icon:SetPoint("LEFT", frame, "LEFT", 2, 0)
+
+    local highlight = frame:CreateTexture(nil, "HIGHLIGHT")
+    highlight:SetAtlas(ON_ATLAS)
+    highlight:SetAllPoints(icon)
+    highlight:SetAlpha(0.4)
+
+    local widget = { icon = icon, frame = frame, type = PinType }
+    for method, func in pairs(pinMethods) do
+        widget[method] = func
+    end
+    return AceGUI:RegisterAsWidget(widget)
+end
+
+AceGUI:RegisterWidgetType(PinType, PinConstructor, PinVersion)

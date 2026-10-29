@@ -228,6 +228,21 @@ local function AddRowBreak(args, key, order, hidden)
     }
 end
 
+-- Star in front of a phrase row; pins mean nothing while Ask before sending is off
+local PIN_WIDTH = 0.15
+local function PinCell(order, textFn, hidden)
+    return {
+        type = "toggle", dialogControl = "AutoSayPin",
+        name = "", desc = L["Pin tooltip"],
+        order = order, width = PIN_WIDTH,
+        hidden = function()
+            return not Addon.db.profile.confirm.enabled or (hidden and hidden()) or not textFn()
+        end,
+        get = function() return Addon:IsConfirmPinned(textFn()) end,
+        set = function(_, val) Addon:SetConfirmPin(textFn(), val) end,
+    }
+end
+
 -- Header row naming the columns: an empty cell under the labels, then a channel name per column
 local function AddCaptionRow(args, key, order, channels, hidden)
     args[key] = {
@@ -533,12 +548,16 @@ local function BuildMessageMatrix(poolId, pool, channels)
                 if AllView() then return folded() end
                 return not Selected()[msg.key]
             end
+            local pin = PinCell(order, function() return msg.text end, rowHidden)
+            pin.width, pin.relWidth = "relative", 0.06
+            args["pin_" .. msg.key] = pin
             args["m_" .. msg.key] = {
                 type = "toggle",
                 name = function() return AllView() and plainLabel or taggedLabel end,
-                order = order,
+                order = order + 0.5,
                 -- One column: tags must be readable without hovering, folding beats truncation
-                width = "full",
+                -- Relative widths keep star and phrase on one line, and leave no room for the next star
+                width = "relative", relWidth = 0.92,
                 hidden = rowHidden,
                 -- Greyed out, not gone, while no channel could send it
                 disabled = function()
@@ -602,6 +621,10 @@ local function BuildCustomMessageList(channel, customsKey, labelKey, poolKind)
         local idx = i
         local baseOrder = 10 + (i - 1) * 3
 
+        args["pin_" .. idx] = PinCell(baseOrder - 0.5, function()
+            local entry = (Addon.db.profile[channel][customsKey] or {})[idx]
+            return entry and entry.text
+        end)
         args["toggle_" .. idx] = {
             type = "toggle",
             name = function()
@@ -609,7 +632,7 @@ local function BuildCustomMessageList(channel, customsKey, labelKey, poolKind)
                 return entry and entry.text or ""
             end,
             order = baseOrder,
-            width = 2.5,
+            width = 2.35,
             hidden = function()
                 return idx > #(Addon.db.profile[channel][customsKey] or {})
             end,
@@ -726,8 +749,9 @@ local function BuildSharedCustomList(channels, customsKey, labelKey)
         local baseOrder = 10 + (i - 1) * 3
         local function Text() return SharedCustomTexts(channels, customsKey)[idx] end
         local function Hidden() return Text() == nil end
+        args["pin_" .. idx] = PinCell(baseOrder - 0.5, Text)
         args["toggle_" .. idx] = {
-            type = "toggle", order = baseOrder, width = 2.5,
+            type = "toggle", order = baseOrder, width = 2.35,
             name = function() return Text() or "" end,
             hidden = Hidden,
             disabled = function()

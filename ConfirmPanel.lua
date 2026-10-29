@@ -40,7 +40,13 @@ local function OnUpdate(frame, elapsed)
     frame.seconds:SetText(math.ceil(left) .. "s")
 end
 
-local ROW_H, MAX_ROWS, SCROLLBAR_W = 20, 10, 22
+local ROW_H, MAX_ROWS, SCROLLBAR_W, PIN_SIZE = 20, 10, 22, 16
+
+local function PinTooltip(owner, text)
+    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+    GameTooltip:SetText(text, 1, 1, 1, 1, true)
+    GameTooltip:Show()
+end
 
 local function ListRow(lf, i)
     local row = lf.rows[i]
@@ -51,9 +57,15 @@ local function ListRow(lf, i)
     row:SetPoint("RIGHT", lf.content, "RIGHT")
     row:SetHighlightTexture("Interface\\Buttons\\WHITE8X8")
     row:GetHighlightTexture():SetVertexColor(1, 0.82, 0, 0.15)
+    row.pin = CreateFrame("Button", nil, row)
+    row.pin:SetSize(PIN_SIZE, PIN_SIZE)
+    row.pin:SetPoint("RIGHT", -2, 0)
+    row.pin:SetNormalAtlas("auctionhouse-icon-favorite-off")
+    row.pin:SetHighlightAtlas("auctionhouse-icon-favorite")
+    row.pin:SetScript("OnLeave", GameTooltip_Hide)
     row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     row.label:SetPoint("LEFT", 4, 0)
-    row.label:SetPoint("RIGHT", -4, 0)
+    row.label:SetPoint("RIGHT", row.pin, "LEFT", -4, 0)
     row.label:SetJustifyH("LEFT")
     row.label:SetWordWrap(false)
     lf.rows[i] = row
@@ -74,6 +86,29 @@ local function PlaceList(f, lf)
     end
 end
 
+local function FillList(f, lf, item)
+    local entries = item.candidates()
+    for i, entry in ipairs(entries) do
+        local row = ListRow(lf, i)
+        local pinned = Addon:IsConfirmPinned(entry.template)
+        row.label:SetText(entry.text)
+        row:SetScript("OnClick", function()
+            lf:Hide()
+            if Addon.confirm:Current() == item then Addon:ConfirmChoose(entry.text) end
+        end)
+        row.pin:GetNormalTexture():SetAtlas(pinned and "auctionhouse-icon-favorite" or "auctionhouse-icon-favorite-off")
+        row.pin:SetScript("OnClick", function() Addon:ToggleConfirmPin(entry.template) end)
+        row.pin:SetScript("OnEnter", function(self)
+            PinTooltip(self, pinned and L["Confirm unpin"] or L["Confirm pin"])
+        end)
+        row:Show()
+    end
+    for i = #entries + 1, #lf.rows do lf.rows[i]:Hide() end
+    lf.content:SetHeight(math.max(1, #entries * ROW_H))
+    lf:SetHeight(math.min(#entries, MAX_ROWS) * ROW_H + 2 * PAD)
+    PlaceList(f, lf)
+end
+
 local function ToggleList(f)
     local lf = f.listFrame
     if lf:IsShown() then
@@ -82,22 +117,55 @@ local function ToggleList(f)
     end
     local item = Addon.confirm:Current()
     if not item or not item.candidates then return end
-    local texts = item.candidates()
-    for i, text in ipairs(texts) do
-        local row = ListRow(lf, i)
-        row.label:SetText(text)
-        row:SetScript("OnClick", function()
-            lf:Hide()
-            if Addon.confirm:Current() == item then Addon:ConfirmChoose(text) end
-        end)
-        row:Show()
-    end
-    for i = #texts + 1, #lf.rows do lf.rows[i]:Hide() end
-    lf.content:SetHeight(math.max(1, #texts * ROW_H))
-    lf:SetHeight(math.min(#texts, MAX_ROWS) * ROW_H + 2 * PAD)
+    FillList(f, lf, item)
     lf.scroll:SetVerticalScroll(0)
-    PlaceList(f, lf)
     lf:Show()
+end
+
+local PIN_PAD = 20
+
+local function PinButton(f, i)
+    local button = f.pinButtons[i]
+    if button then return button end
+    button = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    button:SetHeight(BUTTON_H)
+    button:GetFontString():SetWordWrap(false)
+    button:SetScript("OnEnter", function(self)
+        if self:GetFontString():IsTruncated() then PinTooltip(self, self.fullText) end
+    end)
+    button:SetScript("OnLeave", GameTooltip_Hide)
+    f.pinButtons[i] = button
+    return button
+end
+
+-- Lays the pinned phrases out in rows under the text and returns the height they take
+local function LayoutPins(f, item)
+    local pinned = Addon:ConfirmPinned()
+    local maxW = WIDTH - 2 * PAD
+    local x, y = 0, 0
+    for i, entry in ipairs(pinned) do
+        local button = PinButton(f, i)
+        local fs = button:GetFontString()
+        button.fullText = entry.text
+        button:SetText(entry.text)
+        fs:SetWidth(0)
+        local w = math.min(fs:GetStringWidth() + PIN_PAD, maxW)
+        fs:SetWidth(w - PIN_PAD)
+        button:SetWidth(w)
+        if x > 0 and x + w > maxW then
+            x, y = 0, y + BUTTON_H + GAP / 2
+        end
+        button:ClearAllPoints()
+        button:SetPoint("TOPLEFT", f.text, "BOTTOMLEFT", x, -GAP - y)
+        button:SetScript("OnClick", function()
+            if Addon.confirm:Current() == item then Addon:ConfirmChoose(entry.text) end
+        end)
+        button:Show()
+        x = x + w + GAP / 2
+    end
+    for i = #pinned + 1, #f.pinButtons do f.pinButtons[i]:Hide() end
+    if #pinned == 0 then return 0 end
+    return y + BUTTON_H + GAP
 end
 
 local function BuildList(f)
@@ -181,6 +249,7 @@ local function Build()
     f.list:SetText(L["Confirm list"])
     f.list:SetScript("OnClick", function() ToggleList(f) end)
     f.listFrame = BuildList(f)
+    f.pinButtons = {}
 
     f.seconds = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     f.seconds:SetPoint("BOTTOMRIGHT", f.bar, "TOPRIGHT", 0, GAP)
@@ -192,16 +261,22 @@ local function Build()
     return f
 end
 
-function Addon:ShowConfirmPanel(item)
+-- keepList: a pin was toggled from the open list, which stays open with its stars refreshed
+function Addon:ShowConfirmPanel(item, keepList)
     panel = panel or Build()
     local color = self.ChannelColor[item.channel] or "|cFF00CCFF"
     panel.header:SetText(color .. "[" .. item.channel .. "]|r " .. (item.label or ""))
     panel.text:SetText(item.text)
     panel.another:SetEnabled(self.confirm:CanReroll())
     panel.list:SetEnabled(self.confirm:CanList())
-    panel.listFrame:Hide()
+    local pinsH = LayoutPins(panel, item)
     panel:SetHeight(PAD + panel.header:GetStringHeight() + GAP + panel.text:GetStringHeight()
-        + GAP + BUTTON_H + GAP + BAR_H + PAD)
+        + pinsH + GAP + BUTTON_H + GAP + BAR_H + PAD)
+    if keepList and panel.listFrame:IsShown() then
+        FillList(panel, panel.listFrame, item)
+    else
+        panel.listFrame:Hide()
+    end
     panel.sinceTick = 1
     Place(panel)
     panel:SetFrameStrata(item.preview and "TOOLTIP" or "DIALOG")
