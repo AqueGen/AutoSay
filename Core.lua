@@ -1593,11 +1593,14 @@ function Addon:IsConfirmPinned(template)
 end
 
 -- An unpin is stored as false: nil would bring a shipped pin back from the defaults
-function Addon:ToggleConfirmPin(template)
-    local pins = self.db.profile.confirm.pins
-    pins[template] = pins[template] ~= true
+function Addon:SetConfirmPin(template, on)
+    self.db.profile.confirm.pins[template] = on and true or false
     local item = self.confirm:Current()
     if item then self:ShowConfirmPanel(item, true) end
+end
+
+function Addon:ToggleConfirmPin(template)
+    self:SetConfirmPin(template, not self:IsConfirmPinned(template))
 end
 
 function Addon:ConfirmPinned()
