@@ -10,7 +10,7 @@
 ## X-License: All Rights Reserved
 ## X-Website: https://github.com/AqueGen/AutoSay
 ## SavedVariables: AutoSayDB
-## IconTexture: Interface\Icons\Spell_Holy_Devotion
+## IconTexture: Interface\AddOns\AutoSay\Media\Icon
 ## Category: Chat & Communication
 ## X-Curse-Project-ID: 1399061
 ## X-Wago-ID: rN4kvMGD

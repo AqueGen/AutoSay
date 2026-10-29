@@ -508,7 +508,7 @@ function Addon:OnInitialize()
     self:DebugPrint("Addon initialized")
 end
 
-Addon.ICON = "Interface\\Icons\\UI_Chat"
+Addon.ICON = "Interface\\AddOns\\AutoSay\\Media\\Icon" -- made by tools/icon.py
 
 -- Initialize minimap icon using LibDBIcon
 function Addon:InitMinimapIcon()

@@ -20,6 +20,8 @@ Two shapes were tried and dropped:
 selection pinned to the top left: a larger image comes out cropped unless the
 author drags the handles.
 """
+from pathlib import Path
+
 from PIL import Image, ImageDraw, ImageFilter
 
 S = 512      # drawn large, downsampled at the end so the curves stay smooth
@@ -99,3 +101,10 @@ ground = Image.new("RGB", (OUT_SIZE, OUT_SIZE), BG)
 ground.paste(small, (0, 0), small)
 ground.save(out)
 print(out)
+
+# The in-game copy keeps the transparent corners: it sits on dark frames and in
+# the round minimap button. TGA, because the client reads it for addon textures.
+game = Path(__file__).resolve().parent.parent / "Media" / "Icon.tga"
+game.parent.mkdir(exist_ok=True)
+img.resize((64, 64), Image.LANCZOS).save(game)
+print(game)

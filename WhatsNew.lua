@@ -103,7 +103,6 @@ local function Build()
     icon:SetSize(ICON_SIZE, ICON_SIZE)
     icon:SetPoint("TOPLEFT", PAD, -PAD)
     icon:SetTexture(Addon.ICON)
-    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("LEFT", icon, "RIGHT", GAP, 0)
