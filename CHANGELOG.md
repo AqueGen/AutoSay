@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.13.0](https://github.com/AqueGen/AutoSay/compare/v1.12.0...v1.13.0) (2026-10-29)
+
+
+### Features
+
+* pinned phrases as quick buttons on the confirm panel ([#51](https://github.com/AqueGen/AutoSay/issues/51)) ([ee18d42](https://github.com/AqueGen/AutoSay/commit/ee18d42bec49f568f3c542c56dd9a40abc2bee23))
+
 ## [1.12.0](https://github.com/AqueGen/AutoSay/compare/v1.11.0...v1.12.0) (2026-10-28)
 
 
