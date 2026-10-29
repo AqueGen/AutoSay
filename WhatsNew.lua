@@ -25,7 +25,7 @@ local NEWS = {
     },
 }
 
-local WIDTH, PAD, GAP, BUTTON_H, CHECK_H = 480, 10, 8, 22, 24
+local WIDTH, PAD, GAP, BUTTON_H, CHECK_H, ICON_SIZE = 480, 10, 8, 22, 24, 32
 local DELAY = 2
 
 local frame
@@ -99,13 +99,19 @@ local function Build()
     f:SetBackdropColor(0.08, 0.09, 0.11, 0.95)
     f:SetBackdropBorderColor(0.35, 0.35, 0.4, 1)
 
+    local icon = f:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(ICON_SIZE, ICON_SIZE)
+    icon:SetPoint("TOPLEFT", PAD, -PAD)
+    icon:SetTexture(Addon.ICON)
+    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", PAD, -PAD)
+    title:SetPoint("LEFT", icon, "RIGHT", GAP, 0)
     title:SetText(L["News title"])
     f.counter = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     f.counter:SetPoint("TOPRIGHT", -PAD, -PAD)
 
-    local top = PAD + title:GetStringHeight() + 2 * GAP
+    local top = PAD + ICON_SIZE + 2 * GAP
     local tallest = 0
     f.pages = {}
     for i, page in ipairs(NEWS.pages) do

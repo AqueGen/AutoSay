@@ -508,6 +508,8 @@ function Addon:OnInitialize()
     self:DebugPrint("Addon initialized")
 end
 
+Addon.ICON = "Interface\\Icons\\UI_Chat"
+
 -- Initialize minimap icon using LibDBIcon
 function Addon:InitMinimapIcon()
     local LDB = LibStub("LibDataBroker-1.1", true)
@@ -516,7 +518,7 @@ function Addon:InitMinimapIcon()
 
     local dataObj = LDB:NewDataObject("AutoSay", {
         type = "launcher",
-        icon = "Interface\\Icons\\UI_Chat",
+        icon = Addon.ICON,
         label = "AutoSay",
         OnClick = function()
             local AceConfigDialog = LibStub("AceConfigDialog-3.0")
