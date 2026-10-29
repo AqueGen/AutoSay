@@ -1208,7 +1208,7 @@ function Addon:BumpConfigView()
     self.configViewEpoch = (self.configViewEpoch or 0) + 1
 end
 
-function Addon:OpenConfig()
+function Addon:OpenConfig(onClose)
     self:BumpConfigView()
     local AceConfigDialog = LibStub("AceConfigDialog-3.0")
 
@@ -1240,6 +1240,7 @@ function Addon:OpenConfig()
                 left = s.left,
             }
             self:UnskinConfigWindow(widget)
+            if onClose then onClose() end
         end)
     end
 end
