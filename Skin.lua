@@ -7,10 +7,10 @@ local FLAT = {
     edgeFile = "Interface\\Buttons\\WHITE8X8",
     edgeSize = 1,
 }
-local SLATE = { 0.08, 0.09, 0.11, 0.97 }
-local PANE = { 0.11, 0.12, 0.15, 0.9 }
-local EDGE = { 0.3, 0.3, 0.35, 1 }
-local GOLD = { 1, 0.82, 0 }
+local SLATE = { 0.063, 0.075, 0.09, 0.99 }
+local PANE = { 0.082, 0.098, 0.125, 0.95 }
+local EDGE = { 0.18, 0.20, 0.235, 1 }
+local GOLD = { 0.91, 0.73, 0.275 }
 
 local function Save(frame)
     return {

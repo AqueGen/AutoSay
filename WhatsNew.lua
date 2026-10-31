@@ -102,8 +102,8 @@ local function Build()
         edgeFile = "Interface\\Buttons\\WHITE8X8",
         edgeSize = 1,
     })
-    f:SetBackdropColor(0.08, 0.09, 0.11, 0.95)
-    f:SetBackdropBorderColor(0.35, 0.35, 0.4, 1)
+    f:SetBackdropColor(0.063, 0.075, 0.09, 0.99)
+    f:SetBackdropBorderColor(0.18, 0.20, 0.235, 1)
 
     local icon = f:CreateTexture(nil, "ARTWORK")
     icon:SetSize(ICON_SIZE, ICON_SIZE)
