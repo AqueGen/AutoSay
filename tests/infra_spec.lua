@@ -1,3 +1,4 @@
+-- Copyright (c) 2026 AqueGen. All rights reserved. See LICENSE.
 require("tests.wow_stub")
 describe("test infrastructure", function()
   it("runs under lua 5.1 semantics", function()

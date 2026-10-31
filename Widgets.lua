@@ -1,3 +1,4 @@
+-- Copyright (c) 2026 AqueGen. All rights reserved. See LICENSE.
 --[[-----------------------------------------------------------------------------
 AutoSayCollapse Widget
 A collapsible list header in the native WoW style: a [+]/[-] expand icon followed

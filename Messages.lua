@@ -1,3 +1,4 @@
+-- Copyright (c) 2026 AqueGen. All rights reserved. See LICENSE.
 local ADDON_NAME, AutoSay = ...
 
 -- Preset phrase model (Greetings / Goodbyes / Reconnects)

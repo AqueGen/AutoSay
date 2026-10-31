@@ -1,3 +1,4 @@
+-- Copyright (c) 2026 AqueGen. All rights reserved. See LICENSE.
 local ADDON_NAME = ...
 local Addon = LibStub("AceAddon-3.0"):GetAddon(ADDON_NAME)
 
