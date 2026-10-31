@@ -1,3 +1,4 @@
+-- Copyright (c) 2026 AqueGen. All rights reserved. See LICENSE.
 -- Pure message/phrase logic with no WoW API or Ace dependency, so busted can load it
 -- headless (same export pattern as Humanizer/SocialGate). Core and Config alias
 -- these instead of defining their own copies.

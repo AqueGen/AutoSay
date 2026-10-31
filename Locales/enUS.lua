@@ -1,3 +1,4 @@
+-- Copyright (c) 2026 AqueGen. All rights reserved. See LICENSE.
 local L = LibStub("AceLocale-3.0"):NewLocale("AutoSay", "enUS", true)
 if not L then return end
 
