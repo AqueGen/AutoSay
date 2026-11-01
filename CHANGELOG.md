@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.13.0](https://github.com/AqueGen/AutoSay/compare/v1.12.0...v1.13.0) (2026-10-31)
+
+
+### Features
+
+* pinned phrases as quick buttons on the confirm panel ([#51](https://github.com/AqueGen/AutoSay/issues/51)) ([ee18d42](https://github.com/AqueGen/AutoSay/commit/ee18d42bec49f568f3c542c56dd9a40abc2bee23))
+* softer settings colours ([#54](https://github.com/AqueGen/AutoSay/issues/54)) ([db6ed00](https://github.com/AqueGen/AutoSay/commit/db6ed00d94e27a8644af4f3bbec80036c07697cb))
+
 ## [1.12.0](https://github.com/AqueGen/AutoSay/compare/v1.11.0...v1.12.0) (2026-10-28)
 
 
